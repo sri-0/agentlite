@@ -1,0 +1,53 @@
+# Upstream providers. Secrets and environment-specific URLs come from the
+# environment: ${VAR} is expanded in base_url and header values; *_env fields
+# name the variable that holds the value (or, for TLS, the file path).
+# api: chat_completions (default) or responses. Reasoning deltas only stream in
+# responses mode; use it on gateways that serve /v1/responses (LiteLLM does).
+providers:
+  - id: litellm
+    name: LiteLLM
+    base_url: ${LITELLM_BASE_URL}
+    api_key_env: LITELLM_API_KEY
+    api: responses
+    discover: { endpoint: /model/info, refresh: 10m }
+
+  - id: vllm
+    name: vLLM
+    base_url: ${VLLM_BASE_URL}
+    api_key_env: VLLM_API_KEY
+    discover: { endpoint: /models, refresh: 10m }
+
+  # Development and testing only; not used in production.
+  - id: openrouter
+    name: OpenRouter
+    base_url: https://openrouter.ai/api/v1
+    api_key_env: OPENROUTER_API_KEY
+    discover: { endpoint: /models, refresh: 1h }
+    models:
+      - id: openai/gpt-4.1-mini
+        name: GPT-4.1 Mini
+        owned_by: openai
+        context_length: 1047576
+        capabilities: [tool_calling, vision]
+      - id: openai/gpt-5-mini
+        name: GPT-5 Mini
+        owned_by: openai
+        context_length: 400000
+        capabilities: [tool_calling, reasoning]
+        supported_parameters: [reasoning_effort]
+      - id: openai/text-embedding-3-small
+        name: Text Embedding 3 Small
+        type: embedding
+        owned_by: openai
+
+# Long-term memory: finished turns of primary agents are embedded and stored;
+# primary agents get preload_memory and load_memory. Omit the block to disable.
+memory:
+  embedding_model: openai/text-embedding-3-small
+  dimensions: 1536
+
+# Which provider answers the pass-through routes (/v1/chat/completions,
+# /v1/responses, /v1/messages, /v1/embeddings). Override per route by name.
+proxy:
+  provider: ${PROXY_PROVIDER}
+  overrides: {}

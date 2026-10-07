@@ -1,0 +1,3 @@
+# MCP servers. Each becomes an adk toolset whose tools are exposed to agents as
+# <server>_<tool>. Reach a server over streamable HTTP (endpoint) or stdio (command).
+servers: {}

@@ -1,0 +1,45 @@
+// Package handler holds the HTTP and WebSocket handlers.
+package handler
+
+import (
+	"net/http"
+
+	"github.com/labstack/echo/v5"
+	"github.com/rs/zerolog"
+
+	"agentlite/internal/agent"
+	"agentlite/internal/config"
+	"agentlite/internal/proxy"
+	"agentlite/pkg/db/opensearch"
+)
+
+// Handler carries the dependencies every route needs.
+type Handler struct {
+	Config   *config.Config
+	Registry *proxy.Registry
+	Service  *agent.Service
+	Store    *opensearch.Client
+	Log      zerolog.Logger
+}
+
+// list is the OpenAI-style list envelope the UI expects.
+type list[T any] struct {
+	Object string `json:"object"`
+	Data   []T    `json:"data"`
+}
+
+func newList[T any](items []T) list[T] {
+	if items == nil {
+		items = []T{}
+	}
+	return list[T]{Object: "list", Data: items}
+}
+
+// Health reports liveness and the registered agent ids.
+func (h *Handler) Health(c *echo.Context) error {
+	ids := make([]string, 0, len(h.Config.Agents))
+	for _, a := range h.Config.Agents {
+		ids = append(ids, a.ID)
+	}
+	return c.JSON(http.StatusOK, map[string]any{"status": "ok", "agents": ids})
+}
