@@ -13,20 +13,18 @@ import (
 	"agentlite/internal/stream"
 )
 
-// Entry is one event in a thread's log with its cursor, provenance and raw JSON.
+// Entry is one event in a thread's log with its cursor and raw JSON.
 type Entry struct {
-	Seq     string
-	RunID   string
-	AgentID string
-	Raw     []byte
-	Event   stream.Event
+	Seq   string
+	Raw   []byte
+	Event stream.Event
 }
 
 // Log is the per-thread event stream: the live channel between a running
 // agent and its subscribers, and the source the finalizer folds from.
 type Log interface {
 	// Append adds an event produced by a run and returns its cursor.
-	Append(ctx context.Context, threadID, runID, agentID string, e stream.Event) (string, error)
+	Append(ctx context.Context, threadID string, e stream.Event) (string, error)
 	// Last returns the newest cursor, or "0" for an empty log.
 	Last(ctx context.Context, threadID string) (string, error)
 	// Range returns every event after the cursor without blocking.
@@ -52,14 +50,14 @@ func newValkeyLog(db valkey.Client) *valkeyLog { return &valkeyLog{db: db} }
 
 func logKey(threadID string) string { return "thread:" + threadID + ":log" }
 
-func (l *valkeyLog) Append(ctx context.Context, threadID, runID, agentID string, e stream.Event) (string, error) {
+func (l *valkeyLog) Append(ctx context.Context, threadID string, e stream.Event) (string, error) {
 	raw, err := e.ToJSON()
 	if err != nil {
 		return "", err
 	}
 	key := logKey(threadID)
 	res := l.db.DoMulti(ctx,
-		l.db.B().Xadd().Key(key).Id("*").FieldValue().FieldValue("r", runID).FieldValue("a", agentID).FieldValue("e", string(raw)).Build(),
+		l.db.B().Xadd().Key(key).Id("*").FieldValue().FieldValue("e", string(raw)).Build(),
 		l.db.B().Expire().Key(key).Seconds(int64(logExpiry.Seconds())).Build())
 	seq, err := res[0].ToString()
 	if err != nil {
@@ -136,7 +134,7 @@ func parseEntries(raw []valkey.XRangeEntry) ([]Entry, error) {
 		if err != nil {
 			return nil, fmt.Errorf("log entry %s: %w", x.ID, err)
 		}
-		out = append(out, Entry{Seq: x.ID, RunID: x.FieldValues["r"], AgentID: x.FieldValues["a"], Raw: []byte(x.FieldValues["e"]), Event: ev})
+		out = append(out, Entry{Seq: x.ID, Raw: []byte(x.FieldValues["e"]), Event: ev})
 	}
 	return out, nil
 }

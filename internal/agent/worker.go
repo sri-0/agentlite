@@ -114,7 +114,6 @@ func (s *Service) settle(ctx context.Context, run *Run, status Status, result, e
 	if err := done.enqueue(ctx, map[string]string{"run_id": run.ID, "status": string(status)}); err != nil {
 		s.logger.Error().Err(err).Str("run", run.ID).Msg("enqueue done")
 	}
-	s.runs.publish(ctx, doneChannel(run.ID), string(status))
 }
 
 func (s *Service) watchControl(ctx context.Context, run *Run, cancel context.CancelFunc) {
@@ -154,7 +153,7 @@ func (s *Service) sinkFor(ctx context.Context, run *Run) *appendSink {
 }
 
 func (a *appendSink) Emit(e stream.Event) {
-	if _, err := a.log.Append(a.ctx, a.run.ThreadID, a.run.ID, a.run.AgentID, e); err != nil {
+	if _, err := a.log.Append(a.ctx, a.run.ThreadID, e); err != nil {
 		a.logger.Error().Err(err).Str("thread", a.run.ThreadID).Msg("append event")
 	}
 }

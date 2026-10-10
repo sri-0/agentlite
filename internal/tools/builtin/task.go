@@ -19,12 +19,8 @@ import (
 )
 
 const (
-	maxChildren  = 4
 	progressKeep = 10
 )
-
-// children caps how many sub-agents run at once across the process.
-var children = make(chan struct{}, maxChildren)
 
 type taskArgs struct {
 	SubagentType string `json:"subagent_type" jsonschema:"id of the sub-agent to run, from available_subagents"`
@@ -69,13 +65,6 @@ func task(d Deps) (tool.Tool, error) {
 		if sink == nil || parentRun == nil {
 			return nil, fmt.Errorf("task tool needs a run context")
 		}
-		select {
-		case children <- struct{}{}:
-			defer func() { <-children }()
-		case <-ctx.Done():
-			return nil, ctx.Err()
-		}
-
 		childThread := uuid.Must(uuid.NewV7()).String()
 		run, err := d.Dispatcher.Start(ctx, agent.StartInput{
 			ThreadID: childThread, ParentID: ctx.SessionID(), AgentID: a.SubagentType, Model: parentRun.Model,

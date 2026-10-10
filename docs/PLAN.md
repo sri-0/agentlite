@@ -792,7 +792,10 @@ per agent; LLM titles as a post-run hook.
 Checkpoint: a fact stated in one thread is recalled in a new thread; a 30-turn thread compacts
 and the next answer still references early context; thread titles appear.
 
-**Deviations from the text above, as built.** Runs start over REST (`POST /v1/agent/chat`, the
+**Deviations from the text above, as built.** The `runs:active` set and the `run:{id}:done`
+channel are gone: a thread's status is read from its run lease, and `Wait` polls the run
+record. There is no cap on concurrent children; the request queue's in-flight limit bounds
+work. Runs start over REST (`POST /v1/agent/chat`, the
 chat-completions shape plus `thread_id`, `agent_id`, `connectors`) on threads the server
 created on demand from the first run; decisions and cancels are REST too, and the socket only
 subscribes. Connectors (`connectors.yaml`) are the user-facing tool groups, stored per thread

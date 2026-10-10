@@ -239,7 +239,7 @@ environment is skipped.
 
 Valkey: `thread:{id}:log` (events, trimmed to 24 h after each finalise), `thread:{id}:seq`,
 `thread:{id}:run` (lease), `run:{id}`,
-`runs:{agentId}`, `runs:done`, `runs:active`, `hitl:{id}` + `hitl:thread:{id}:pending`,
+`runs:{agentId}`, `runs:done`, `run:{id}:ctl` (cancel), `hitl:{id}` + `hitl:thread:{id}:pending`,
 `session:{threadId}` (+`:events`, `:state`; the adk session, 30-day TTL, rebuilt from
 OpenSearch if missing). OpenSearch: `threads`, `messages`, `memories` (kNN, created on boot);
 every write forces a refresh so reads after a save see it. Deleting a thread removes its

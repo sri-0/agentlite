@@ -1,7 +1,6 @@
 package handler
 
 import (
-	"errors"
 	"net/http"
 
 	"github.com/labstack/echo/v5"
@@ -26,17 +25,17 @@ func (h *Handler) Threads(c *echo.Context) error {
 	if err != nil {
 		return err
 	}
-	active, err := h.Service.ActiveRuns(ctx)
+	ids := make([]string, len(threads))
+	for i, t := range threads {
+		ids[i] = t.ID
+	}
+	statuses, err := h.Service.RunStatuses(ctx, ids)
 	if err != nil {
 		return err
 	}
 	items := make([]threadItem, 0, len(threads))
 	for _, t := range threads {
-		item := threadItem{Thread: t}
-		if run, ok := active[t.ID]; ok {
-			item.RunStatus = string(run.Status)
-		}
-		items = append(items, item)
+		items = append(items, threadItem{Thread: t, RunStatus: string(statuses[t.ID])})
 	}
 	return c.JSON(http.StatusOK, newList(items))
 }
@@ -45,9 +44,6 @@ func (h *Handler) Threads(c *echo.Context) error {
 func (h *Handler) Thread(c *echo.Context) error {
 	ctx := c.Request().Context()
 	t, err := h.Store.Thread(ctx, c.Param("id"))
-	if errors.Is(err, opensearch.ErrNotFound) {
-		return echo.NewHTTPError(http.StatusNotFound, "thread not found")
-	}
 	if err != nil {
 		return err
 	}
@@ -78,9 +74,6 @@ func (h *Handler) UpdateThread(c *echo.Context) error {
 		}
 	}
 	t, err := h.Store.Thread(ctx, c.Param("id"))
-	if errors.Is(err, opensearch.ErrNotFound) {
-		return echo.NewHTTPError(http.StatusNotFound, "thread not found")
-	}
 	if err != nil {
 		return err
 	}

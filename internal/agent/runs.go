@@ -13,15 +13,12 @@ import (
 const (
 	runTTL   = 7 * 24 * time.Hour
 	leaseTTL = 60 * time.Second
-
-	activeSetKey = "runs:active"
 )
 
 func runKey(id string) string           { return "run:" + id }
 func threadRunKey(thread string) string { return "thread:" + thread + ":run" }
 func threadSeqKey(thread string) string { return "thread:" + thread + ":seq" }
 func ctlChannel(runID string) string    { return "run:" + runID + ":ctl" }
-func doneChannel(runID string) string   { return "run:" + runID + ":done" }
 
 // runs stores run records and the per-thread active pointer in Valkey.
 type runs struct{ db valkey.Client }
@@ -102,17 +99,6 @@ func (r *runs) active(ctx context.Context, threadID string) (*Run, error) {
 
 func (r *runs) nextSeq(ctx context.Context, threadID string) (int64, error) {
 	return r.db.Do(ctx, r.db.B().Incr().Key(threadSeqKey(threadID)).Build()).AsInt64()
-}
-
-func (r *runs) setActive(ctx context.Context, runID string, active bool) error {
-	if active {
-		return r.db.Do(ctx, r.db.B().Sadd().Key(activeSetKey).Member(runID).Build()).Error()
-	}
-	return r.db.Do(ctx, r.db.B().Srem().Key(activeSetKey).Member(runID).Build()).Error()
-}
-
-func (r *runs) activeIDs(ctx context.Context) ([]string, error) {
-	return r.db.Do(ctx, r.db.B().Smembers().Key(activeSetKey).Build()).AsStrSlice()
 }
 
 func (r *runs) publish(ctx context.Context, channel, msg string) {

@@ -33,7 +33,6 @@ type Thread struct {
 	Title    string `json:"title"`
 	AgentID  string `json:"agent_id,omitempty"`
 	Model    string `json:"model,omitempty"`
-	UserID   string `json:"user_id,omitempty"`
 	// Connectors switched on for the thread; nil means every connector.
 	Connectors *[]string `json:"connectors,omitempty"`
 	CreatedAt  time.Time `json:"created_at"`
@@ -82,7 +81,7 @@ func New(ctx context.Context, cfg config.OpenSearch, log zerolog.Logger) (*Clien
 var indices = map[string]string{
 	IndexThreads: `{"mappings":{"properties":{
 		"id":{"type":"keyword"},"parent_id":{"type":"keyword"},"root_id":{"type":"keyword"},
-		"title":{"type":"text"},"agent_id":{"type":"keyword"},"model":{"type":"keyword"},"user_id":{"type":"keyword"},
+		"title":{"type":"text"},"agent_id":{"type":"keyword"},"model":{"type":"keyword"},
 		"connectors":{"type":"keyword"},
 		"created_at":{"type":"date"},"updated_at":{"type":"date"}}}}`,
 	IndexMessages: `{"mappings":{"properties":{

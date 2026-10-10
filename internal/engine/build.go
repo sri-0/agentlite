@@ -111,6 +111,23 @@ func (e *Engine) toolsFor(def config.AgentDef, run *agent.Run) ([]tool.Tool, []t
 	return fns, e.enabled(run.Connectors), nil
 }
 
+// toolList names what a sub-agent can call, so the parent delegates only
+// work it can do. A pipeline lists its steps' tools.
+func (e *Engine) toolList(def config.AgentDef) string {
+	var names []string
+	if def.Kind != config.KindLLM {
+		for _, id := range def.Subagents {
+			names = append(names, e.toolList(e.defs[id]))
+		}
+	} else if def.Tools != nil {
+		names = *def.Tools
+	}
+	if len(names) == 0 {
+		return "none"
+	}
+	return strings.Join(names, ", ")
+}
+
 // orchestration are the harness tools a sub-agent only gets by listing them.
 var orchestration = map[string]bool{builtin.Task: true, "todowrite": true, "question": true}
 
@@ -131,7 +148,7 @@ func (e *Engine) instruction(def config.AgentDef) string {
 	b.WriteString("\n\n<available_subagents>\n")
 	for _, id := range slices.Sorted(slices.Values(def.Subagents)) {
 		sub := e.defs[id]
-		fmt.Fprintf(&b, "- %s: %s\n", sub.ID, sub.Description)
+		fmt.Fprintf(&b, "- %s: %s (tools: %s)\n", sub.ID, sub.Description, e.toolList(sub))
 	}
 	b.WriteString("</available_subagents>")
 	return b.String()

@@ -38,21 +38,23 @@ func New(ctx context.Context, store *opensearch.Client, embedder *proxy.Client, 
 	return &Service{store: store, embedder: embedder, model: model, log: log}, nil
 }
 
-// AddSessionToMemory stores every text turn of the session not stored before.
+// AddSessionToMemory stores the text turns of the session's latest turn: the
+// last user message and everything after it. Ids are derived from the event,
+// so storing a turn twice overwrites rather than duplicates.
 func (s *Service) AddSessionToMemory(ctx context.Context, sess session.Session) error {
-	known, err := s.store.MemoryIDs(ctx, sess.ID())
-	if err != nil {
-		return err
-	}
+	var turn []*session.Event
 	for ev := range sess.Events().All() {
+		if ev.Author == "user" && stream.TextOf(ev.Content) != "" {
+			turn = turn[:0]
+		}
+		turn = append(turn, ev)
+	}
+	for _, ev := range turn {
 		text := stream.TextOf(ev.Content)
 		if text == "" {
 			continue
 		}
 		id := memoryID(sess.ID(), ev.ID)
-		if known[id] {
-			continue
-		}
 		vector, err := s.embedder.Embed(ctx, s.model, text)
 		if err != nil {
 			return fmt.Errorf("embed: %w", err)

@@ -114,6 +114,7 @@ const (
 	// A finished run is released by the finalizer; Start waits this long for it.
 	finalizeWait = 5 * time.Second
 	finalizePoll = 100 * time.Millisecond
+	waitPoll     = 500 * time.Millisecond
 )
 
 // Start persists the user message, prepares the thread's session and queues
@@ -176,9 +177,6 @@ func (s *Service) prepare(ctx context.Context, in StartInput, run *Run) error {
 	if err := s.runs.save(ctx, run); err != nil {
 		return err
 	}
-	if err := s.runs.setActive(ctx, run.ID, true); err != nil {
-		return err
-	}
 	return s.enqueue(ctx, run, map[string]string{"message": in.Text})
 }
 
@@ -212,9 +210,6 @@ func (s *Service) claimThread(ctx context.Context, in StartInput, runID string) 
 func (s *Service) release(ctx context.Context, run *Run) {
 	if err := s.runs.releaseThread(ctx, run.ThreadID, run.ID); err != nil {
 		s.logger.Error().Err(err).Str("run", run.ID).Msg("release thread")
-	}
-	if err := s.runs.setActive(ctx, run.ID, false); err != nil {
-		s.logger.Error().Err(err).Str("run", run.ID).Msg("clear active run")
 	}
 }
 
@@ -338,17 +333,8 @@ func (s *Service) Subscribe(ctx context.Context, threadID, after string) (iter.S
 	}, nil
 }
 
-// Wait blocks until the run pauses or ends.
+// Wait blocks until the run pauses or ends, checking its record twice a second.
 func (s *Service) Wait(ctx context.Context, runID string) (*Run, error) {
-	ctx, cancel := context.WithCancel(ctx)
-	defer cancel()
-	woken := make(chan struct{}, 1)
-	go s.db.Receive(ctx, s.db.B().Subscribe().Channel(doneChannel(runID)).Build(), func(valkey.PubSubMessage) {
-		select {
-		case woken <- struct{}{}:
-		default:
-		}
-	})
 	for {
 		run, err := s.runs.get(ctx, runID)
 		if err != nil {
@@ -358,8 +344,7 @@ func (s *Service) Wait(ctx context.Context, runID string) (*Run, error) {
 			return run, nil
 		}
 		select {
-		case <-woken:
-		case <-time.After(time.Second): // a notice published before the subscription was up
+		case <-time.After(waitPoll):
 		case <-ctx.Done():
 			return nil, ctx.Err()
 		}
@@ -371,19 +356,30 @@ func (s *Service) Active(ctx context.Context, threadID string) (*Run, error) {
 	return s.runs.active(ctx, threadID)
 }
 
-// ActiveRuns lists runs that still own their thread, keyed by thread id.
-func (s *Service) ActiveRuns(ctx context.Context) (map[string]*Run, error) {
-	ids, err := s.runs.activeIDs(ctx)
+// RunStatuses returns the status of each listed thread's active run, for
+// threads that have one.
+func (s *Service) RunStatuses(ctx context.Context, threadIDs []string) (map[string]Status, error) {
+	out := map[string]Status{}
+	if len(threadIDs) == 0 {
+		return out, nil
+	}
+	keys := make([]string, len(threadIDs))
+	for i, id := range threadIDs {
+		keys[i] = threadRunKey(id)
+	}
+	runIDs, err := s.db.Do(ctx, s.db.B().Mget().Key(keys...).Build()).ToArray()
 	if err != nil {
 		return nil, err
 	}
-	out := map[string]*Run{}
-	for _, id := range ids {
-		run, err := s.runs.get(ctx, id)
+	for i, v := range runIDs {
+		runID, err := v.ToString()
 		if err != nil {
-			continue
+			continue // no active run (nil reply)
 		}
-		out[run.ThreadID] = run
+		status, err := s.db.Do(ctx, s.db.B().Hget().Key(runKey(runID)).Field("status").Build()).ToString()
+		if err == nil {
+			out[threadIDs[i]] = Status(status)
+		}
 	}
 	return out, nil
 }

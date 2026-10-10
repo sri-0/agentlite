@@ -1,7 +1,6 @@
 package handler
 
 import (
-	"errors"
 	"net/http"
 
 	"github.com/labstack/echo/v5"
@@ -54,14 +53,7 @@ func (h *Handler) StartRun(c *echo.Context) error {
 	run, err := h.Service.Start(ctx, agent.StartInput{
 		ThreadID: req.ThreadID, AgentID: req.AgentID, Model: req.Model, Connectors: req.Connectors, MessageID: last.ID, Text: last.Content,
 	})
-	switch {
-	case errors.Is(err, agent.ErrNotFound):
-		return echo.NewHTTPError(http.StatusNotFound, err.Error())
-	case errors.Is(err, agent.ErrInvalid):
-		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
-	case errors.Is(err, agent.ErrBusy):
-		return echo.NewHTTPError(http.StatusConflict, err.Error())
-	case err != nil:
+	if err != nil {
 		return err
 	}
 	return c.JSON(http.StatusAccepted, map[string]any{
@@ -72,11 +64,7 @@ func (h *Handler) StartRun(c *echo.Context) error {
 
 // CancelRun stops the thread's active run.
 func (h *Handler) CancelRun(c *echo.Context) error {
-	err := h.Service.Cancel(c.Request().Context(), c.Param("id"))
-	if errors.Is(err, agent.ErrNotFound) {
-		return echo.NewHTTPError(http.StatusNotFound, "no active run")
-	}
-	if err != nil {
+	if err := h.Service.Cancel(c.Request().Context(), c.Param("id")); err != nil {
 		return err
 	}
 	return c.NoContent(http.StatusAccepted)

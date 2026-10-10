@@ -3,6 +3,7 @@ package server
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log/slog"
 	"net/http"
@@ -12,14 +13,17 @@ import (
 	"github.com/labstack/echo/v5/middleware"
 	"github.com/rs/zerolog"
 
+	"agentlite/internal/agent"
 	"agentlite/internal/config"
 	"agentlite/internal/handler"
+	"agentlite/pkg/db/opensearch"
 )
 
 // New wires middleware and routes.
 func New(cfg *config.Config, h *handler.Handler, log zerolog.Logger) (*echo.Echo, error) {
 	e := echo.New()
 	e.Logger = slog.Default()
+	e.HTTPErrorHandler = errorHandler(echo.DefaultHTTPErrorHandler(false))
 	e.Use(middleware.RequestID())
 	e.Use(middleware.Recover())
 	e.Use(middleware.CORSWithConfig(middleware.CORSConfig{
@@ -69,4 +73,27 @@ func Run(ctx context.Context, cfg *config.Config, e *echo.Echo) error {
 		},
 	}
 	return start.Start(ctx, e)
+}
+
+// errorHandler turns the service's sentinel errors into HTTP statuses, so
+// handlers can return them as they are.
+func errorHandler(next echo.HTTPErrorHandler) echo.HTTPErrorHandler {
+	return func(c *echo.Context, err error) {
+		for _, m := range []struct {
+			err    error
+			status int
+		}{
+			{agent.ErrNotFound, http.StatusNotFound},
+			{opensearch.ErrNotFound, http.StatusNotFound},
+			{agent.ErrInvalid, http.StatusBadRequest},
+			{agent.ErrBusy, http.StatusConflict},
+			{agent.ErrNotPaused, http.StatusConflict},
+		} {
+			if errors.Is(err, m.err) {
+				err = echo.NewHTTPError(m.status, err.Error())
+				break
+			}
+		}
+		next(c, err)
+	}
 }
