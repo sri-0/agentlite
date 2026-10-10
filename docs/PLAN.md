@@ -792,7 +792,10 @@ per agent; LLM titles as a post-run hook.
 Checkpoint: a fact stated in one thread is recalled in a new thread; a 30-turn thread compacts
 and the next answer still references early context; thread titles appear.
 
-**Deviations from the text above, as built.** The `runs:active` set and the `run:{id}:done`
+**Deviations from the text above, as built.** Every interrupt is adk's tool confirmation;
+there is no `input_required` reason. The `question` tool raises a confirmation carrying its
+questions and is answered with `{output}`; a `task` call raises one carrying its sub-agent's
+request and relays the answer to the child (see AGENTS.md §5). The `runs:active` set and the `run:{id}:done`
 channel are gone: a thread's status is read from its run lease, and `Wait` polls the run
 record. There is no cap on concurrent children; the request queue's in-flight limit bounds
 work. Runs start over REST (`POST /v1/agent/chat`, the

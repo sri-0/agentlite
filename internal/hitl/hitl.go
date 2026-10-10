@@ -13,8 +13,6 @@ import (
 
 	"github.com/ag-ui-protocol/ag-ui/sdks/community/go/pkg/core/types"
 	"github.com/valkey-io/valkey-go"
-
-	"agentlite/internal/stream"
 )
 
 // Interrupt statuses.
@@ -26,16 +24,18 @@ const (
 
 // Interrupt is one pause of a run waiting for the user.
 type Interrupt struct {
-	ID        string         `json:"id"`
-	ThreadID  string         `json:"thread_id"`
-	RunID     string         `json:"run_id"`
-	Reason    string         `json:"reason"` // confirmation | input_required
-	ToolCall  string         `json:"tool_call_id"`
-	ToolName  string         `json:"tool_name"`
-	Args      map[string]any `json:"args,omitempty"`
-	Message   string         `json:"message,omitempty"`
-	Status    string         `json:"status"`
-	CreatedAt time.Time      `json:"created_at"`
+	ID       string         `json:"id"`
+	ThreadID string         `json:"thread_id"`
+	RunID    string         `json:"run_id"`
+	Reason   string         `json:"reason"` // confirmation
+	ToolCall string         `json:"tool_call_id"`
+	ToolName string         `json:"tool_name"`
+	Args     map[string]any `json:"args,omitempty"`
+	Message  string         `json:"message,omitempty"`
+	// ChildThreadID is set when the interrupt forwards a sub-agent's request.
+	ChildThreadID string    `json:"child_thread_id,omitempty"`
+	Status        string    `json:"status"`
+	CreatedAt     time.Time `json:"created_at"`
 
 	// Set when decided.
 	Decision  *Decision `json:"decision,omitempty"`
@@ -52,10 +52,9 @@ type Decision struct {
 
 // ResumeEntry is the AG-UI form of a decision for the run engine.
 func (i *Interrupt) ResumeEntry() types.ResumeEntry {
-	payload := any(i.Decision.Output)
-	if i.Reason == stream.ReasonConfirmation {
-		payload = map[string]any{"approved": i.Decision.Approved != nil && *i.Decision.Approved, "justification": i.Decision.Justification}
-	}
+	// An output answers a question (the agent's own, or one a sub-agent forwarded).
+	approved := i.Decision.Output != nil || i.Decision.Approved != nil && *i.Decision.Approved
+	payload := map[string]any{"approved": approved, "justification": i.Decision.Justification, "output": i.Decision.Output}
 	return types.ResumeEntry{InterruptID: i.ID, Status: types.ResumeStatusResolved, Payload: payload}
 }
 
@@ -87,6 +86,12 @@ func (s *Store) Add(ctx context.Context, threadID, runID string, interrupts []ty
 		}
 		rec.ToolName, _ = in.Metadata["toolName"].(string)
 		rec.Args, _ = in.Metadata["args"].(map[string]any)
+		if request, ok := in.Metadata["request"].(map[string]any); ok {
+			rec.ChildThreadID, _ = request["childThreadId"].(string)
+			if request["toolName"] == "question" && rec.ChildThreadID == "" { // the agent's own question
+				rec.Args, _ = request["args"].(map[string]any)
+			}
+		}
 		if err := s.save(ctx, &rec); err != nil {
 			return err
 		}

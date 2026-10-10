@@ -30,11 +30,9 @@ const (
 	MetaDurationMs = "durationMs"
 )
 
-// Interrupt reasons.
-const (
-	ReasonConfirmation  = "confirmation"   // approval of a tool call
-	ReasonInputRequired = "input_required" // a client-answered tool
-)
+// ReasonConfirmation is the reason of every interrupt: adk's tool
+// confirmation, answered with an approval or, for a question, an output.
+const ReasonConfirmation = "confirmation"
 
 // CustomApproval is the custom event carrying the user's decision on a confirmation.
 const CustomApproval = "approval"

@@ -13,8 +13,10 @@ import (
 	adkagent "google.golang.org/adk/v2/agent"
 	"google.golang.org/adk/v2/tool"
 	"google.golang.org/adk/v2/tool/functiontool"
+	"google.golang.org/adk/v2/tool/toolconfirmation"
 
 	"agentlite/internal/agent"
+	"agentlite/internal/hitl"
 	"agentlite/internal/stream"
 )
 
@@ -49,9 +51,21 @@ type progressLine struct {
 	Message string `json:"message"`
 }
 
+// pausedChild is a sub-agent waiting for the user, kept in the parent's
+// session state while the parent itself is paused on its behalf.
+type pausedChild struct {
+	ThreadID    string `json:"thread_id"`
+	RunID       string `json:"run_id"`
+	InterruptID string `json:"interrupt_id"`
+	StartedAt   int64  `json:"started_at"`
+}
+
 // task runs a sub-agent on its own child thread and returns its answer. The
 // child's activity stays on the child thread; the parent only gets a card
-// with status and a bounded progress log.
+// with status and a bounded progress log. When the child pauses for an
+// approval or a question, the task call pauses the parent with adk's own
+// confirmation, carrying the child's request; adk calls the tool again with
+// the user's answer, which goes to the child, and the wait continues.
 func task(d Deps) (tool.Tool, error) {
 	return functiontool.New(functiontool.Config{
 		Name:        Task,
@@ -65,50 +79,112 @@ func task(d Deps) (tool.Tool, error) {
 		if sink == nil || parentRun == nil {
 			return nil, fmt.Errorf("task tool needs a run context")
 		}
-		childThread := uuid.Must(uuid.NewV7()).String()
-		run, err := d.Dispatcher.Start(ctx, agent.StartInput{
-			ThreadID: childThread, ParentID: ctx.SessionID(), AgentID: a.SubagentType, Model: parentRun.Model,
-			Connectors: parentRun.Connectors, MessageID: uuid.NewString(), Text: a.Prompt,
-		})
-		if err != nil {
-			return nil, fmt.Errorf("start %s: %w", a.SubagentType, err)
+		key := "task:" + ctx.FunctionCallID()
+
+		var child pausedChild
+		if conf := ctx.ToolConfirmation(); conf != nil { // the user answered the child's request
+			if err := stateValue(ctx, key, &child); err != nil {
+				return nil, fmt.Errorf("resume %s: %w", a.SubagentType, err)
+			}
+			if _, err := d.Dispatcher.Decide(ctx, child.ThreadID, child.InterruptID, decisionFor(conf)); err != nil {
+				return nil, fmt.Errorf("answer %s: %w", a.SubagentType, err)
+			}
+		} else {
+			child = pausedChild{ThreadID: uuid.Must(uuid.NewV7()).String(), StartedAt: time.Now().UnixMilli()}
+			run, err := d.Dispatcher.Start(ctx, agent.StartInput{
+				ThreadID: child.ThreadID, ParentID: ctx.SessionID(), AgentID: a.SubagentType, Model: parentRun.Model,
+				Connectors: parentRun.Connectors, MessageID: uuid.NewString(), Text: a.Prompt,
+			})
+			if err != nil {
+				return nil, fmt.Errorf("start %s: %w", a.SubagentType, err)
+			}
+			child.RunID = run.ID
+			sink.Emit(events.NewSubagentStartedEvent(run.ID, a.SubagentType, events.WithSubagentDescription(a.Description), events.WithParentToolCall(ctx.FunctionCallID(), "")))
 		}
 		card := &cardState{card: agentCard{
-			SubagentRunID: run.ID, ChildThreadID: childThread, Name: a.SubagentType, Description: a.Description,
-			ParentToolCallID: ctx.FunctionCallID(), Status: "running", StartedAt: time.Now().UnixMilli(),
+			SubagentRunID: child.RunID, ChildThreadID: child.ThreadID, Name: a.SubagentType, Description: a.Description,
+			ParentToolCallID: ctx.FunctionCallID(), Status: "running", StartedAt: child.StartedAt,
 		}, sink: sink}
-		sink.Emit(events.NewSubagentStartedEvent(run.ID, a.SubagentType, events.WithSubagentDescription(a.Description), events.WithParentToolCall(ctx.FunctionCallID(), "")))
 		card.emit()
 
 		tailCtx, stopTail := context.WithCancel(ctx)
-		go tailProgress(tailCtx, d.Dispatcher, childThread, card)
-		final, err := d.Dispatcher.Wait(ctx, run.ID)
+		go tailProgress(tailCtx, d.Dispatcher, child.ThreadID, card)
+		final, err := d.Dispatcher.Wait(ctx, child.RunID)
 		stopTail()
-		if err != nil { // the parent was cancelled or Valkey failed: the child must not run on unseen
-			_ = d.Dispatcher.Cancel(context.WithoutCancel(ctx), childThread)
+		switch {
+		case err != nil: // the parent was cancelled or Valkey failed: the child must not run on unseen
+			_ = d.Dispatcher.Cancel(context.WithoutCancel(ctx), child.ThreadID)
 			card.finish("error", "", err.Error())
-			sink.Emit(events.NewSubagentErrorEvent(run.ID, err.Error()))
+			sink.Emit(events.NewSubagentErrorEvent(child.RunID, err.Error()))
 			return nil, err
-		}
-		if final.Status != agent.StatusDone {
+		case final.Status == agent.StatusAwaitingInput:
+			return nil, forward(ctx, d, a.SubagentType, key, child, card)
+		case final.Status != agent.StatusDone:
 			msg := final.Error
 			if msg == "" {
 				msg = string(final.Status)
 			}
-			if final.Status == agent.StatusAwaitingInput { // nobody can answer a sub-agent; let its thread go
-				msg = "sub-agent paused for input it cannot receive"
-				if err := d.Dispatcher.Cancel(ctx, childThread); err != nil {
-					msg += " (" + err.Error() + ")"
-				}
-			}
 			card.finish("error", final.Result, msg)
-			sink.Emit(events.NewSubagentErrorEvent(run.ID, msg))
+			sink.Emit(events.NewSubagentErrorEvent(child.RunID, msg))
 			return nil, fmt.Errorf("%s %s: %s", a.SubagentType, final.Status, msg)
 		}
 		card.finish("done", final.Result, "")
-		sink.Emit(events.NewSubagentFinishedEvent(run.ID, events.WithSubagentSuccessOutcome(), events.WithSubagentResult(final.Result)))
+		sink.Emit(events.NewSubagentFinishedEvent(child.RunID, events.WithSubagentSuccessOutcome(), events.WithSubagentResult(final.Result)))
 		return map[string]any{"result": final.Result}, nil
 	})
+}
+
+// forward pauses the parent on the child's pending request: the child is
+// remembered in state, and the confirmation carries what the child asks.
+func forward(ctx adkagent.Context, d Deps, name, key string, child pausedChild, card *cardState) error {
+	pending, err := d.Dispatcher.Interrupts(ctx, child.ThreadID)
+	if err != nil || len(pending) == 0 {
+		_ = d.Dispatcher.Cancel(context.WithoutCancel(ctx), child.ThreadID)
+		card.finish("error", "", "paused without a request")
+		return fmt.Errorf("%s paused without a request: %v", name, err)
+	}
+	in := pending[0]
+	child.InterruptID = in.ID
+	if err := ctx.State().Set(key, child); err != nil {
+		return err
+	}
+	card.progress("waiting for your answer: " + in.ToolName)
+	args, _ := json.Marshal(in.Args)
+	hint := fmt.Sprintf("%s wants to run %s %s", name, in.ToolName, args)
+	if in.ToolName == "question" {
+		hint = name + " asks you a question."
+	}
+	request := map[string]any{"subagent": name, "childThreadId": child.ThreadID, "toolName": in.ToolName, "args": in.Args}
+	if err := ctx.RequestConfirmation(hint, request); err != nil {
+		return err
+	}
+	return fmt.Errorf("%s: %w", name, tool.ErrConfirmationRequired)
+}
+
+// decisionFor turns the user's answer to a forwarded request into the
+// child's decision: the answers to a question, or an approval.
+func decisionFor(conf *toolconfirmation.ToolConfirmation) hitl.Decision {
+	payload, _ := conf.Payload.(map[string]any)
+	if out := payload["output"]; out != nil {
+		return hitl.Decision{Output: out}
+	}
+	approved, _ := payload["approved"].(bool)
+	justification, _ := payload["justification"].(string)
+	return hitl.Decision{Approved: &approved, Justification: justification}
+}
+
+// stateValue reads a value written by an earlier call of this tool; after a
+// round trip through the session store it comes back as a map.
+func stateValue(ctx adkagent.Context, key string, out any) error {
+	v, err := ctx.State().Get(key)
+	if err != nil {
+		return err
+	}
+	raw, err := json.Marshal(v)
+	if err != nil {
+		return err
+	}
+	return json.Unmarshal(raw, out)
 }
 
 // cardState serialises updates to the card from the tail goroutine and the

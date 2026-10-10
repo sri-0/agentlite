@@ -146,14 +146,24 @@ around each model call (and each workflow step, named after its agent) · `TEXT_
 `RUN_FINISHED{outcome: success | interrupt{interrupts} | cancelled, usage, metadata.durationMs}` ·
 `RUN_ERROR`.
 
-Interrupts: an approval tool pauses with `reason: "confirmation"` (`interruptId` ≠ the tool
-call id); the `question` tool pauses with `reason: "input_required"` (`interruptId` = the tool
-call id). Each carries `metadata: {toolName, args}`. Resume payloads: `{approved,
-justification?}` and the tool's output respectively. Every pause is also recorded in
-`internal/hitl` (`hitl:{id}`, `hitl:thread:{id}:pending`) with its decision, which is what the
-interrupts REST endpoints read and write; a socket `resume` and a REST decision end in the
-same `Service.Resume`. Cancelling a paused run marks its interrupts `cancelled`. A sub-agent
-that pauses is cancelled by the task tool, since nobody can answer it.
+Interrupts: every pause is adk's tool confirmation (`reason: "confirmation"`, `interruptId`
+≠ the tool call id), with `metadata: {toolName, args, request?}`. Three things pause:
+
+- a tool that needs approval (`write_note`, MCP tools in `require_confirmation`): answered
+  `{approved, justification?}`;
+- the `question` tool, which calls `RequestConfirmation` itself with `request: {toolName:
+  "question", args: {questions}}`: answered `{output: {answers, text?}}`, which becomes its result;
+- a `task` call whose sub-agent paused: the task tool keeps the child in session state and
+  raises a confirmation whose `request` is the child's (`subagent`, `childThreadId`,
+  `toolName`, `args`). The answer, approve, deny or output, is relayed to the child, which
+  resumes; the task call keeps waiting and returns the child's result as usual. Cancelling the
+  paused parent cancels the paused child.
+
+Using confirmation for all three keeps adk's loop stopping reliably even when a pausing call
+shares its turn with other calls. Every pause is recorded in `internal/hitl` (`hitl:{id}`,
+`hitl:thread:{id}:pending`) with its decision; `POST /v1/threads/{id}/interrupts/{iid}` decides
+one and resumes the run. Cancelling a paused run marks its interrupts `cancelled` and writes a
+cancelled segment.
 
 Storage keeps the same events, coalesced (`stream.Coalesce` merges contiguous deltas), one
 OpenSearch document per message with the extracted `text`. `docs/AG-UI-RENDERING.md` tables
@@ -206,7 +216,7 @@ configured, and `preload_memory` too when `memory.preload` is on; sub-agent runs
 
 World tools (`internal/tools`): `calculate`, `read_url` (public hosts only), `write_note`
 (the approval demo; it only logs). Harness tools (`internal/tools/builtin`): `task`,
-`todowrite`, `emit_artifact`, `question` (client-answered), `report_progress`. MCP servers from
+`todowrite`, `emit_artifact`, `question` (answered by the user), `report_progress`. MCP servers from
 `mcp.yaml` (`endpoint` or `command`, `headers`, `tools`, `require_confirmation`; tools keep
 their MCP names; a server that cannot list its tools costs a warning, not the run).
 

@@ -192,8 +192,9 @@ func (e *Encoder) closeReasoning(s *step) {
 	}
 }
 
-// call emits a tool call once; confirmation wrappers and long-running tools
-// record an interrupt so Finish pauses the run.
+// call emits a tool call once; a confirmation wrapper records an interrupt so
+// Finish pauses the run. Its request, when present, says what is asked: the
+// questions of a question, or a sub-agent's request forwarded by task.
 func (e *Encoder) call(ev *session.Event, fc *genai.FunctionCall) {
 	if fc.Name == toolconfirmation.FunctionCallName {
 		original, err := toolconfirmation.OriginalCallFrom(fc)
@@ -201,13 +202,15 @@ func (e *Encoder) call(ev *session.Event, fc *genai.FunctionCall) {
 			return
 		}
 		e.toolCall(original)
-		e.interrupts = append(e.interrupts, interrupt(fc.ID, ReasonConfirmation, original, confirmationHint(fc.Args["toolConfirmation"])))
+		hint, payload := confirmation(fc.Args["toolConfirmation"])
+		in := interrupt(fc.ID, ReasonConfirmation, original, hint)
+		if payload != nil {
+			in.Metadata["request"] = payload
+		}
+		e.interrupts = append(e.interrupts, in)
 		return
 	}
 	e.toolCall(fc)
-	if slices.Contains(ev.LongRunningToolIDs, fc.ID) {
-		e.interrupts = append(e.interrupts, interrupt(fc.ID, ReasonInputRequired, fc, ""))
-	}
 }
 
 // interrupt describes a pause; the tool name and arguments ride in Metadata so
@@ -219,19 +222,19 @@ func interrupt(id, reason string, call *genai.FunctionCall, message string) type
 	}
 }
 
-// confirmationHint reads the hint however adk shaped the confirmation: a
-// struct when emitted in-process, a map after a JSON round trip.
-func confirmationHint(v any) string {
+// confirmation reads the hint and payload however adk shaped the
+// confirmation: a struct when emitted in-process, a map after a JSON round trip.
+func confirmation(v any) (string, any) {
 	switch c := v.(type) {
 	case toolconfirmation.ToolConfirmation:
-		return c.Hint
+		return c.Hint, c.Payload
 	case *toolconfirmation.ToolConfirmation:
-		return c.Hint
+		return c.Hint, c.Payload
 	case map[string]any:
 		hint, _ := c["hint"].(string)
-		return hint
+		return hint, c["payload"]
 	}
-	return ""
+	return "", nil
 }
 
 func (e *Encoder) toolCall(fc *genai.FunctionCall) {

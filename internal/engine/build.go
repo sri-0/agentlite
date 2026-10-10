@@ -129,7 +129,7 @@ func (e *Engine) toolList(def config.AgentDef) string {
 }
 
 // orchestration are the harness tools a sub-agent only gets by listing them.
-var orchestration = map[string]bool{builtin.Task: true, "todowrite": true, "question": true}
+var orchestration = map[string]bool{builtin.Task: true, "todowrite": true, builtin.Question: true}
 
 func (e *Engine) tool(name string) tool.Tool {
 	if t, ok := e.harness[name]; ok {

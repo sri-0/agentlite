@@ -256,8 +256,8 @@ func (s *Service) Decide(ctx context.Context, threadID, interruptID string, d hi
 		return nil, err
 	case rec.ThreadID != threadID:
 		return nil, fmt.Errorf("%w: interrupt %s", ErrNotFound, interruptID)
-	case rec.Reason == stream.ReasonConfirmation && d.Approved == nil:
-		return nil, fmt.Errorf("%w: approved is required", ErrInvalid)
+	case rec.Reason == stream.ReasonConfirmation && d.Approved == nil && d.Output == nil:
+		return nil, fmt.Errorf("%w: approved (or, for a sub-agent's question, output) is required", ErrInvalid)
 	}
 	rec.Decision = &d
 	return s.Resume(ctx, threadID, []types.ResumeEntry{rec.ResumeEntry()})
@@ -285,10 +285,21 @@ func (s *Service) Cancel(ctx context.Context, threadID string) error {
 	case StatusQueued:
 		closeHere("")
 	case StatusAwaitingInput:
+		pending, err := s.hitl.Pending(ctx, threadID)
+		if err != nil {
+			return err
+		}
 		if err := s.hitl.Cancel(ctx, threadID); err != nil {
 			return err
 		}
 		closeHere(run.Result)
+		for _, in := range pending { // a sub-agent paused behind this run goes with it
+			if in.ChildThreadID != "" {
+				if err := s.Cancel(ctx, in.ChildThreadID); err != nil && !errors.Is(err, ErrNotFound) {
+					s.logger.Warn().Err(err).Str("thread", in.ChildThreadID).Msg("cancel paused sub-agent")
+				}
+			}
+		}
 	default:
 		s.runs.publish(ctx, ctlChannel(run.ID), "cancel")
 	}

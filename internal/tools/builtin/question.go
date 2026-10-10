@@ -1,6 +1,8 @@
 package builtin
 
 import (
+	"fmt"
+
 	adkagent "google.golang.org/adk/v2/agent"
 	"google.golang.org/adk/v2/tool"
 	"google.golang.org/adk/v2/tool/functiontool"
@@ -22,15 +24,26 @@ type questionArgs struct {
 	Questions []questionItem `json:"questions" jsonschema:"1 to 4 questions to ask the user"`
 }
 
-// question asks the user structured questions. It is long-running: the
-// handler returns nothing, which adk records as a pending call, and the run
-// resumes when the client supplies the answers as the tool's output.
+// question asks the user structured questions. It pauses the run through
+// adk's confirmation, which stops the agent loop even when other calls share
+// the turn; the request carries the questions, and adk calls the tool again
+// with the user's answers as the confirmation's output.
 func question(Deps) (tool.Tool, error) {
 	return functiontool.New(functiontool.Config{
-		Name:          "question",
-		Description:   "Ask the user one to four multiple-choice questions when you need a decision only they can make. The answers arrive as the tool result.",
-		IsLongRunning: true,
-	}, func(adkagent.Context, questionArgs) (map[string]any, error) {
-		return nil, nil
+		Name:        Question,
+		Description: "Ask the user one to four multiple-choice questions when you need a decision only they can make. The answers arrive as the tool result.",
+	}, func(ctx adkagent.Context, a questionArgs) (map[string]any, error) {
+		if conf := ctx.ToolConfirmation(); conf != nil {
+			payload, _ := conf.Payload.(map[string]any)
+			answers, ok := payload["output"].(map[string]any)
+			if !ok {
+				return nil, fmt.Errorf("the user did not answer")
+			}
+			return answers, nil
+		}
+		if err := ctx.RequestConfirmation("Answer the questions.", map[string]any{"toolName": "question", "args": a}); err != nil {
+			return nil, err
+		}
+		return nil, fmt.Errorf("question: %w", tool.ErrConfirmationRequired)
 	})
 }

@@ -5,12 +5,9 @@ package engine
 
 import (
 	"context"
-	"encoding/json"
 	"fmt"
 
 	"github.com/ag-ui-protocol/ag-ui/sdks/community/go/pkg/core/events"
-	"github.com/ag-ui-protocol/ag-ui/sdks/community/go/pkg/core/types"
-	"github.com/google/uuid"
 	"github.com/rs/zerolog"
 	adkagent "google.golang.org/adk/v2/agent"
 	adkmemory "google.golang.org/adk/v2/memory"
@@ -214,19 +211,20 @@ func (e *Engine) content(ctx context.Context, threadID string, in agent.Input) (
 		if !ok {
 			return nil, nil, fmt.Errorf("no pending call for interrupt %q", entry.InterruptID)
 		}
-		response := responseFor(call.Name, entry)
-		c.Parts = append(c.Parts, &genai.Part{FunctionResponse: &genai.FunctionResponse{ID: entry.InterruptID, Name: call.Name, Response: response}})
-		if call.Name != toolconfirmation.FunctionCallName {
-			body, _ := json.Marshal(response)
-			recorded = append(recorded, events.NewToolCallResultEvent(uuid.NewString(), call.ID, string(body)))
-			continue
+		original, err := toolconfirmation.OriginalCallFrom(call)
+		if err != nil {
+			return nil, nil, fmt.Errorf("interrupt %q: %w", entry.InterruptID, err)
 		}
-		if original, err := toolconfirmation.OriginalCallFrom(call); err == nil {
-			payload, _ := entry.Payload.(map[string]any)
-			approved, _ := payload["approved"].(bool)
-			justification, _ := payload["justification"].(string)
-			recorded = append(recorded, events.NewCustomEvent(stream.CustomApproval, events.WithValue(approval{ToolCallID: original.ID, Approved: approved, Justification: justification})))
-		}
+		payload, _ := entry.Payload.(map[string]any)
+		approved, _ := payload["approved"].(bool)
+		justification, _ := payload["justification"].(string)
+		// task and question handle the answer themselves (a task relays it to
+		// its sub-agent, approve or deny), so adk must call them again.
+		confirmed := approved || original.Name == builtin.Task || original.Name == builtin.Question
+		c.Parts = append(c.Parts, &genai.Part{FunctionResponse: &genai.FunctionResponse{
+			ID: entry.InterruptID, Name: call.Name, Response: map[string]any{"confirmed": confirmed, "payload": payload},
+		}})
+		recorded = append(recorded, events.NewCustomEvent(stream.CustomApproval, events.WithValue(approval{ToolCallID: original.ID, Approved: confirmed, Justification: justification})))
 	}
 	return c, recorded, nil
 }
@@ -253,18 +251,4 @@ func pendingCall(sess session.Session, callID string) (*genai.FunctionCall, bool
 		}
 	}
 	return nil, false
-}
-
-// responseFor shapes the resume payload the way adk expects: a confirmation
-// carries {confirmed, payload}; a client-answered tool gets its output.
-func responseFor(name string, entry types.ResumeEntry) map[string]any {
-	payload, _ := entry.Payload.(map[string]any)
-	if name == toolconfirmation.FunctionCallName {
-		approved, _ := payload["approved"].(bool)
-		return map[string]any{"confirmed": approved && entry.Status == types.ResumeStatusResolved, "payload": payload}
-	}
-	if payload == nil {
-		return map[string]any{"result": entry.Payload}
-	}
-	return payload
 }

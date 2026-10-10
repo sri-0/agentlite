@@ -12,10 +12,14 @@ import (
 
 	"agentlite/internal/agent"
 	"agentlite/internal/config"
+	"agentlite/internal/hitl"
 )
 
-// Task is the sub-agent dispatch tool; the builder keys its availability on it.
-const Task = "task"
+// Tool names other packages key on.
+const (
+	Task     = "task"     // sub-agent dispatch; offered only to agents with subagents
+	Question = "question" // answered by the user, not approved
+)
 
 // Dispatcher starts, follows and stops child runs; the run service implements it.
 type Dispatcher interface {
@@ -23,6 +27,8 @@ type Dispatcher interface {
 	Wait(ctx context.Context, runID string) (*agent.Run, error)
 	Subscribe(ctx context.Context, threadID, after string) (iter.Seq2[agent.Entry, error], error)
 	Cancel(ctx context.Context, threadID string) error
+	Interrupts(ctx context.Context, threadID string) ([]hitl.Interrupt, error)
+	Decide(ctx context.Context, threadID, interruptID string, d hitl.Decision) (*agent.Run, error)
 }
 
 // Deps are shared by the builtin tools.
