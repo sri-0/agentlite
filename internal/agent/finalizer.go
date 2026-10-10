@@ -11,9 +11,10 @@ import (
 )
 
 // finalize folds a run's events from the log into its message document. It
-// runs at every pause and at the end, is idempotent (upsert by message id),
-// and never reads worker memory.
+// runs at every pause and at the end, upserts by message id, releases the
+// thread only if the run still holds it, and never reads worker memory.
 func (s *Service) finalize(ctx context.Context, fields map[string]string) error {
+	start := time.Now()
 	run, err := s.runs.get(ctx, fields["run_id"])
 	if err != nil {
 		s.logger.Warn().Err(err).Msg("done notice for unknown run; dropped")
@@ -28,8 +29,8 @@ func (s *Service) finalize(ctx context.Context, fields map[string]string) error 
 		evs = append(evs, e.Event)
 	}
 	raws := make([]json.RawMessage, 0, len(evs))
-	for _, e := range stream.Compact(evs) {
-		raw, err := stream.Marshal(e)
+	for _, e := range stream.Coalesce(evs) {
+		raw, err := e.ToJSON()
 		if err != nil {
 			return fmt.Errorf("marshal event: %w", err)
 		}
@@ -43,12 +44,11 @@ func (s *Service) finalize(ctx context.Context, fields map[string]string) error 
 		return err
 	}
 	if Status(fields["status"]).Terminal() {
-		s.runs.releaseThread(ctx, run.ThreadID)
-		s.runs.setActive(ctx, run.ID, false)
+		s.release(ctx, run)
 		if err := s.log.Trim(ctx, run.ThreadID); err != nil {
 			s.logger.Warn().Err(err).Str("thread", run.ThreadID).Msg("trim log")
 		}
 	}
-	s.logger.Debug().Str("run", run.ID).Int("events", len(raws)).Dur("took", time.Since(run.StartedAt)).Msg("finalised")
+	s.logger.Debug().Str("run", run.ID).Int("events", len(raws)).Dur("took", time.Since(start)).Msg("finalised")
 	return nil
 }

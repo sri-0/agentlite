@@ -15,7 +15,7 @@ type writeNoteArgs struct {
 
 // writeNote is the approval demo: adk pauses the run until the user approves,
 // and the user's justification arrives in the confirmation payload.
-func writeNote(Deps) (tool.Tool, error) {
+func writeNote() (tool.Tool, error) {
 	return functiontool.New(functiontool.Config{
 		Name:                "write_note",
 		Description:         "Save a note for the user. Requires the user's approval.",

@@ -10,7 +10,6 @@ import (
 	"github.com/ag-ui-protocol/ag-ui/sdks/community/go/pkg/core/types"
 	"github.com/google/uuid"
 	"google.golang.org/adk/v2/session"
-	"google.golang.org/adk/v2/tool"
 	"google.golang.org/adk/v2/tool/toolconfirmation"
 	"google.golang.org/genai"
 )
@@ -23,25 +22,34 @@ const (
 
 // Encoder turns one run segment's adk events into AG-UI events. Every model
 // call becomes a step named after its author; text and reasoning stream as
-// deltas; tool calls, results and interrupts are emitted when adk reports them.
+// deltas; tool calls, results and interrupts are emitted when adk reports
+// them. Steps are kept per author because a parallel agent interleaves its
+// sub-agents' events.
 type Encoder struct {
 	threadID, runID, model string
 	emit                   func(Event)
 	startedAt              time.Time
 
-	step       string          // open step name
-	text       string          // open text message id
-	reasoning  string          // open reasoning message id
-	streamed   bool            // the current model turn's text arrived as partial deltas
-	result     string          // text of the last completed text block (the answer)
-	calls      map[string]bool // tool call ids already emitted
+	steps      map[string]*step // open model calls by author
+	result     string           // text of the last completed text block (the answer)
+	calls      map[string]bool  // tool call ids already emitted
 	usage      events.TokenUsage
 	interrupts []types.Interrupt
 }
 
+// step is one model call in progress: its open text and reasoning blocks.
+type step struct {
+	text, reasoning string // open message ids
+	buf             strings.Builder
+	streamed        bool // text arrived as partial deltas; the final event repeats it
+}
+
 // NewEncoder prepares an encoder; Start emits RUN_STARTED.
 func NewEncoder(threadID, runID, model string, emit func(Event)) *Encoder {
-	return &Encoder{threadID: threadID, runID: runID, model: model, emit: emit, calls: map[string]bool{}, usage: events.TokenUsage{Model: model}}
+	return &Encoder{
+		threadID: threadID, runID: runID, model: model, emit: emit,
+		steps: map[string]*step{}, calls: map[string]bool{}, usage: events.TokenUsage{Model: model},
+	}
 }
 
 func (e *Encoder) send(ev Event) {
@@ -68,134 +76,146 @@ func (e *Encoder) Handle(ev *session.Event) {
 		return
 	}
 	if hasFunctionResponse(ev.Content) {
-		e.results(ev.Content)
+		e.results(ev)
 		return
 	}
-	e.openStep(ev.Author)
+	s := e.steps[ev.Author]
+	if s == nil {
+		s = &step{}
+		e.steps[ev.Author] = s
+		e.send(events.NewStepStartedEvent(ev.Author))
+	}
 	for _, p := range ev.Content.Parts {
 		switch {
 		case p.FunctionCall != nil:
+			e.closeBlocks(s)
 			e.call(ev, p.FunctionCall)
 		case p.Text != "" && ev.Partial:
-			e.streamed = true
-			e.delta(p)
-		case p.Text != "" && !e.streamed:
-			e.delta(p)
+			s.streamed = true
+			e.delta(s, p)
+		case p.Text != "" && !s.streamed:
+			e.delta(s, p)
 		}
 	}
 	if !ev.Partial {
-		e.closeBlocks()
-		e.closeStep()
-		e.streamed = false
+		e.closeStep(ev.Author)
 	}
 }
 
 // Finish closes the segment. It returns the interrupts the run paused on, if any.
 func (e *Encoder) Finish() []types.Interrupt {
-	e.closeBlocks()
-	e.closeStep()
-	ev := events.NewRunFinishedEventWithOptions(e.threadID, e.runID, events.WithUsage([]events.TokenUsage{e.usage}))
+	e.closeSteps()
+	outcome := events.WithSuccessOutcome()
 	if len(e.interrupts) > 0 {
-		ev = events.NewRunFinishedEventWithOptions(e.threadID, e.runID, events.WithUsage([]events.TokenUsage{e.usage}), events.WithInterruptOutcome(e.interrupts))
+		outcome = events.WithInterruptOutcome(e.interrupts)
 	}
-	ev.GetBaseEvent().Metadata = types.Metadata{MetaDurationMs: time.Since(e.startedAt).Milliseconds()}
-	e.send(ev)
+	e.finish(events.WithUsage([]events.TokenUsage{e.usage}), outcome)
 	return e.interrupts
 }
 
 // Cancel closes the segment as cancelled.
 func (e *Encoder) Cancel() {
-	e.closeBlocks()
-	e.closeStep()
-	ev := events.NewRunFinishedEventWithOptions(e.threadID, e.runID, events.WithOutcome(events.RunFinishedOutcome{Type: events.RunFinishedOutcomeType("cancelled")}))
-	ev.GetBaseEvent().Metadata = types.Metadata{MetaDurationMs: time.Since(e.startedAt).Milliseconds()}
-	e.send(ev)
+	e.closeSteps()
+	e.finish(events.WithOutcome(events.RunFinishedOutcome{Type: OutcomeCancelled}))
 }
 
 // Fail closes the segment with RUN_ERROR.
 func (e *Encoder) Fail(err error) {
-	e.closeBlocks()
-	e.closeStep()
+	e.closeSteps()
 	e.send(events.NewRunErrorEvent(err.Error(), events.WithRunID(e.runID)))
 }
 
 // Result is the text of the last completed text block.
 func (e *Encoder) Result() string { return e.result }
 
-func (e *Encoder) openStep(name string) {
-	if e.step == name {
-		return
-	}
-	e.closeStep()
-	e.step = name
-	e.send(events.NewStepStartedEvent(name))
+func (e *Encoder) finish(opts ...events.RunFinishedOption) {
+	ev := events.NewRunFinishedEventWithOptions(e.threadID, e.runID, opts...)
+	ev.GetBaseEvent().Metadata = types.Metadata{MetaDurationMs: time.Since(e.startedAt).Milliseconds()}
+	e.send(ev)
 }
 
-func (e *Encoder) closeStep() {
-	if e.step == "" {
+func (e *Encoder) closeStep(author string) {
+	s := e.steps[author]
+	if s == nil {
 		return
 	}
-	e.send(events.NewStepFinishedEvent(e.step))
-	e.step = ""
+	e.closeBlocks(s)
+	e.send(events.NewStepFinishedEvent(author))
+	delete(e.steps, author)
 }
 
-func (e *Encoder) delta(p *genai.Part) {
+func (e *Encoder) closeSteps() {
+	for author := range e.steps {
+		e.closeStep(author)
+	}
+}
+
+func (e *Encoder) delta(s *step, p *genai.Part) {
 	if p.Thought {
-		if e.reasoning == "" {
-			e.closeText()
-			e.reasoning = uuid.NewString()
-			e.send(events.NewReasoningStartEvent(e.reasoning))
-			e.send(events.NewReasoningMessageStartEvent(e.reasoning, "reasoning"))
+		if s.reasoning == "" {
+			e.closeText(s)
+			s.reasoning = uuid.NewString()
+			e.send(events.NewReasoningStartEvent(s.reasoning))
+			e.send(events.NewReasoningMessageStartEvent(s.reasoning, "reasoning"))
 		}
-		e.send(events.NewReasoningMessageContentEvent(e.reasoning, p.Text))
+		e.send(events.NewReasoningMessageContentEvent(s.reasoning, p.Text))
 		return
 	}
-	if e.text == "" {
-		e.closeReasoning()
-		e.text = uuid.NewString()
-		e.result = ""
-		e.send(events.NewTextMessageStartEvent(e.text, events.WithRole("assistant")))
+	if s.text == "" {
+		e.closeReasoning(s)
+		s.text = uuid.NewString()
+		s.buf.Reset()
+		e.send(events.NewTextMessageStartEvent(s.text, events.WithRole("assistant")))
 	}
-	e.result += p.Text
-	e.send(events.NewTextMessageContentEvent(e.text, p.Text))
+	s.buf.WriteString(p.Text)
+	e.send(events.NewTextMessageContentEvent(s.text, p.Text))
 }
 
-func (e *Encoder) closeBlocks() {
-	e.closeText()
-	e.closeReasoning()
+func (e *Encoder) closeBlocks(s *step) {
+	e.closeText(s)
+	e.closeReasoning(s)
 }
 
-func (e *Encoder) closeText() {
-	if e.text != "" {
-		e.send(events.NewTextMessageEndEvent(e.text))
-		e.text = ""
+func (e *Encoder) closeText(s *step) {
+	if s.text != "" {
+		e.send(events.NewTextMessageEndEvent(s.text))
+		e.result = s.buf.String()
+		s.text = ""
 	}
 }
 
-func (e *Encoder) closeReasoning() {
-	if e.reasoning != "" {
-		e.send(events.NewReasoningMessageEndEvent(e.reasoning))
-		e.send(events.NewReasoningEndEvent(e.reasoning))
-		e.reasoning = ""
+func (e *Encoder) closeReasoning(s *step) {
+	if s.reasoning != "" {
+		e.send(events.NewReasoningMessageEndEvent(s.reasoning))
+		e.send(events.NewReasoningEndEvent(s.reasoning))
+		s.reasoning = ""
 	}
 }
 
 // call emits a tool call once; confirmation wrappers and long-running tools
 // record an interrupt so Finish pauses the run.
 func (e *Encoder) call(ev *session.Event, fc *genai.FunctionCall) {
-	e.closeBlocks()
 	if fc.Name == toolconfirmation.FunctionCallName {
 		original, err := toolconfirmation.OriginalCallFrom(fc)
 		if err != nil {
 			return
 		}
 		e.toolCall(original)
-		e.interrupts = append(e.interrupts, types.Interrupt{ID: fc.ID, Reason: ReasonConfirmation, ToolCallID: original.ID, Message: confirmationHint(fc.Args["toolConfirmation"])})
+		e.interrupts = append(e.interrupts, interrupt(fc.ID, ReasonConfirmation, original, confirmationHint(fc.Args["toolConfirmation"])))
 		return
 	}
 	e.toolCall(fc)
 	if slices.Contains(ev.LongRunningToolIDs, fc.ID) {
-		e.interrupts = append(e.interrupts, types.Interrupt{ID: fc.ID, Reason: ReasonInputRequired, ToolCallID: fc.ID})
+		e.interrupts = append(e.interrupts, interrupt(fc.ID, ReasonInputRequired, fc, ""))
+	}
+}
+
+// interrupt describes a pause; the tool name and arguments ride in Metadata so
+// clients and the hitl record can show what is being asked.
+func interrupt(id, reason string, call *genai.FunctionCall, message string) types.Interrupt {
+	return types.Interrupt{
+		ID: id, Reason: reason, ToolCallID: call.ID, Message: message,
+		Metadata: types.Metadata{"toolName": call.Name, "args": call.Args},
 	}
 }
 
@@ -225,13 +245,16 @@ func (e *Encoder) toolCall(fc *genai.FunctionCall) {
 	e.send(events.NewToolCallEndEvent(fc.ID))
 }
 
-// results emits tool results. adk's own bookkeeping is skipped: the answer
-// to a confirmation wrapper, and the "requires confirmation" error it records
-// on the real call before asking.
-func (e *Encoder) results(c *genai.Content) {
-	for _, p := range c.Parts {
+// results emits tool results. adk's own bookkeeping is skipped: the answer to
+// a confirmation wrapper, and the placeholder result it records on a call it
+// is asking confirmation for.
+func (e *Encoder) results(ev *session.Event) {
+	for _, p := range ev.Content.Parts {
 		fr := p.FunctionResponse
-		if fr == nil || fr.Name == toolconfirmation.FunctionCallName || confirmationPending(fr) {
+		if fr == nil || fr.Name == toolconfirmation.FunctionCallName {
+			continue
+		}
+		if _, pending := ev.Actions.RequestedToolConfirmations[fr.ID]; pending {
 			continue
 		}
 		body, _ := json.Marshal(fr.Response)
@@ -247,22 +270,18 @@ func (e *Encoder) results(c *genai.Content) {
 	}
 }
 
-func confirmationPending(fr *genai.FunctionResponse) bool {
-	msg, _ := fr.Response["error"].(string)
-	return msg != "" && strings.Contains(msg, tool.ErrConfirmationRequired.Error())
-}
-
 func (e *Encoder) addUsage(u *genai.GenerateContentResponseUsageMetadata) {
-	in := int64(u.PromptTokenCount) + valueOf(e.usage.InputTokens)
-	out := int64(u.CandidatesTokenCount+u.ThoughtsTokenCount) + valueOf(e.usage.OutputTokens)
-	e.usage.InputTokens, e.usage.OutputTokens = &in, &out
+	add(&e.usage.InputTokens, u.PromptTokenCount)
+	add(&e.usage.OutputTokens, u.CandidatesTokenCount)
+	add(&e.usage.ReasoningTokens, u.ThoughtsTokenCount)
+	add(&e.usage.TotalTokens, u.TotalTokenCount)
 }
 
-func valueOf(p *int64) int64 {
-	if p == nil {
-		return 0
+func add(p **int64, n int32) {
+	if *p == nil {
+		*p = new(int64)
 	}
-	return *p
+	**p += int64(n)
 }
 
 func hasFunctionResponse(c *genai.Content) bool {
@@ -271,8 +290,5 @@ func hasFunctionResponse(c *genai.Content) bool {
 
 // Activity builds a replace-snapshot activity event.
 func Activity(messageID, activityType string, content any) Event {
-	ev := events.NewActivitySnapshotEvent(messageID, activityType, content)
-	replace := true
-	ev.Replace = &replace
-	return ev
+	return events.NewActivitySnapshotEvent(messageID, activityType, content).WithReplace(true)
 }

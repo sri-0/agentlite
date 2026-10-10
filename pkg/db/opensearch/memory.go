@@ -4,7 +4,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"strings"
 	"time"
 )
 
@@ -38,10 +37,10 @@ func (c *Client) SaveMemory(ctx context.Context, m *Memory) error {
 // MemoryIDs lists the ids already stored for a thread.
 func (c *Client) MemoryIDs(ctx context.Context, threadID string) (map[string]bool, error) {
 	q := fmt.Sprintf(`{"size":1000,"_source":["id"],"query":{"term":{"thread_id":%q}}}`, threadID)
-	var out []struct {
+	out, err := search[struct {
 		ID string `json:"id"`
-	}
-	if err := c.search(ctx, IndexMemories, q, &out); err != nil {
+	}](ctx, c, IndexMemories, q)
+	if err != nil {
 		return nil, err
 	}
 	ids := make(map[string]bool, len(out))
@@ -51,11 +50,11 @@ func (c *Client) MemoryIDs(ctx context.Context, threadID string) (map[string]boo
 	return ids, nil
 }
 
-// SearchMemories returns the k entries nearest to the vector.
-func (c *Client) SearchMemories(ctx context.Context, vector []float32, k int) ([]Memory, error) {
+// SearchMemories returns the k entries nearest to the vector, leaving out the
+// entries of one thread (the one asking, whose turns are already in context).
+func (c *Client) SearchMemories(ctx context.Context, vector []float32, k int, excludeThread string) ([]Memory, error) {
 	vec, _ := json.Marshal(vector)
-	q := fmt.Sprintf(`{"size":%d,"_source":{"excludes":["embedding"]},"query":{"knn":{"embedding":{"vector":%s,"k":%d}}}}`, k, vec, k)
-	var out []Memory
-	err := c.search(ctx, IndexMemories, strings.TrimSpace(q), &out)
-	return out, err
+	q := fmt.Sprintf(`{"size":%d,"_source":{"excludes":["embedding"]},"query":{"knn":{"embedding":{"vector":%s,"k":%d,
+		"filter":{"bool":{"must_not":{"term":{"thread_id":%q}}}}}}}}`, k, vec, k, excludeThread)
+	return search[Memory](ctx, c, IndexMemories, q)
 }

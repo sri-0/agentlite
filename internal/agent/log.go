@@ -7,23 +7,26 @@ import (
 	"strconv"
 	"time"
 
+	"github.com/ag-ui-protocol/ag-ui/sdks/community/go/pkg/core/events"
 	"github.com/valkey-io/valkey-go"
 
 	"agentlite/internal/stream"
 )
 
-// Entry is one event in a thread's log with its cursor and raw JSON.
+// Entry is one event in a thread's log with its cursor, provenance and raw JSON.
 type Entry struct {
-	Seq   string
-	Raw   []byte
-	Event stream.Event
+	Seq     string
+	RunID   string
+	AgentID string
+	Raw     []byte
+	Event   stream.Event
 }
 
 // Log is the per-thread event stream: the live channel between a running
 // agent and its subscribers, and the source the finalizer folds from.
 type Log interface {
-	// Append adds an event and returns its cursor.
-	Append(ctx context.Context, threadID string, e stream.Event) (string, error)
+	// Append adds an event produced by a run and returns its cursor.
+	Append(ctx context.Context, threadID, runID, agentID string, e stream.Event) (string, error)
 	// Last returns the newest cursor, or "0" for an empty log.
 	Last(ctx context.Context, threadID string) (string, error)
 	// Range returns every event after the cursor without blocking.
@@ -42,29 +45,30 @@ const (
 	readBatch    = 256
 )
 
-// ValkeyLog stores each thread's events in a Valkey stream.
-type ValkeyLog struct{ db valkey.Client }
+// valkeyLog stores each thread's events in a Valkey stream.
+type valkeyLog struct{ db valkey.Client }
 
-// NewValkeyLog wraps a client.
-func NewValkeyLog(db valkey.Client) *ValkeyLog { return &ValkeyLog{db: db} }
+func newValkeyLog(db valkey.Client) *valkeyLog { return &valkeyLog{db: db} }
 
 func logKey(threadID string) string { return "thread:" + threadID + ":log" }
 
-func (l *ValkeyLog) Append(ctx context.Context, threadID string, e stream.Event) (string, error) {
-	raw, err := stream.Marshal(e)
+func (l *valkeyLog) Append(ctx context.Context, threadID, runID, agentID string, e stream.Event) (string, error) {
+	raw, err := e.ToJSON()
 	if err != nil {
 		return "", err
 	}
 	key := logKey(threadID)
-	seq, err := l.db.Do(ctx, l.db.B().Xadd().Key(key).Id("*").FieldValue().FieldValue("e", string(raw)).Build()).ToString()
+	res := l.db.DoMulti(ctx,
+		l.db.B().Xadd().Key(key).Id("*").FieldValue().FieldValue("r", runID).FieldValue("a", agentID).FieldValue("e", string(raw)).Build(),
+		l.db.B().Expire().Key(key).Seconds(int64(logExpiry.Seconds())).Build())
+	seq, err := res[0].ToString()
 	if err != nil {
 		return "", fmt.Errorf("log append: %w", err)
 	}
-	l.db.Do(ctx, l.db.B().Expire().Key(key).Seconds(int64(logExpiry.Seconds())).Build())
 	return seq, nil
 }
 
-func (l *ValkeyLog) Last(ctx context.Context, threadID string) (string, error) {
+func (l *valkeyLog) Last(ctx context.Context, threadID string) (string, error) {
 	entries, err := l.db.Do(ctx, l.db.B().Xrevrange().Key(logKey(threadID)).End("+").Start("-").Count(1).Build()).AsXRange()
 	if err != nil {
 		return "", fmt.Errorf("log last: %w", err)
@@ -75,7 +79,7 @@ func (l *ValkeyLog) Last(ctx context.Context, threadID string) (string, error) {
 	return entries[0].ID, nil
 }
 
-func (l *ValkeyLog) Range(ctx context.Context, threadID, after string) ([]Entry, error) {
+func (l *valkeyLog) Range(ctx context.Context, threadID, after string) ([]Entry, error) {
 	start := "-"
 	if after != "" && after != "0" {
 		start = "(" + after
@@ -87,7 +91,7 @@ func (l *ValkeyLog) Range(ctx context.Context, threadID, after string) ([]Entry,
 	return parseEntries(raw)
 }
 
-func (l *ValkeyLog) Read(ctx context.Context, threadID, after string) iter.Seq2[Entry, error] {
+func (l *valkeyLog) Read(ctx context.Context, threadID, after string) iter.Seq2[Entry, error] {
 	return func(yield func(Entry, error) bool) {
 		cursor := after
 		if cursor == "" {
@@ -120,7 +124,7 @@ func (l *ValkeyLog) Read(ctx context.Context, threadID, after string) iter.Seq2[
 	}
 }
 
-func (l *ValkeyLog) Trim(ctx context.Context, threadID string) error {
+func (l *valkeyLog) Trim(ctx context.Context, threadID string) error {
 	minID := strconv.FormatInt(time.Now().Add(-logRetention).UnixMilli(), 10)
 	return l.db.Do(ctx, l.db.B().Xtrim().Key(logKey(threadID)).Minid().Threshold(minID).Build()).Error()
 }
@@ -128,11 +132,11 @@ func (l *ValkeyLog) Trim(ctx context.Context, threadID string) error {
 func parseEntries(raw []valkey.XRangeEntry) ([]Entry, error) {
 	out := make([]Entry, 0, len(raw))
 	for _, x := range raw {
-		ev, err := stream.Unmarshal([]byte(x.FieldValues["e"]))
+		ev, err := events.EventFromJSON([]byte(x.FieldValues["e"]))
 		if err != nil {
 			return nil, fmt.Errorf("log entry %s: %w", x.ID, err)
 		}
-		out = append(out, Entry{Seq: x.ID, Raw: []byte(x.FieldValues["e"]), Event: ev})
+		out = append(out, Entry{Seq: x.ID, RunID: x.FieldValues["r"], AgentID: x.FieldValues["a"], Raw: []byte(x.FieldValues["e"]), Event: ev})
 	}
 	return out, nil
 }

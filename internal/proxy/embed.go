@@ -7,10 +7,15 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"time"
 )
+
+const embedTimeout = 15 * time.Second
 
 // Embed returns the embedding of one text from the provider's /embeddings endpoint.
 func (c *Client) Embed(ctx context.Context, model, input string) ([]float32, error) {
+	ctx, cancel := context.WithTimeout(ctx, embedTimeout)
+	defer cancel()
 	body, _ := json.Marshal(map[string]any{"model": model, "input": input})
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, c.BaseURL.String()+"/embeddings", bytes.NewReader(body))
 	if err != nil {
@@ -37,8 +42,11 @@ func (c *Client) Embed(ctx context.Context, model, input string) ([]float32, err
 			Embedding []float32 `json:"embedding"`
 		} `json:"data"`
 	}
-	if err := json.Unmarshal(raw, &payload); err != nil || len(payload.Data) == 0 {
-		return nil, fmt.Errorf("embeddings: unexpected response")
+	if err := json.Unmarshal(raw, &payload); err != nil {
+		return nil, fmt.Errorf("embeddings: %w", err)
+	}
+	if len(payload.Data) == 0 {
+		return nil, fmt.Errorf("embeddings: empty response")
 	}
 	return payload.Data[0].Embedding, nil
 }

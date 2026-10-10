@@ -10,17 +10,19 @@ import (
 	"fmt"
 
 	"github.com/rs/zerolog"
+	"go.opentelemetry.io/otel"
 	"google.golang.org/adk/v2/memory"
 	"google.golang.org/adk/v2/session"
 	"google.golang.org/genai"
 
 	"agentlite/internal/proxy"
+	"agentlite/internal/stream"
 	"agentlite/pkg/db/opensearch"
 )
 
 const searchLimit = 5
 
-// Service is the OpenSearch-backed memory.
+// Service is the OpenSearch-backed memory. Runs use it through ForThread.
 type Service struct {
 	store    *opensearch.Client
 	embedder *proxy.Client
@@ -43,7 +45,7 @@ func (s *Service) AddSessionToMemory(ctx context.Context, sess session.Session) 
 		return err
 	}
 	for ev := range sess.Events().All() {
-		text := textOf(ev.Content)
+		text := stream.TextOf(ev.Content)
 		if text == "" {
 			continue
 		}
@@ -64,15 +66,33 @@ func (s *Service) AddSessionToMemory(ctx context.Context, sess session.Session) 
 	return nil
 }
 
-// SearchMemory returns the entries nearest to the query.
-func (s *Service) SearchMemory(ctx context.Context, req *memory.SearchRequest) (*memory.SearchResponse, error) {
+// ForThread is the memory as one thread sees it: searches skip the thread's
+// own turns, which the model already has in context.
+func (s *Service) ForThread(threadID string) memory.Service {
+	return &threadView{Service: s, threadID: threadID}
+}
+
+type threadView struct {
+	*Service
+	threadID string
+}
+
+// SearchMemory returns the entries nearest to the query. Memory is an
+// enhancement: when embedding or search fails the turn proceeds without
+// memories and the failure is logged.
+func (v *threadView) SearchMemory(ctx context.Context, req *memory.SearchRequest) (*memory.SearchResponse, error) {
+	ctx, span := otel.Tracer("agentlite").Start(ctx, "memory.search")
+	defer span.End()
+	s := v.Service
 	vector, err := s.embedder.Embed(ctx, s.model, req.Query)
 	if err != nil {
-		return nil, fmt.Errorf("embed: %w", err)
+		s.log.Warn().Err(err).Msg("memory search skipped: embedding failed")
+		return &memory.SearchResponse{}, nil
 	}
-	found, err := s.store.SearchMemories(ctx, vector, searchLimit)
+	found, err := s.store.SearchMemories(ctx, vector, searchLimit, v.threadID)
 	if err != nil {
-		return nil, err
+		s.log.Warn().Err(err).Msg("memory search skipped")
+		return &memory.SearchResponse{}, nil
 	}
 	resp := &memory.SearchResponse{}
 	for _, m := range found {
@@ -90,18 +110,4 @@ func (s *Service) SearchMemory(ctx context.Context, req *memory.SearchRequest) (
 func memoryID(sessionID, eventID string) string {
 	sum := sha1.Sum([]byte(sessionID + ":" + eventID))
 	return hex.EncodeToString(sum[:])
-}
-
-// textOf joins a content's plain text parts; tool calls and thoughts are skipped.
-func textOf(c *genai.Content) string {
-	if c == nil {
-		return ""
-	}
-	out := ""
-	for _, p := range c.Parts {
-		if p.Text != "" && !p.Thought {
-			out += p.Text
-		}
-	}
-	return out
 }

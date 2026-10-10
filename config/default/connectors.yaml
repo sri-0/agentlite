@@ -1,0 +1,27 @@
+# Connectors are the tool groups a user can switch on for a thread: a set of
+# function tools, or one MCP server named in mcp.yaml. A thread with no
+# choice has every connector on; the choice is remembered on the thread and
+# inherited by its sub-agents. Agents that list their own `tools:` ignore it.
+# Harness tools (task, todowrite, emit_artifact, question, report_progress)
+# are always available. `icon` is a lucide icon name.
+connectors:
+  - id: web
+    name: Web
+    description: Read public web pages.
+    icon: globe
+    tools: [read_url]
+  - id: calculator
+    name: Calculator
+    description: Exact arithmetic.
+    icon: calculator
+    tools: [calculate]
+  - id: notes
+    name: Notes
+    description: Save notes; each save asks for approval.
+    icon: notebook-pen
+    tools: [write_note]
+  - id: slides
+    name: Slides
+    description: Create and edit slide decks (open-slide).
+    icon: presentation
+    mcp: open-slide

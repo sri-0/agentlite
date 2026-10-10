@@ -10,11 +10,17 @@ import (
 	"github.com/ag-ui-protocol/ag-ui/sdks/community/go/pkg/core/events"
 	"github.com/rs/zerolog"
 	"github.com/valkey-io/valkey-go"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/attribute"
+	"go.opentelemetry.io/otel/propagation"
+	"go.opentelemetry.io/otel/trace"
 
 	"agentlite/internal/stream"
 )
 
 const leaseRefresh = 20 * time.Second
+
+var tracer = otel.Tracer("agentlite")
 
 // execute runs one queued segment. It is the worker loop's handler and talks
 // only to Valkey, so it can later run in another process.
@@ -24,10 +30,20 @@ func (s *Service) execute(ctx context.Context, fields map[string]string) error {
 		s.logger.Warn().Err(err).Msg("request for unknown run; dropped")
 		return nil
 	}
+	bg := context.WithoutCancel(ctx) // closing writes must land even during shutdown
 	if run.Status != StatusQueued {
-		// Reclaimed after a crash mid-run: never re-execute, tools have side effects.
+		// Reclaimed while running: if the thread lease still names the run, its
+		// worker is alive and the run is just long; otherwise the worker died.
+		// Never re-execute either way, tools have side effects.
+		active, err := s.runs.active(ctx, run.ThreadID)
+		s.logger.Debug().Str("run", run.ID).Str("status", string(run.Status)).Err(err).Msg("run delivered again")
+		if err == nil && active != nil && active.ID == run.ID {
+			return nil
+		}
 		if run.Status == StatusRunning {
-			s.settle(ctx, run, StatusError, "", "run was interrupted by a restart")
+			const msg = "run was interrupted by a restart"
+			s.sinkFor(bg, run).Emit(events.NewRunErrorEvent(msg, events.WithRunID(run.ID)))
+			s.settle(bg, run, StatusError, "", msg)
 		}
 		return nil
 	}
@@ -36,7 +52,10 @@ func (s *Service) execute(ctx context.Context, fields map[string]string) error {
 	}
 	run.Status = StatusRunning
 
-	runCtx, cancel := context.WithCancel(ctx)
+	runCtx, span := tracer.Start(otel.GetTextMapPropagator().Extract(ctx, propagation.MapCarrier(fields)), "run", trace.WithAttributes(
+		attribute.String("thread.id", run.ThreadID), attribute.String("run.id", run.ID), attribute.String("agent.id", run.AgentID)))
+	defer span.End()
+	runCtx, cancel := context.WithCancel(runCtx)
 	defer cancel()
 	go s.watchControl(runCtx, run, cancel)
 	go s.keepLease(runCtx, run.ThreadID)
@@ -47,24 +66,29 @@ func (s *Service) execute(ctx context.Context, fields map[string]string) error {
 			return fmt.Errorf("resume payload: %w", err)
 		}
 	}
-	sink := &appendSink{ctx: ctx, log: s.log, threadID: run.ThreadID, logger: s.logger}
-	status, result, err := s.runEngine(runCtx, in, sink)
+	result, err := s.runEngine(runCtx, in, s.sinkFor(bg, run))
+	cancel() // stop refreshing the lease before settle may persist it
 	errText := ""
 	if err != nil {
 		errText = err.Error()
 	}
-	s.settle(ctx, run, status, result, errText)
+	if result.Status == StatusAwaitingInput {
+		if err := s.hitl.Add(bg, run.ThreadID, run.ID, result.Interrupts); err != nil {
+			s.logger.Error().Err(err).Str("run", run.ID).Msg("record interrupts")
+		}
+	}
+	s.settle(bg, run, result.Status, result.Text, errText)
 	return nil
 }
 
 // runEngine turns a panic in a run into a failed run instead of a dead process.
-func (s *Service) runEngine(ctx context.Context, in Input, sink stream.Sink) (status Status, result string, err error) {
+func (s *Service) runEngine(ctx context.Context, in Input, sink stream.Sink) (result Result, err error) {
 	defer func() {
 		if r := recover(); r != nil {
 			s.logger.Error().Str("run", in.Run.ID).Interface("panic", r).Str("stack", string(debug.Stack())).Msg("run panicked")
 			err = fmt.Errorf("internal error: %v", r)
 			sink.Emit(events.NewRunErrorEvent(err.Error(), events.WithRunID(in.Run.ID)))
-			status = StatusError
+			result = Result{Status: StatusError}
 		}
 	}()
 	return s.engine.Run(ctx, in, sink)
@@ -82,7 +106,9 @@ func (s *Service) settle(ctx context.Context, run *Run, status Status, result, e
 		s.logger.Error().Err(err).Str("run", run.ID).Msg("record outcome")
 	}
 	if status == StatusAwaitingInput {
-		s.runs.persistLease(ctx, run.ThreadID)
+		if err := s.runs.persistLease(ctx, run.ThreadID); err != nil {
+			s.logger.Error().Err(err).Str("run", run.ID).Msg("persist lease")
+		}
 	}
 	done := &queue{db: s.db, key: doneKey}
 	if err := done.enqueue(ctx, map[string]string{"run_id": run.ID, "status": string(status)}); err != nil {
@@ -114,18 +140,21 @@ func (s *Service) keepLease(ctx context.Context, threadID string) {
 	}
 }
 
-// appendSink writes events to the thread log. It uses the worker's context,
-// not the cancellable run context, so the closing events of a cancelled run
-// still reach the log.
+// appendSink writes a run's events to the thread log. Its context outlives
+// the run, so the closing events of a cancelled run or a shutdown still land.
 type appendSink struct {
-	ctx      context.Context
-	log      Log
-	threadID string
-	logger   zerolog.Logger
+	ctx    context.Context
+	log    Log
+	run    *Run
+	logger zerolog.Logger
+}
+
+func (s *Service) sinkFor(ctx context.Context, run *Run) *appendSink {
+	return &appendSink{ctx: ctx, log: s.log, run: run, logger: s.logger}
 }
 
 func (a *appendSink) Emit(e stream.Event) {
-	if _, err := a.log.Append(a.ctx, a.threadID, e); err != nil {
-		a.logger.Error().Err(err).Str("thread", a.threadID).Msg("append event")
+	if _, err := a.log.Append(a.ctx, a.run.ThreadID, a.run.ID, a.run.AgentID, e); err != nil {
+		a.logger.Error().Err(err).Str("thread", a.run.ThreadID).Msg("append event")
 	}
 }

@@ -12,9 +12,21 @@ import (
 // ModelsConfig is config/default/models.yaml: the upstream providers, the
 // models they serve, and which provider answers the pass-through routes.
 type ModelsConfig struct {
-	Providers []Provider    `yaml:"providers"`
-	Proxy     Proxy         `yaml:"proxy"`
-	Memory    *MemoryConfig `yaml:"memory"`
+	Providers    []Provider    `yaml:"providers"`
+	Proxy        Proxy         `yaml:"proxy"`
+	Memory       *MemoryConfig `yaml:"memory"`
+	DefaultModel string        `yaml:"default_model"` // answers when a request names no model
+	Compaction   *Compaction   `yaml:"compaction"`    // nil disables context compaction
+}
+
+// Compaction configures adk's session compaction for every run: a summary
+// every Interval user turns, keeping Overlap turns for continuity, and a
+// tail-retention pass when the prompt exceeds TokenThreshold of the model's
+// context window.
+type Compaction struct {
+	Interval       int     `yaml:"interval"`
+	Overlap        int     `yaml:"overlap"`
+	TokenThreshold float64 `yaml:"token_threshold"`
 }
 
 // MemoryConfig enables long-term memory: which model embeds entries and the
@@ -22,6 +34,9 @@ type ModelsConfig struct {
 type MemoryConfig struct {
 	EmbeddingModel string `yaml:"embedding_model"`
 	Dimensions     int    `yaml:"dimensions"`
+	// Preload searches memory before every model call of a user-started run;
+	// off, the agent decides when to search with the load_memory tool.
+	Preload bool `yaml:"preload"`
 }
 
 // Provider is one OpenAI-compatible upstream. Secrets are named by environment
@@ -88,6 +103,12 @@ func LoadModels(dir string) (*ModelsConfig, error) {
 	var cfg ModelsConfig
 	if err := yaml.Unmarshal(raw, &cfg); err != nil {
 		return nil, fmt.Errorf("models.yaml: %w", err)
+	}
+	if cfg.DefaultModel == "" {
+		return nil, fmt.Errorf("models.yaml: default_model is required")
+	}
+	if c := cfg.Compaction; c != nil && (c.Interval <= 0 || c.Overlap < 0 || c.Overlap >= c.Interval || c.TokenThreshold < 0 || c.TokenThreshold > 1) {
+		return nil, fmt.Errorf("models.yaml: compaction needs interval > overlap >= 0 and token_threshold within 0..1")
 	}
 	cfg.Proxy.Provider = os.ExpandEnv(cfg.Proxy.Provider)
 	for i := range cfg.Providers {

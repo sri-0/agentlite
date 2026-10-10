@@ -356,7 +356,7 @@ type Sink interface {
 }
 ```
 
-Compaction for storage (`stream.Compact`): merge contiguous `TEXT_MESSAGE_CONTENT` for the
+Coalescing for storage (`stream.Coalesce`): merge contiguous `TEXT_MESSAGE_CONTENT` for the
 same `messageId` into one, likewise `REASONING_MESSAGE_CONTENT` and `TOOL_CALL_ARGS`; keep every
 other event. Only contiguous deltas within a start/end pair are merged, so the result is a
 valid event sequence (`ValidateSequence` is run on it in development) and the client's
@@ -393,15 +393,16 @@ one place. The picker still lets a user choose a specific agent (`chat` for a pl
 pipeline directly). adk's `transfer_to_agent` remains available to agents that declare
 `subagents` without the `task` tool, but nothing in v1 uses it.
 
-Agents are built per run from the definition plus the per-request model override. There is no
-global registry of built agents.
+Agents are built per run from the definition and the request's model, which every step, the
+router's classifier, the compaction summarizer and child runs use; agents never name a model.
+There is no global registry of built agents.
 
 **In-run sub-agents (workflow kinds).** Steps of a sequential, parallel, loop or graph agent run
 inside the one run and session. The encoder wraps each adk sub-agent's events in `STEP_STARTED
-/ STEP_FINISHED {stepName: <agent id>}` (adk sets `Author` and `Branch` on every event), and
-emits a `step` activity `{id, agent, status}` so the UI can group that step's text, reasoning
-and tools into a card. The output agent's step is rendered as the main answer. Nothing is
-hidden and nothing is duplicated.
+/ STEP_FINISHED {stepName: <agent id>}` (adk sets `Author` on every event; steps are tracked
+per author, so a parallel agent's interleaved sub-agents each get their own step) and the UI
+groups a step's text, reasoning and tools by those markers. Nothing is hidden and nothing is
+duplicated.
 
 **Dynamic sub-agents (swarm): a child thread per sub-agent.** The `task` tool
 (`task(subagent_type, description, prompt)`):
@@ -441,9 +442,9 @@ record; if a session is missing (TTL, Valkey restore), `run.Service` rebuilds it
 instruction and its tools; from phase 5, memories preloaded for the turn. It decides per
 message whether to dispatch children; children never share this session.
 
-**Workflow steps** (sequential/parallel/loop/graph). Share the run's session and state;
-`output_key` on a step writes its result into state, and later steps read it with
-`{state_key}` in their instruction. This is adk's native data flow and needs nothing from us.
+**Workflow steps** (sequential/parallel/loop/graph). Share the run's session, so a later step
+sees an earlier step's output in the conversation. This is adk's native data flow and needs
+nothing from us.
 
 **Swarm children** (task tool). A child has its own thread and session and sees only the
 prompt the parent wrote for it, its instruction and its tools. The parent sees the
@@ -604,7 +605,7 @@ Structured like `agentic` so the migration reads as a move, not a rewrite. Old �
 | `internal/server` | `internal/server` | Echo router, middleware, zerolog request log |
 | `internal/handler` | `internal/handler` | `proxy.go`, `ws.go`, `threads.go`, `agents.go`, `models.go` |
 | `internal/agent` (Core, coordinator, stream loop) | `internal/agent` | `run.go`, `service.go`, `worker.go`, `finalizer.go`, `log.go`, `valkey.go` (the run lifecycle) |
-| `internal/stream` (encoders) | `internal/stream` | `encode.go` (adk event → AG-UI event), `compact.go`, `events.go` (our conventions over the AG-UI SDK types) |
+| `internal/stream` (encoders) | `internal/stream` | `encode.go` (adk event → AG-UI event), `coalesce.go`, `events.go` (our conventions over the AG-UI SDK types) |
 | `agents/` (implementations), `internal/roster` | `agents/` | `roster.go` (definitions from files), `build.go` (kinds → adk agents), `seed.go` (events → session), `session_valkey.go` |
 | `internal/tools` | `internal/tools` | one file per tool; `task.go`, `question.go`, `report_progress.go` |
 | `internal/mcp` | `internal/mcp` | `mcp.yaml` → `mcptoolset`s |
@@ -622,7 +623,7 @@ Seams (the only interfaces; everything else is concrete):
 // internal/stream
 type Event = events.Event                           // AG-UI Go SDK
 func Encode(ev *session.Event, ctx EncodeContext) []Event   // adk → AG-UI; EncodeContext carries turnId, output agent, step state
-func Compact(evs []Event) []Event
+func Coalesce(evs []Event) []Event
 
 // internal/agent
 type Log interface {
@@ -725,7 +726,7 @@ zustand UI store and the TanStack hooks for threads, agents and models stay.
 |---|---|---|---|
 | AI-SDK encoder | clean | **reference only**; replaced by `stream.Encode` to AG-UI | the part shapes now live in the browser reducer's view model |
 | OpenAI/ag_ui encoder, `internal/sse`, non-stream paths | unused | **drop** | |
-| Event log, pump, projector | right idea, 3 copies of shapes | **redesign** into `agent.Log` + `stream.Compact` | |
+| Event log, pump, projector | right idea, 3 copies of shapes | **redesign** into `agent.Log` + `stream.Coalesce` | |
 | Run coordinator | in-process maps | **redesign** as `agent.Service` on Valkey | second turn while busy → `busy` |
 | HITL store, resume handler | fragile | **replace** with adk-native + `resume` frame (§3.11) | |
 | Chat handler (routing, RAG, templates, memory injection) | messy | **redesign**; routing is the assistant's per-message dispatch; memory via adk tools; RAG and templates later | |
@@ -791,7 +792,12 @@ per agent; LLM titles as a post-run hook.
 Checkpoint: a fact stated in one thread is recalled in a new thread; a 30-turn thread compacts
 and the next answer still references early context; thread titles appear.
 
-**Deviations from the text above, as built.** `task` emits `SUBAGENT_*` plus the `agent` card
+**Deviations from the text above, as built.** Runs start over REST (`POST /v1/agent/chat`, the
+chat-completions shape plus `thread_id`, `agent_id`, `connectors`) on threads the server
+created on demand from the first run; decisions and cancels are REST too, and the socket only
+subscribes. Connectors (`connectors.yaml`) are the user-facing tool groups, stored per thread
+and inherited by sub-agents; agents with explicit `tools:` ignore them. `auto` is a `router`
+kind rather than the assistant deciding per message. `task` emits `SUBAGENT_*` plus the `agent` card
 but no `task_list` rows (the task list stays the `todowrite` tool's). Workflow steps are
 delimited by `STEP_STARTED/FINISHED{stepName}` only; there is no `step` activity. The answer
 to a client-answered tool is recorded as `TOOL_CALL_RESULT` on resume, and approvals as
@@ -812,7 +818,7 @@ Tests are deferred by decision. Each checkpoint above is exercised with `curl` f
 proxies and `websocat` for the socket (`websocat ws://localhost:8000/v1/agent/chat?v=1`, then
 paste `run` / `subscribe` frames). Development scripts stay uncommitted.
 
-When tests are added, these are the ones worth having, in order: `stream.Compact` keeps
+When tests are added, these are the ones worth having, in order: `stream.Coalesce` keeps
 `ValidateSequence` green; reducer golden fixtures in the UI repo (recorded event sequences →
 expected view model); `agent.Service` lifecycle
 with the memory log (start, subscribe-after, pause/resume, cancel, orphan, idempotent start);

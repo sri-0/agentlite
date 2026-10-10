@@ -9,6 +9,7 @@ import (
 
 	"agentlite/internal/agent"
 	"agentlite/internal/config"
+	"agentlite/internal/engine"
 	"agentlite/internal/proxy"
 	"agentlite/pkg/db/opensearch"
 )
@@ -18,6 +19,7 @@ type Handler struct {
 	Config   *config.Config
 	Registry *proxy.Registry
 	Service  *agent.Service
+	Engine   *engine.Engine
 	Store    *opensearch.Client
 	Log      zerolog.Logger
 }

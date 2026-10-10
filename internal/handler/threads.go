@@ -52,22 +52,30 @@ func (h *Handler) Thread(c *echo.Context) error {
 		return err
 	}
 	item := threadItem{Thread: *t}
-	if active, err := h.Service.ActiveRuns(ctx); err == nil {
-		if run, ok := active[t.ID]; ok {
-			item.RunStatus = string(run.Status)
-		}
+	run, err := h.Service.Active(ctx, t.ID)
+	if err != nil {
+		return err
+	}
+	if run != nil {
+		item.RunStatus = string(run.Status)
 	}
 	return c.JSON(http.StatusOK, item)
 }
 
-// UpdateThread renames a thread.
+// UpdateThread renames a thread or changes its connectors.
 func (h *Handler) UpdateThread(c *echo.Context) error {
 	ctx := c.Request().Context()
 	var body struct {
-		Title string `json:"title"`
+		Title      string    `json:"title"`
+		Connectors *[]string `json:"connectors"`
 	}
-	if err := c.Bind(&body); err != nil || body.Title == "" {
-		return echo.NewHTTPError(http.StatusBadRequest, "title is required")
+	if err := c.Bind(&body); err != nil || (body.Title == "" && body.Connectors == nil) {
+		return echo.NewHTTPError(http.StatusBadRequest, "title or connectors is required")
+	}
+	if body.Connectors != nil {
+		if err := h.Config.CheckConnectors(*body.Connectors); err != nil {
+			return echo.NewHTTPError(http.StatusBadRequest, err.Error())
+		}
 	}
 	t, err := h.Store.Thread(ctx, c.Param("id"))
 	if errors.Is(err, opensearch.ErrNotFound) {
@@ -76,16 +84,30 @@ func (h *Handler) UpdateThread(c *echo.Context) error {
 	if err != nil {
 		return err
 	}
-	t.Title = body.Title
+	if body.Title != "" {
+		t.Title = body.Title
+	}
+	if body.Connectors != nil {
+		t.Connectors = body.Connectors
+	}
 	if err := h.Store.SaveThread(ctx, t); err != nil {
 		return err
 	}
 	return c.JSON(http.StatusOK, t)
 }
 
-// DeleteThread removes a thread and its messages.
+// DeleteThread removes a root thread, its sub-agent threads and all their
+// messages. A thread with an active run is refused.
 func (h *Handler) DeleteThread(c *echo.Context) error {
-	if err := h.Store.DeleteThread(c.Request().Context(), c.Param("id")); err != nil {
+	ctx := c.Request().Context()
+	run, err := h.Service.Active(ctx, c.Param("id"))
+	if err != nil {
+		return err
+	}
+	if run != nil {
+		return echo.NewHTTPError(http.StatusConflict, "thread has an active run")
+	}
+	if err := h.Store.DeleteThread(ctx, c.Param("id")); err != nil {
 		return err
 	}
 	return c.NoContent(http.StatusNoContent)
@@ -105,10 +127,12 @@ func (h *Handler) Messages(c *echo.Context) error {
 		return err
 	}
 	cursor := ""
-	if active, err := h.Service.ActiveRuns(ctx); err == nil {
-		if run, ok := active[c.Param("id")]; ok {
-			cursor = run.TurnFrom
-		}
+	run, err := h.Service.Active(ctx, c.Param("id"))
+	if err != nil {
+		return err
+	}
+	if run != nil {
+		cursor = run.TurnFrom
 	}
 	resp := struct {
 		list[opensearch.Message]

@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 
@@ -14,9 +15,6 @@ import (
 const (
 	KindLLM        = "llm"
 	KindSequential = "sequential"
-	KindParallel   = "parallel"
-	KindLoop       = "loop"
-	KindGraph      = "graph"
 
 	ModePrimary  = "primary"
 	ModeSubagent = "subagent"
@@ -31,38 +29,14 @@ type AgentDef struct {
 	Description string `yaml:"description" json:"description,omitempty"`
 	Kind        string `yaml:"kind" json:"kind"`
 	Mode        string `yaml:"mode" json:"mode"`
-	Model       string `yaml:"model" json:"model,omitempty"`
-	Provider    string `yaml:"provider" json:"provider,omitempty"`
 
 	// Tools is nil when omitted (every registered tool) and empty for none.
 	Tools     *[]string `yaml:"tools" json:"tools,omitempty"`
 	Subagents []string  `yaml:"subagents" json:"subagents,omitempty"`
-	Edges     []Edge    `yaml:"edges" json:"edges,omitempty"`
 
-	MaxIterations   int         `yaml:"max_iterations" json:"max_iterations,omitempty"`
-	MaxOutputTokens int         `yaml:"max_output_tokens" json:"max_output_tokens,omitempty"`
-	OutputKey       string      `yaml:"output_key" json:"output_key,omitempty"`
-	Compaction      *Compaction `yaml:"compaction" json:"compaction,omitempty"`
+	MaxOutputTokens int `yaml:"max_output_tokens" json:"max_output_tokens,omitempty"`
 
 	Instruction string `yaml:"-" json:"system_prompt,omitempty"`
-}
-
-// Edge is one connection of a graph agent; Route names a state key whose value
-// selects the edge when several leave the same node.
-type Edge struct {
-	From  string `yaml:"from" json:"from"`
-	To    string `yaml:"to" json:"to"`
-	Route string `yaml:"route" json:"route,omitempty"`
-}
-
-// Compaction configures adk's session compaction for an agent: a summary
-// every Interval user turns, keeping Overlap turns for continuity, and a
-// tail-retention pass when the prompt exceeds TokenThreshold of the model's
-// context window.
-type Compaction struct {
-	Interval       int     `yaml:"interval" json:"interval,omitempty"`
-	Overlap        int     `yaml:"overlap" json:"overlap,omitempty"`
-	TokenThreshold float64 `yaml:"token_threshold" json:"token_threshold,omitempty"`
 }
 
 // Primary reports whether the agent can be selected directly by a user.
@@ -89,13 +63,38 @@ func LoadAgents(dir string) ([]AgentDef, error) {
 		defs = append(defs, def)
 	}
 	for _, d := range defs {
-		for _, sub := range d.Subagents {
-			if !seen[sub] {
-				return nil, fmt.Errorf("agent %q: unknown subagent %q", d.ID, sub)
-			}
+		if err := d.validate(seen); err != nil {
+			return nil, fmt.Errorf("agent %q: %w", d.ID, err)
 		}
 	}
 	return defs, nil
+}
+
+// validate checks what can be known before a run: every reference resolves
+// and every kind has what it needs.
+func (a AgentDef) validate(known map[string]bool) error {
+	switch a.Kind {
+	case KindLLM, KindSequential:
+	default:
+		return fmt.Errorf("unknown kind %q", a.Kind)
+	}
+	switch a.Mode {
+	case ModePrimary, ModeSubagent, ModeAll:
+	default:
+		return fmt.Errorf("unknown mode %q", a.Mode)
+	}
+	if a.Kind != KindLLM && len(a.Subagents) == 0 {
+		return fmt.Errorf("kind %s needs subagents", a.Kind)
+	}
+	if a.Kind == KindLLM && len(a.Subagents) > 0 && a.Tools != nil && !slices.Contains(*a.Tools, "task") {
+		return fmt.Errorf("subagents are unreachable without the task tool")
+	}
+	for _, sub := range a.Subagents {
+		if !known[sub] {
+			return fmt.Errorf("unknown subagent %q", sub)
+		}
+	}
+	return nil
 }
 
 func parseAgentFile(path string) (AgentDef, error) {

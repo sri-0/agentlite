@@ -1,4 +1,4 @@
-package agents
+package engine
 
 import (
 	"context"
@@ -57,11 +57,15 @@ func seedEvents(ctx context.Context, m opensearch.Message, author string) []*ses
 	args := map[string]string{}
 	names := map[string]string{}
 	for _, raw := range m.Events {
-		ev, err := stream.Unmarshal(raw)
+		ev, err := events.EventFromJSON(raw)
 		if err != nil {
 			continue
 		}
 		switch e := ev.(type) {
+		case *events.RunStartedEvent:
+			if id, _ := e.GetBaseEvent().Metadata[stream.MetaAgentID].(string); id != "" {
+				author = id // the agent that answered, not the router that chose it
+			}
 		case *events.TextMessageContentEvent:
 			part().Content.Parts = append(part().Content.Parts, genai.NewPartFromText(e.Delta))
 		case *events.ToolCallStartEvent:

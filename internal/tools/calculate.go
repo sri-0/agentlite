@@ -17,7 +17,7 @@ type calculateArgs struct {
 
 // calculate evaluates a constant arithmetic expression with Go's constant
 // evaluator, so there is no parser to maintain and nothing can be executed.
-func calculate(Deps) (tool.Tool, error) {
+func calculate() (tool.Tool, error) {
 	return functiontool.New(functiontool.Config{
 		Name:        "calculate",
 		Description: "Evaluate an arithmetic expression exactly.",

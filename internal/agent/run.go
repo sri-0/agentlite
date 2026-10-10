@@ -1,9 +1,11 @@
 // Package agent is the run lifecycle: starting, executing, finalising and
-// subscribing to runs. Everything crosses between its parts as data in Valkey,
-// so the worker loop can later move to another process unchanged.
+// subscribing to runs. Everything crosses between its parts as data in
+// Valkey, which is what will let the worker loop move to another process.
 package agent
 
 import (
+	"context"
+	"encoding/json"
 	"strconv"
 	"time"
 )
@@ -35,29 +37,37 @@ type Run struct {
 	RootID      string
 	AgentID     string
 	Model       string
-	MessageID   string // the user message that started the turn
-	TurnID      string // the assistant message id
-	TurnSeq     int64  // the assistant message's position in the thread
-	TurnFrom    string // log cursor before the turn's first event
-	SegmentFrom string // log cursor before the current segment's first event
+	MessageID   string    // the user message that started the turn
+	TurnID      string    // the assistant message id
+	TurnSeq     int64     // the assistant message's position in the thread
+	TurnFrom    string    // log cursor before the turn's first event
+	SegmentFrom string    // log cursor before the current segment's first event
+	Connectors  *[]string // the thread's enabled connectors at start; nil means all
 	Status      Status
 	Result      string // final text, capped
 	Error       string
 	StartedAt   time.Time
-	UpdatedAt   time.Time
 }
 
 const resultCap = 64 << 10
 
+// Root reports whether the run was started by a user rather than by a
+// parent run's task tool.
+func (r *Run) Root() bool { return r.RootID == r.ThreadID }
+
 func (r *Run) fields() map[string]string {
-	return map[string]string{
+	f := map[string]string{
 		"id": r.ID, "thread_id": r.ThreadID, "root_id": r.RootID, "agent_id": r.AgentID, "model": r.Model,
 		"message_id": r.MessageID, "turn_id": r.TurnID, "turn_seq": strconv.FormatInt(r.TurnSeq, 10),
 		"turn_from": r.TurnFrom, "segment_from": r.SegmentFrom, "status": string(r.Status),
 		"result": r.Result, "error": r.Error,
 		"started_at": strconv.FormatInt(r.StartedAt.UnixMilli(), 10),
-		"updated_at": strconv.FormatInt(r.UpdatedAt.UnixMilli(), 10),
 	}
+	if r.Connectors != nil {
+		raw, _ := json.Marshal(r.Connectors)
+		f["connectors"] = string(raw)
+	}
+	return f
 }
 
 func runFromFields(f map[string]string) *Run {
@@ -65,11 +75,26 @@ func runFromFields(f map[string]string) *Run {
 		v, _ := strconv.ParseInt(f[k], 10, 64)
 		return v
 	}
-	return &Run{
+	r := &Run{
 		ID: f["id"], ThreadID: f["thread_id"], RootID: f["root_id"], AgentID: f["agent_id"], Model: f["model"],
 		MessageID: f["message_id"], TurnID: f["turn_id"], TurnSeq: n("turn_seq"),
 		TurnFrom: f["turn_from"], SegmentFrom: f["segment_from"], Status: Status(f["status"]),
 		Result: f["result"], Error: f["error"],
-		StartedAt: time.UnixMilli(n("started_at")), UpdatedAt: time.UnixMilli(n("updated_at")),
+		StartedAt: time.UnixMilli(n("started_at")),
 	}
+	if raw, ok := f["connectors"]; ok {
+		_ = json.Unmarshal([]byte(raw), &r.Connectors)
+	}
+	return r
 }
+
+type runCtxKey struct{}
+
+// WithRun attaches the run a tool call is serving; RunFrom reads it back so a
+// tool can start child runs on the same model.
+func WithRun(ctx context.Context, r *Run) context.Context {
+	return context.WithValue(ctx, runCtxKey{}, r)
+}
+
+// RunFrom returns the run attached by WithRun, or nil.
+func RunFrom(ctx context.Context) *Run { r, _ := ctx.Value(runCtxKey{}).(*Run); return r }

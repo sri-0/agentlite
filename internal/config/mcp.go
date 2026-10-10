@@ -9,8 +9,8 @@ import (
 	"github.com/goccy/go-yaml"
 )
 
-// MCPConfig is config/default/mcp.yaml. Each server becomes one adk toolset
-// whose tools are exposed as <server>_<tool>.
+// MCPConfig is config/default/mcp.yaml. Each server becomes one adk toolset;
+// its tools keep their MCP names.
 type MCPConfig struct {
 	Servers map[string]MCPServer `yaml:"servers"`
 }

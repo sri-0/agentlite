@@ -1,4 +1,6 @@
-package agents
+// Package valkeysession is an adk session.Service on Valkey: one hash of
+// metadata, one list of events and one hash of state per session.
+package valkeysession
 
 import (
 	"context"
@@ -25,7 +27,7 @@ const sessionTTL = 30 * 24 * time.Hour
 type SessionService struct{ db valkey.Client }
 
 // NewSessionService wraps a client.
-func NewSessionService(db valkey.Client) *SessionService { return &SessionService{db: db} }
+func New(db valkey.Client) *SessionService { return &SessionService{db: db} }
 
 func sessionKey(id string) string     { return "session:" + id }
 func eventsKey(id string) string      { return "session:" + id + ":events" }
@@ -40,21 +42,23 @@ func (s *SessionService) Create(ctx context.Context, req *session.CreateRequest)
 	now := time.Now()
 	sess := &localSession{app: req.AppName, user: req.UserID, id: id, state: map[string]any{}, updatedAt: now}
 	maps.Copy(sess.state, req.State)
+	secs := int64(sessionTTL.Seconds())
 	cmds := valkey.Commands{
 		s.db.B().Hset().Key(sessionKey(id)).FieldValue().FieldValue("app", req.AppName).FieldValue("user", req.UserID).
 			FieldValue("updated", now.Format(time.RFC3339Nano)).Build(),
+		s.db.B().Expire().Key(sessionKey(id)).Seconds(secs).Build(),
 		s.db.B().Sadd().Key(sessionsIndex(req.AppName)).Member(id).Build(),
 	}
 	for k, v := range sess.state {
 		raw, _ := json.Marshal(v)
-		cmds = append(cmds, s.db.B().Hset().Key(stateKey(id)).FieldValue().FieldValue(k, string(raw)).Build())
+		cmds = append(cmds, s.db.B().Hset().Key(stateKey(id)).FieldValue().FieldValue(k, string(raw)).Build(),
+			s.db.B().Expire().Key(stateKey(id)).Seconds(secs).Build())
 	}
 	for _, r := range s.db.DoMulti(ctx, cmds...) {
 		if err := r.Error(); err != nil {
 			return nil, fmt.Errorf("session create: %w", err)
 		}
 	}
-	s.touch(ctx, id)
 	return &session.CreateResponse{Session: sess}, nil
 }
 
@@ -79,7 +83,11 @@ func (s *SessionService) Get(ctx context.Context, req *session.GetRequest) (*ses
 			sess.state[k] = val
 		}
 	}
-	rawEvents, err := s.db.Do(ctx, s.db.B().Lrange().Key(eventsKey(req.SessionID)).Start(0).Stop(-1).Build()).AsStrSlice()
+	start := int64(0)
+	if req.NumRecentEvents > 0 && req.After.IsZero() {
+		start = -int64(req.NumRecentEvents) // only the tail is wanted
+	}
+	rawEvents, err := s.db.Do(ctx, s.db.B().Lrange().Key(eventsKey(req.SessionID)).Start(start).Stop(-1).Build()).AsStrSlice()
 	if err != nil {
 		return nil, fmt.Errorf("session events: %w", err)
 	}
@@ -147,31 +155,27 @@ func (s *SessionService) AppendEvent(ctx context.Context, cur session.Session, e
 	if err != nil {
 		return fmt.Errorf("session event: %w", err)
 	}
-	cmds := valkey.Commands{
+	secs := int64(sessionTTL.Seconds())
+	cmds := valkey.Commands{ // one transaction: the event, its state and the refreshed expiry land together
+		s.db.B().Multi().Build(),
 		s.db.B().Rpush().Key(eventsKey(sess.id)).Element(string(raw)).Build(),
 		s.db.B().Hset().Key(sessionKey(sess.id)).FieldValue().FieldValue("updated", event.Timestamp.Format(time.RFC3339Nano)).Build(),
+		s.db.B().Expire().Key(sessionKey(sess.id)).Seconds(secs).Build(),
+		s.db.B().Expire().Key(eventsKey(sess.id)).Seconds(secs).Build(),
+		s.db.B().Expire().Key(stateKey(sess.id)).Seconds(secs).Build(),
 	}
 	for k, v := range stored.Actions.StateDelta {
 		val, _ := json.Marshal(v)
 		cmds = append(cmds, s.db.B().Hset().Key(stateKey(sess.id)).FieldValue().FieldValue(k, string(val)).Build())
 	}
+	cmds = append(cmds, s.db.B().Exec().Build())
 	for _, r := range s.db.DoMulti(ctx, cmds...) {
 		if err := r.Error(); err != nil {
 			return fmt.Errorf("session append: %w", err)
 		}
 	}
-	s.touch(ctx, sess.id)
 	sess.append(stored)
 	return nil
-}
-
-func (s *SessionService) touch(ctx context.Context, id string) {
-	secs := int64(sessionTTL.Seconds())
-	s.db.DoMulti(ctx,
-		s.db.B().Expire().Key(sessionKey(id)).Seconds(secs).Build(),
-		s.db.B().Expire().Key(eventsKey(id)).Seconds(secs).Build(),
-		s.db.B().Expire().Key(stateKey(id)).Seconds(secs).Build(),
-	)
 }
 
 // stripTempState drops temp: keys, which adk defines as never persisted.

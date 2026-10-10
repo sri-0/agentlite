@@ -76,8 +76,12 @@ func (r *runs) persistLease(ctx context.Context, threadID string) error {
 	return r.db.Do(ctx, r.db.B().Persist().Key(threadRunKey(threadID)).Build()).Error()
 }
 
-func (r *runs) releaseThread(ctx context.Context, threadID string) error {
-	return r.db.Do(ctx, r.db.B().Del().Key(threadRunKey(threadID)).Build()).Error()
+// releaseScript deletes the thread's active pointer only while it still
+// names the run, so a redelivered notice cannot release a newer run.
+var releaseScript = valkey.NewLuaScript(`if redis.call('GET', KEYS[1]) == ARGV[1] then return redis.call('DEL', KEYS[1]) end return 0`)
+
+func (r *runs) releaseThread(ctx context.Context, threadID, runID string) error {
+	return releaseScript.Exec(ctx, r.db, []string{threadRunKey(threadID)}, []string{runID}).Error()
 }
 
 // active returns the thread's active run, or nil.

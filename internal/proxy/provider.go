@@ -11,7 +11,6 @@ import (
 	"net/url"
 	"os"
 	"strings"
-	"time"
 
 	"agentlite/internal/config"
 )
@@ -54,7 +53,6 @@ func newTransport(p config.Provider) (http.RoundTripper, error) {
 	t := http.DefaultTransport.(*http.Transport).Clone()
 	t.ForceAttemptHTTP2 = true
 	t.DisableCompression = true // streams must not be buffered by gzip
-	t.ResponseHeaderTimeout = 60 * time.Second
 	t.MaxIdleConnsPerHost = 100
 	tlsCfg, err := tlsConfig(p)
 	if err != nil {

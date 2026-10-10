@@ -46,9 +46,19 @@ type OpenSearch struct {
 // Config is the full configuration: environment plus the files in ConfigDir.
 type Config struct {
 	Env
-	Models *ModelsConfig
-	MCP    *MCPConfig
-	Agents []AgentDef
+	Models     *ModelsConfig
+	MCP        *MCPConfig
+	Connectors []Connector
+	Agents     []AgentDef
+}
+
+// Defs indexes the agents by id.
+func (c *Config) Defs() map[string]AgentDef {
+	defs := make(map[string]AgentDef, len(c.Agents))
+	for _, d := range c.Agents {
+		defs[d.ID] = d
+	}
+	return defs
 }
 
 // Load reads the environment and every configuration file.
@@ -62,6 +72,9 @@ func Load(ctx context.Context) (*Config, error) {
 		return nil, err
 	}
 	if cfg.MCP, err = LoadMCP(cfg.ConfigDir); err != nil {
+		return nil, err
+	}
+	if cfg.Connectors, err = LoadConnectors(cfg.ConfigDir, cfg.MCP.Servers); err != nil {
 		return nil, err
 	}
 	if cfg.Agents, err = LoadAgents(cfg.ConfigDir); err != nil {

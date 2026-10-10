@@ -17,7 +17,7 @@ import (
 )
 
 // New wires middleware and routes.
-func New(cfg *config.Config, h *handler.Handler, log zerolog.Logger) *echo.Echo {
+func New(cfg *config.Config, h *handler.Handler, log zerolog.Logger) (*echo.Echo, error) {
 	e := echo.New()
 	e.Logger = slog.Default()
 	e.Use(middleware.RequestID())
@@ -41,14 +41,19 @@ func New(cfg *config.Config, h *handler.Handler, log zerolog.Logger) *echo.Echo 
 	e.GET("/health", h.Health)
 	e.GET("/v1/models", h.Models)
 	e.GET("/v1/agents", h.Agents)
+	e.GET("/v1/connectors", h.Connectors)
+	e.GET("/v1/connectors/:id", h.Connector)
 	e.GET("/v1/threads", h.Threads)
 	e.GET("/v1/threads/:id", h.Thread)
 	e.PATCH("/v1/threads/:id", h.UpdateThread)
 	e.DELETE("/v1/threads/:id", h.DeleteThread)
 	e.GET("/v1/threads/:id/messages", h.Messages)
+	e.GET("/v1/threads/:id/interrupts", h.Interrupts)
+	e.POST("/v1/threads/:id/interrupts/:iid", h.DecideInterrupt)
+	e.POST("/v1/threads/:id/cancel", h.CancelRun)
+	e.POST("/v1/agent/chat", h.StartRun)
 	e.GET("/v1/agent/chat", h.Chat)
-	h.RegisterProxies(e)
-	return e
+	return e, h.RegisterProxies(e)
 }
 
 // Run serves until ctx is cancelled, then shuts down gracefully.

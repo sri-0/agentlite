@@ -1,8 +1,10 @@
 package tools
 
 import (
+	"context"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"strings"
 	"time"
@@ -25,8 +27,13 @@ type readURLArgs struct {
 
 // readURL fetches a page and returns its visible text, capped so a page can
 // never flood the context or the log.
-func readURL(Deps) (tool.Tool, error) {
-	client := &http.Client{Timeout: readURLTimeout}
+func readURL() (tool.Tool, error) {
+	client := &http.Client{
+		Timeout: readURLTimeout,
+		CheckRedirect: func(req *http.Request, _ []*http.Request) error {
+			return publicHost(req.Context(), req.URL.Hostname())
+		},
+	}
 	return functiontool.New(functiontool.Config{
 		Name:        "read_url",
 		Description: "Fetch a web page and return its readable text (truncated to 32 KiB).",
@@ -36,6 +43,9 @@ func readURL(Deps) (tool.Tool, error) {
 		}
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet, a.URL, nil)
 		if err != nil {
+			return nil, err
+		}
+		if err := publicHost(ctx, req.URL.Hostname()); err != nil {
 			return nil, err
 		}
 		req.Header.Set("User-Agent", "agentlite/1.0")
@@ -87,4 +97,19 @@ func visibleText(page []byte) string {
 			}
 		}
 	}
+}
+
+// publicHost rejects hosts that resolve to loopback, private or link-local
+// addresses, so a page the model is asked to read cannot be an internal service.
+func publicHost(ctx context.Context, host string) error {
+	ips, err := net.DefaultResolver.LookupIPAddr(ctx, host)
+	if err != nil {
+		return err
+	}
+	for _, ip := range ips {
+		if ip.IP.IsLoopback() || ip.IP.IsPrivate() || ip.IP.IsLinkLocalUnicast() || ip.IP.IsUnspecified() {
+			return fmt.Errorf("%s is not a public host", host)
+		}
+	}
+	return nil
 }

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httputil"
+	"net/url"
 	"strings"
 
 	"github.com/rs/zerolog"
@@ -16,8 +17,10 @@ import (
 func NewReverseProxy(c *Client, log zerolog.Logger) *httputil.ReverseProxy {
 	return &httputil.ReverseProxy{
 		Rewrite: func(pr *httputil.ProxyRequest) {
-			pr.SetURL(c.BaseURL)
-			pr.Out.URL.Path = c.BaseURL.Path + strings.TrimPrefix(pr.In.URL.Path, "/v1")
+			pr.Out.URL = &url.URL{
+				Scheme: c.BaseURL.Scheme, Host: c.BaseURL.Host,
+				Path: c.BaseURL.Path + strings.TrimPrefix(pr.In.URL.Path, "/v1"), RawQuery: pr.In.URL.RawQuery,
+			}
 			pr.Out.Host = c.BaseURL.Host
 			pr.Out.Header.Del("Authorization")
 			if auth := c.Authorization(); auth != "" {

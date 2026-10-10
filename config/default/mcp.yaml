@@ -1,3 +1,7 @@
-# MCP servers. Each becomes an adk toolset whose tools are exposed to agents as
-# <server>_<tool>. Reach a server over streamable HTTP (endpoint) or stdio (command).
-servers: {}
+# MCP servers. Each becomes an adk toolset; its tools keep their MCP names, so
+# `tools:` lists and `require_confirmation` use those. Reach a server over
+# streamable HTTP (endpoint) or stdio (command). Expose one to users through
+# connectors.yaml.
+servers:
+  open-slide:
+    endpoint: ${OPEN_SLIDE_MCP_URL}

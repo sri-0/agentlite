@@ -27,6 +27,12 @@ services:
       timeout: 3s
       retries: 10
 
+  jaeger: # traces, when OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318
+    image: jaegertracing/jaeger:2.10.0
+    ports:
+      - "16686:16686"
+      - "4318:4318"
+
 volumes:
   opensearch-data:
   valkey-data:

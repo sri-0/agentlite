@@ -26,13 +26,14 @@ type Registry struct {
 	clients []*Client // in models.yaml order
 	log     zerolog.Logger
 
-	mu     sync.RWMutex
-	models []config.Model
+	mu         sync.RWMutex
+	models     []config.Model
+	discovered map[string][]config.Model // per provider, from its last successful discovery
 }
 
 // NewRegistry builds a client per provider and seeds the model list from YAML.
 func NewRegistry(cfg *config.ModelsConfig, log zerolog.Logger) (*Registry, error) {
-	r := &Registry{cfg: cfg.Proxy, log: log}
+	r := &Registry{cfg: cfg.Proxy, log: log, discovered: map[string][]config.Model{}}
 	for _, p := range cfg.Providers {
 		if p.BaseURL == "" {
 			log.Warn().Str("provider", p.ID).Msg("provider has no base_url in this environment; skipped")
@@ -44,10 +45,12 @@ func NewRegistry(cfg *config.ModelsConfig, log zerolog.Logger) (*Registry, error
 		}
 		r.clients = append(r.clients, c)
 	}
-	if _, err := r.ProxyFor(RouteChatCompletions); err != nil {
-		return nil, err
+	for _, route := range []string{RouteChatCompletions, RouteResponses, RouteMessages, RouteEmbeddings} {
+		if _, err := r.ProxyFor(route); err != nil {
+			return nil, err
+		}
 	}
-	r.rebuildModels(nil)
+	r.rebuildModels("", nil)
 	return r, nil
 }
 
@@ -81,14 +84,14 @@ func (r *Registry) Models() []config.Model {
 	return slices.Clone(r.models)
 }
 
-// Model resolves a model id to its provider and metadata; providerID narrows
-// the search when the agent names one.
-func (r *Registry) Model(providerID, modelID string) (*Client, *config.Model, error) {
+// Model resolves a model id to its provider and metadata; the first provider
+// in models.yaml order that serves the id wins.
+func (r *Registry) Model(modelID string) (*Client, *config.Model, error) {
 	r.mu.RLock()
 	defer r.mu.RUnlock()
 	for i := range r.models {
 		m := &r.models[i]
-		if m.ID == modelID && (providerID == "" || m.ProviderID == providerID) {
+		if m.ID == modelID {
 			return r.Client(m.ProviderID), m, nil
 		}
 	}
@@ -126,40 +129,24 @@ func (r *Registry) discover(ctx context.Context, c *Client) {
 		r.log.Warn().Err(err).Str("provider", c.Config.ID).Msg("model discovery failed; using models.yaml only")
 		return
 	}
-	r.rebuildModels(map[string][]config.Model{c.Config.ID: models})
+	r.rebuildModels(c.Config.ID, models)
 	r.log.Info().Str("provider", c.Config.ID).Int("models", len(models)).Msg("models discovered")
 }
 
-// rebuildModels merges YAML models over discovered ones. YAML entries win
-// field by field; discovered models not in YAML are appended.
-func (r *Registry) rebuildModels(discovered map[string][]config.Model) {
+// rebuildModels merges, per provider, the YAML models over its last discovered
+// list: YAML entries win field by field; other discovered models are appended.
+// A provider's discovery result is recorded first when one is given.
+func (r *Registry) rebuildModels(providerID string, discovered []config.Model) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	current := map[string][]config.Model{}
-	for _, m := range r.models {
-		current[m.ProviderID] = append(current[m.ProviderID], m)
+	if providerID != "" {
+		r.discovered[providerID] = discovered
 	}
 	var out []config.Model
 	for _, c := range r.clients {
-		found, ok := discovered[c.Config.ID]
-		if !ok {
-			found = onlyDiscovered(current[c.Config.ID], c.Config.Models)
-		}
-		out = append(out, merge(c.Config, found)...)
+		out = append(out, merge(c.Config, r.discovered[c.Config.ID])...)
 	}
 	r.models = out
-}
-
-// onlyDiscovered removes the YAML-declared models from a previously merged list
-// so the merge can be re-applied without duplicating them.
-func onlyDiscovered(merged, declared []config.Model) []config.Model {
-	var out []config.Model
-	for _, m := range merged {
-		if !slices.ContainsFunc(declared, func(d config.Model) bool { return d.ID == m.ID }) {
-			out = append(out, m)
-		}
-	}
-	return out
 }
 
 func merge(p config.Provider, discovered []config.Model) []config.Model {

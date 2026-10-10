@@ -40,11 +40,22 @@ providers:
         type: embedding
         owned_by: openai
 
-# Long-term memory: finished turns of primary agents are embedded and stored;
-# primary agents get preload_memory and load_memory. Omit the block to disable.
+# Agents run on the model the request names, all the way down to sub-agents;
+# this one answers when a request names none.
+default_model: openai/gpt-4.1-mini
+
+# Context compaction for every run: a summary every `interval` user turns
+# keeping `overlap` turns verbatim, and a tail-retention pass once the prompt
+# exceeds `token_threshold` of the model's context window. Omit to disable.
+compaction: { interval: 10, overlap: 1, token_threshold: 0.75 }
+
+# Long-term memory (docs/MEMORY.md): finished user-started turns are embedded
+# and stored, and the agent can search them with load_memory. `preload: true`
+# also searches before every model call. Omit the block to disable.
 memory:
   embedding_model: openai/text-embedding-3-small
   dimensions: 1536
+  preload: false
 
 # Which provider answers the pass-through routes (/v1/chat/completions,
 # /v1/responses, /v1/messages, /v1/embeddings). Override per route by name.

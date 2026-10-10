@@ -1,7 +1,8 @@
 ---
 id: deep-research
 name: Deep research
-description: "A fixed pipeline: plan the research, gather facts from the web, then write the brief."
+description: "Thorough, sourced research on one topic: plan it, gather facts from the web, then write the brief."
 kind: sequential
-subagents: [planner, researcher, writer]
+mode: all
+subagents: [planner, researcher, report-writer]
 ---

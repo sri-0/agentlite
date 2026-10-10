@@ -7,14 +7,19 @@ import (
 	"io"
 	"net/http"
 	"strings"
+	"time"
 
 	"agentlite/internal/config"
 )
+
+const discoverTimeout = 30 * time.Second
 
 // discoverModels fetches the provider's model list. Two shapes are understood:
 // OpenAI /models (also served with extra metadata by OpenRouter and vLLM) and
 // LiteLLM /model/info.
 func discoverModels(ctx context.Context, c *Client) ([]config.Model, error) {
+	ctx, cancel := context.WithTimeout(ctx, discoverTimeout)
+	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, c.BaseURL.String()+c.Config.Discover.Endpoint, nil)
 	if err != nil {
 		return nil, err
@@ -66,9 +71,7 @@ func parseOpenAI(body []byte) ([]config.Model, error) {
 		if strings.Contains(m.ID, "embed") {
 			model.Type = "embedding"
 		}
-		if m.SupportedParameters != nil {
-			model.Capabilities = capabilitiesFromParameters(m.SupportedParameters, m.Architecture)
-		}
+		model.Capabilities = capabilitiesFromParameters(m.SupportedParameters, m.Architecture)
 		out = append(out, model)
 	}
 	return out, nil

@@ -1,5 +1,5 @@
 // Package opensearch persists threads and messages. Messages are stored as
-// compacted AG-UI events plus the extracted text; nothing is converted.
+// coalesced AG-UI events plus the extracted text; nothing is converted.
 package opensearch
 
 import (
@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 	"time"
 
@@ -26,15 +27,17 @@ const (
 
 // Thread is a conversation; a sub-agent's thread carries parent_id.
 type Thread struct {
-	ID        string    `json:"id"`
-	ParentID  string    `json:"parent_id,omitempty"`
-	RootID    string    `json:"root_id"`
-	Title     string    `json:"title"`
-	AgentID   string    `json:"agent_id,omitempty"`
-	Model     string    `json:"model,omitempty"`
-	UserID    string    `json:"user_id,omitempty"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
+	ID       string `json:"id"`
+	ParentID string `json:"parent_id,omitempty"`
+	RootID   string `json:"root_id"`
+	Title    string `json:"title"`
+	AgentID  string `json:"agent_id,omitempty"`
+	Model    string `json:"model,omitempty"`
+	UserID   string `json:"user_id,omitempty"`
+	// Connectors switched on for the thread; nil means every connector.
+	Connectors *[]string `json:"connectors,omitempty"`
+	CreatedAt  time.Time `json:"created_at"`
+	UpdatedAt  time.Time `json:"updated_at"`
 }
 
 // Message is one turn's record: compacted AG-UI events and the extracted text.
@@ -80,33 +83,58 @@ var indices = map[string]string{
 	IndexThreads: `{"mappings":{"properties":{
 		"id":{"type":"keyword"},"parent_id":{"type":"keyword"},"root_id":{"type":"keyword"},
 		"title":{"type":"text"},"agent_id":{"type":"keyword"},"model":{"type":"keyword"},"user_id":{"type":"keyword"},
+		"connectors":{"type":"keyword"},
 		"created_at":{"type":"date"},"updated_at":{"type":"date"}}}}`,
 	IndexMessages: `{"mappings":{"properties":{
 		"id":{"type":"keyword"},"thread_id":{"type":"keyword"},"root_id":{"type":"keyword"},"role":{"type":"keyword"},
-		"seq":{"type":"integer"},"created_at":{"type":"date"},"text":{"type":"text"},
+		"seq":{"type":"long"},"created_at":{"type":"date"},"text":{"type":"text"},
 		"events":{"type":"object","enabled":false}}}}`,
 }
 
 func (c *Client) ensureIndex(ctx context.Context, name, mapping string) error {
 	_, err := c.api.Indices.Create(ctx, opensearchapi.IndicesCreateReq{Index: name, BodyReader: strings.NewReader(mapping)})
-	if err != nil && !strings.Contains(err.Error(), "resource_already_exists_exception") {
+	if err != nil && errType(err) != "resource_already_exists_exception" {
 		return fmt.Errorf("create index %s: %w", name, err)
 	}
 	return nil
 }
 
+// index upserts a document and refreshes the index at once: writes are few,
+// and a thread or message must be readable as soon as its save returns.
 func (c *Client) index(ctx context.Context, index, id string, doc any) error {
 	body, err := json.Marshal(doc)
 	if err != nil {
 		return err
 	}
 	_, err = c.api.Document.Index(ctx, opensearchapi.IndexReq{
-		Index: index, ID: id, Body: bytes.NewReader(body), Params: &opensearchapi.IndexParams{Refresh: "wait_for"},
+		Index: index, ID: id, Body: bytes.NewReader(body), Params: &opensearchapi.IndexParams{Refresh: "true"},
 	})
 	if err != nil {
 		return fmt.Errorf("index %s/%s: %w", index, id, err)
 	}
 	return nil
+}
+
+// errStatus is the HTTP status of an API error, or 0.
+func errStatus(err error) int {
+	var structured *oslib.StructError
+	if errors.As(err, &structured) {
+		return structured.Status
+	}
+	var plain *oslib.StringError
+	if errors.As(err, &plain) {
+		return plain.Status
+	}
+	return 0
+}
+
+// errType is the OpenSearch exception type of an API error, or "".
+func errType(err error) string {
+	var structured *oslib.StructError
+	if errors.As(err, &structured) {
+		return structured.Err.Type
+	}
+	return ""
 }
 
 // SaveThread upserts a thread.
@@ -119,32 +147,34 @@ func (c *Client) SaveMessage(ctx context.Context, m *Message) error {
 	return c.index(ctx, IndexMessages, m.ID, m)
 }
 
-func (c *Client) search(ctx context.Context, index, query string, out any) error {
+// search runs a query and decodes each hit's source.
+func search[T any](ctx context.Context, c *Client, index, query string) ([]T, error) {
 	resp, err := c.api.Search(ctx, &opensearchapi.SearchReq{Indices: []string{index}, BodyReader: strings.NewReader(query)})
 	if err != nil {
-		return fmt.Errorf("search %s: %w", index, err)
+		return nil, fmt.Errorf("search %s: %w", index, err)
 	}
-	sources := make([]json.RawMessage, 0, len(resp.Hits.Hits))
-	for _, h := range resp.Hits.Hits {
-		sources = append(sources, h.Source)
+	out := make([]T, len(resp.Hits.Hits))
+	for i, h := range resp.Hits.Hits {
+		if err := json.Unmarshal(h.Source, &out[i]); err != nil {
+			return nil, fmt.Errorf("search %s: %w", index, err)
+		}
 	}
-	raw, _ := json.Marshal(sources)
-	return json.Unmarshal(raw, out)
+	return out, nil
 }
 
-// Threads lists root threads, newest first.
+// Threads lists root threads, newest first; the list is capped at threadsCap.
 func (c *Client) Threads(ctx context.Context) ([]Thread, error) {
-	var out []Thread
-	err := c.search(ctx, IndexThreads, `{"size":200,"sort":[{"updated_at":"desc"}],
-		"query":{"bool":{"must_not":{"exists":{"field":"parent_id"}}}}}`, &out)
-	return out, err
+	return search[Thread](ctx, c, IndexThreads, fmt.Sprintf(`{"size":%d,"sort":[{"updated_at":"desc"}],
+		"query":{"bool":{"must_not":{"exists":{"field":"parent_id"}}}}}`, threadsCap))
 }
+
+const threadsCap = 200
 
 // Thread fetches one thread by id.
 func (c *Client) Thread(ctx context.Context, id string) (*Thread, error) {
 	resp, err := c.api.Document.Get(ctx, opensearchapi.GetReq{Index: IndexThreads, ID: id})
 	if err != nil {
-		if strings.Contains(err.Error(), "404") {
+		if errStatus(err) == 404 {
 			return nil, ErrNotFound
 		}
 		return nil, fmt.Errorf("get thread: %w", err)
@@ -156,15 +186,16 @@ func (c *Client) Thread(ctx context.Context, id string) (*Thread, error) {
 	return &t, nil
 }
 
-// DeleteThread removes a thread and its messages.
+// DeleteThread removes a root thread, its sub-agent threads and all their
+// messages and memories.
 func (c *Client) DeleteThread(ctx context.Context, id string) error {
-	if _, err := c.api.Document.Delete(ctx, opensearchapi.DeleteReq{Index: IndexThreads, ID: id}); err != nil && !strings.Contains(err.Error(), "404") {
-		return fmt.Errorf("delete thread: %w", err)
-	}
-	q := fmt.Sprintf(`{"query":{"term":{"thread_id":%q}}}`, id)
-	_, err := c.api.DeleteByQuery(ctx, &opensearchapi.DeleteByQueryReq{Indices: []string{IndexMessages}, BodyReader: strings.NewReader(q)})
-	if err != nil {
-		return fmt.Errorf("delete messages: %w", err)
+	refresh := &opensearchapi.DeleteByQueryParams{Refresh: "true"}
+	for index, field := range map[string]string{IndexThreads: "root_id", IndexMessages: "root_id", IndexMemories: "thread_id"} {
+		q := fmt.Sprintf(`{"query":{"term":{%q:%q}}}`, field, id)
+		_, err := c.api.DeleteByQuery(ctx, &opensearchapi.DeleteByQueryReq{Indices: []string{index}, BodyReader: strings.NewReader(q), Params: refresh})
+		if err != nil && errStatus(err) != 404 { // the memories index exists only when memory is on
+			return fmt.Errorf("delete %s: %w", index, err)
+		}
 	}
 	return nil
 }
@@ -177,12 +208,10 @@ func (c *Client) Messages(ctx context.Context, threadID string, before int64, li
 		rng = fmt.Sprintf(`,{"range":{"seq":{"lt":%d}}}`, before)
 	}
 	q := fmt.Sprintf(`{"size":%d,"sort":[{"seq":"desc"}],"query":{"bool":{"filter":[{"term":{"thread_id":%q}}%s]}}}`, limit, threadID, rng)
-	var out []Message
-	if err := c.search(ctx, IndexMessages, q, &out); err != nil {
+	out, err := search[Message](ctx, c, IndexMessages, q)
+	if err != nil {
 		return nil, err
 	}
-	for i, j := 0, len(out)-1; i < j; i, j = i+1, j-1 {
-		out[i], out[j] = out[j], out[i]
-	}
+	slices.Reverse(out)
 	return out, nil
 }

@@ -1,4 +1,4 @@
-package tools
+package builtin
 
 import (
 	"context"
@@ -65,8 +65,8 @@ func task(d Deps) (tool.Tool, error) {
 		if !slices.Contains(parent.Subagents, a.SubagentType) {
 			return nil, fmt.Errorf("unknown subagent_type %q; choose one of %v", a.SubagentType, parent.Subagents)
 		}
-		sink := stream.SinkFrom(ctx)
-		if sink == nil {
+		sink, parentRun := stream.SinkFrom(ctx), agent.RunFrom(ctx)
+		if sink == nil || parentRun == nil {
 			return nil, fmt.Errorf("task tool needs a run context")
 		}
 		select {
@@ -78,7 +78,8 @@ func task(d Deps) (tool.Tool, error) {
 
 		childThread := uuid.Must(uuid.NewV7()).String()
 		run, err := d.Dispatcher.Start(ctx, agent.StartInput{
-			ThreadID: childThread, ParentID: ctx.SessionID(), AgentID: a.SubagentType, MessageID: uuid.NewString(), Text: a.Prompt,
+			ThreadID: childThread, ParentID: ctx.SessionID(), AgentID: a.SubagentType, Model: parentRun.Model,
+			Connectors: parentRun.Connectors, MessageID: uuid.NewString(), Text: a.Prompt,
 		})
 		if err != nil {
 			return nil, fmt.Errorf("start %s: %w", a.SubagentType, err)
@@ -94,7 +95,8 @@ func task(d Deps) (tool.Tool, error) {
 		go tailProgress(tailCtx, d.Dispatcher, childThread, card)
 		final, err := d.Dispatcher.Wait(ctx, run.ID)
 		stopTail()
-		if err != nil {
+		if err != nil { // the parent was cancelled or Valkey failed: the child must not run on unseen
+			_ = d.Dispatcher.Cancel(context.WithoutCancel(ctx), childThread)
 			card.finish("error", "", err.Error())
 			sink.Emit(events.NewSubagentErrorEvent(run.ID, err.Error()))
 			return nil, err
@@ -103,6 +105,12 @@ func task(d Deps) (tool.Tool, error) {
 			msg := final.Error
 			if msg == "" {
 				msg = string(final.Status)
+			}
+			if final.Status == agent.StatusAwaitingInput { // nobody can answer a sub-agent; let its thread go
+				msg = "sub-agent paused for input it cannot receive"
+				if err := d.Dispatcher.Cancel(ctx, childThread); err != nil {
+					msg += " (" + err.Error() + ")"
+				}
 			}
 			card.finish("error", final.Result, msg)
 			sink.Emit(events.NewSubagentErrorEvent(run.ID, msg))
@@ -172,7 +180,7 @@ func tailProgress(ctx context.Context, d Dispatcher, threadID string, card *card
 func progressFor(name, rawArgs string) string {
 	var a map[string]any
 	_ = json.Unmarshal([]byte(rawArgs), &a)
-	if name == ReportProgress {
+	if name == progressTool {
 		if m, ok := a["message"].(string); ok {
 			return m
 		}
