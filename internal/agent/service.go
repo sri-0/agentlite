@@ -273,17 +273,22 @@ func (s *Service) Cancel(ctx context.Context, threadID string) error {
 	if run == nil {
 		return ErrNotFound
 	}
-	switch run.Status {
-	case StatusQueued:
+	// A queued or paused run has no worker to stop: close it here with a
+	// cancelled segment, so the stored turn ends as cancelled too.
+	closeHere := func(result string) {
 		enc := stream.NewEncoder(run.ThreadID, run.ID, run.Model, s.sinkFor(ctx, run).Emit)
 		enc.Start(run.TurnID, run.AgentID)
 		enc.Cancel()
-		s.settle(ctx, run, StatusCancelled, "", "")
+		s.settle(ctx, run, StatusCancelled, result, "")
+	}
+	switch run.Status {
+	case StatusQueued:
+		closeHere("")
 	case StatusAwaitingInput:
 		if err := s.hitl.Cancel(ctx, threadID); err != nil {
 			return err
 		}
-		s.settle(ctx, run, StatusCancelled, run.Result, "")
+		closeHere(run.Result)
 	default:
 		s.runs.publish(ctx, ctlChannel(run.ID), "cancel")
 	}
