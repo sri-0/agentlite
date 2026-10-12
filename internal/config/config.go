@@ -26,11 +26,16 @@ type Env struct {
 }
 
 // Redis is the Valkey connection; the REDIS_ names are kept from agentic.
+// Each kind of state lives in its own logical database (docs/ARCHITECTURE.md).
 type Redis struct {
 	Host string `env:"HOST, default=localhost"`
 	Port int    `env:"PORT, default=6379"`
 	User string `env:"USER"`
 	Pass string `env:"PASS"`
+
+	DBRuns     int `env:"DB_RUNS, default=1"`     // thread event logs, run records, leases, queues
+	DBSessions int `env:"DB_SESSIONS, default=2"` // adk sessions: each thread's agent state and history
+	DBHITL     int `env:"DB_HITL, default=3"`     // interrupt records and their decisions
 }
 
 // Addr returns host:port.

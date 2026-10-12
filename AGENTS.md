@@ -5,8 +5,10 @@ gateway, and runs agents built on [adk-go v2](https://pkg.go.dev/google.golang.o
 behind one WebSocket that speaks [AG-UI 1.0](https://docs.ag-ui.com) events. Runs are
 resumable, persisted as the same events, and sub-agents are real threads.
 
-Read `docs/PLAN.md` for the design and its reasoning; this file is the operating manual.
-Keep both current when you change protocols, config schemas or the agent roster.
+`docs/README.md` indexes the in-depth docs (architecture, agents and sub-agents, HITL, AG-UI
+rendering, memory); this file is the operating manual. Keep both current: a change to a
+protocol, config schema, the roster, the run lifecycle, HITL or storage updates the matching
+doc in the same commit.
 
 ---
 
@@ -59,7 +61,7 @@ pkg/
   session/valkey/      adk session.Service on Valkey
   logging/             zerolog + slog bridge
 config/default/        models.yaml, mcp.yaml, connectors.yaml, agents/*.md (the roster)
-docs/                  PLAN.md, AG-UI-RENDERING.md, MEMORY.md, RESEARCH-streaming.md
+docs/                  README.md (index): ARCHITECTURE, AGENT-ARCHITECTURE, HITL, AG-UI-RENDERING, MEMORY
 ```
 
 Agents are markdown files in `config/default/agents/`, not Go; the Go that builds and runs
@@ -224,6 +226,7 @@ their MCP names; a server that cannot list its tools costs a warning, not the ru
 
 Environment (`internal/config/config.go`): `PORT`, `HOST`, `APP_NAME`, `CONFIG_DIR`,
 `LOG_LEVEL`, `LOG_JSON`, `ALLOWED_ORIGINS`, `REDIS_HOST/PORT/USER/PASS`,
+`REDIS_DB_RUNS/SESSIONS/HITL` (Valkey logical databases, default 1/2/3),
 `OPENSEARCH_URL/USERNAME/PASSWORD`, plus whatever `models.yaml` references (`PROXY_PROVIDER`,
 `LITELLM_BASE_URL`, `*_API_KEY`, …). `${VAR}` expands in `base_url`, headers and
 `proxy.provider`; `*_env` fields name the variable holding a secret or, for TLS, a file path.
@@ -247,11 +250,10 @@ environment is skipped.
 
 ## 8. Storage
 
-Valkey: `thread:{id}:log` (events, trimmed to 24 h after each finalise), `thread:{id}:seq`,
-`thread:{id}:run` (lease), `run:{id}`,
-`runs:{agentId}`, `runs:done`, `run:{id}:ctl` (cancel), `hitl:{id}` + `hitl:thread:{id}:pending`,
-`session:{threadId}` (+`:events`, `:state`; the adk session, 30-day TTL, rebuilt from
-OpenSearch if missing). OpenSearch: `threads`, `messages`, `memories` (kNN, created on boot);
+Valkey, one logical database per kind of state (docs/ARCHITECTURE.md lists every key):
+`REDIS_DB_RUNS` (1) holds event logs, run records, leases and queues; `REDIS_DB_SESSIONS` (2)
+holds adk sessions (30-day TTL, rebuilt from OpenSearch if missing); `REDIS_DB_HITL` (3) holds
+interrupt records. OpenSearch: `threads`, `messages`, `memories` (kNN, created on boot);
 every write forces a refresh so reads after a save see it. Deleting a thread removes its
 family by `root_id`; its Valkey keys expire on their own.
 

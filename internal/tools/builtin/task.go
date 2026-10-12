@@ -3,6 +3,7 @@ package builtin
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"slices"
 	"sync"
@@ -86,7 +87,9 @@ func task(d Deps) (tool.Tool, error) {
 			if err := stateValue(ctx, key, &child); err != nil {
 				return nil, fmt.Errorf("resume %s: %w", a.SubagentType, err)
 			}
-			if _, err := d.Dispatcher.Decide(ctx, child.ThreadID, child.InterruptID, decisionFor(conf)); err != nil {
+			_, err := d.Dispatcher.Decide(ctx, child.ThreadID, child.InterruptID, decisionFor(conf))
+			// Not paused or not pending: the user already answered on the child's own thread.
+			if err != nil && !errors.Is(err, agent.ErrNotPaused) && !errors.Is(err, agent.ErrNotFound) {
 				return nil, fmt.Errorf("answer %s: %w", a.SubagentType, err)
 			}
 		} else {

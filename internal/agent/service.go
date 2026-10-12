@@ -85,10 +85,12 @@ type Service struct {
 }
 
 // NewService wires the run lifecycle.
-func NewService(cfg *config.Config, db valkey.Client, sink Sink, history History, sessions session.Service, engine Engine, logger zerolog.Logger) *Service {
+// db holds the run lifecycle (logs, run records, leases, queues); interrupts
+// are kept apart in their own store.
+func NewService(cfg *config.Config, db valkey.Client, interrupts *hitl.Store, sink Sink, history History, sessions session.Service, engine Engine, logger zerolog.Logger) *Service {
 	return &Service{
 		db: db, runs: &runs{db: db}, log: newValkeyLog(db), sink: sink, history: history, sessions: sessions, engine: engine,
-		hitl: hitl.NewStore(db), defs: cfg.Defs(), appName: cfg.AppName, model: cfg.Models.DefaultModel, logger: logger,
+		hitl: interrupts, defs: cfg.Defs(), appName: cfg.AppName, model: cfg.Models.DefaultModel, logger: logger,
 	}
 }
 
@@ -260,7 +262,34 @@ func (s *Service) Decide(ctx context.Context, threadID, interruptID string, d hi
 		return nil, fmt.Errorf("%w: approved (or, for a sub-agent's question, output) is required", ErrInvalid)
 	}
 	rec.Decision = &d
-	return s.Resume(ctx, threadID, []types.ResumeEntry{rec.ResumeEntry()})
+	run, err := s.Resume(ctx, threadID, []types.ResumeEntry{rec.ResumeEntry()})
+	if err != nil {
+		return nil, err
+	}
+	s.releaseParent(ctx, threadID, d)
+	return run, nil
+}
+
+// releaseParent resumes a parent run that paused on this sub-agent's request,
+// when the user answered the sub-agent on its own thread instead. The parent's
+// task call finds the child already answered and goes back to waiting for it.
+func (s *Service) releaseParent(ctx context.Context, childThreadID string, d hitl.Decision) {
+	thread, err := s.history.Thread(ctx, childThreadID)
+	if err != nil || thread.ParentID == "" {
+		return
+	}
+	pending, err := s.hitl.Pending(ctx, thread.ParentID)
+	if err != nil {
+		return
+	}
+	for _, in := range pending {
+		if in.ChildThreadID != childThreadID {
+			continue
+		}
+		if _, err := s.Decide(ctx, thread.ParentID, in.ID, d); err != nil {
+			s.logger.Warn().Err(err).Str("thread", thread.ParentID).Msg("release parent of answered sub-agent")
+		}
+	}
 }
 
 // Cancel stops the thread's active run: a queued run is closed here, a

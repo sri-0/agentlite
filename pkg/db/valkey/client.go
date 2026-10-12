@@ -1,4 +1,4 @@
-// Package valkey opens the Valkey client used for sessions, run logs and queues.
+// Package valkey opens Valkey clients, one per logical database.
 package valkey
 
 import (
@@ -7,11 +7,12 @@ import (
 	"agentlite/internal/config"
 )
 
-// New connects to Valkey with the REDIS_* settings.
-func New(cfg config.Redis) (valkey.Client, error) {
+// New connects to database db with the REDIS_* settings.
+func New(cfg config.Redis, db int) (valkey.Client, error) {
 	return valkey.NewClient(valkey.ClientOption{
 		InitAddress: []string{cfg.Addr()},
 		Username:    cfg.User,
 		Password:    cfg.Pass,
+		SelectDB:    db,
 	})
 }

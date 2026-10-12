@@ -8,11 +8,13 @@ import (
 	"fmt"
 
 	"github.com/rs/zerolog"
+	valkeygo "github.com/valkey-io/valkey-go"
 	"google.golang.org/adk/v2/session"
 
 	"agentlite/internal/agent"
 	"agentlite/internal/config"
 	"agentlite/internal/engine"
+	"agentlite/internal/hitl"
 	"agentlite/internal/mcp"
 	"agentlite/internal/proxy"
 	"agentlite/pkg/db/opensearch"
@@ -53,15 +55,23 @@ func New(ctx context.Context) (*App, error) {
 		return nil, err
 	}
 	app.Registry.Start(ctx)
-	db, err := valkey.New(cfg.Redis)
+	// One client per logical database: runs, sessions and interrupts are kept apart.
+	runsDB, err := app.valkey(cfg.Redis.DBRuns)
 	if err != nil {
 		return nil, err
 	}
-	app.closers = append(app.closers, db.Close)
+	sessionsDB, err := app.valkey(cfg.Redis.DBSessions)
+	if err != nil {
+		return nil, err
+	}
+	hitlDB, err := app.valkey(cfg.Redis.DBHITL)
+	if err != nil {
+		return nil, err
+	}
 	if app.Store, err = opensearch.New(ctx, cfg.OpenSearch, app.Log); err != nil {
 		return nil, err
 	}
-	app.Sessions = valkeysession.New(db)
+	app.Sessions = valkeysession.New(sessionsDB)
 	if app.Memory, err = memoryService(ctx, cfg, app.Registry, app.Store, app.Log); err != nil {
 		return nil, err
 	}
@@ -70,13 +80,23 @@ func New(ctx context.Context) (*App, error) {
 		mem = app.Memory
 	}
 	app.Engine = engine.New(cfg, app.Registry, app.Sessions, mem, mcp.Servers(cfg.MCP, app.Log), app.Log)
-	app.Service = agent.NewService(cfg, db, app.Store, app.Store, app.Sessions, app.Engine, app.Log)
+	app.Service = agent.NewService(cfg, runsDB, hitl.NewStore(hitlDB), app.Store, app.Store, app.Sessions, app.Engine, app.Log)
 	if err := app.Engine.Bind(app.Service); err != nil { // the task tool dispatches through the service
 		return nil, err
 	}
 	app.Service.StartWorkers(ctx)
 	app.closers = append(app.closers, app.Service.Stop)
 	return app, nil
+}
+
+// valkey opens a client on one logical database and closes it with the app.
+func (a *App) valkey(db int) (valkeygo.Client, error) {
+	c, err := valkey.New(a.Config.Redis, db)
+	if err != nil {
+		return nil, err
+	}
+	a.closers = append(a.closers, c.Close)
+	return c, nil
 }
 
 // Close stops the workers and releases connections, newest first.
