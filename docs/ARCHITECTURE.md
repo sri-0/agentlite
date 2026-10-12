@@ -7,8 +7,9 @@ state lives.
 
 ```
 browser (agentui)
+   │  POST /v1/agent/chat: create a thread with its first turn
    │  one WebSocket /v1/agent/chat?v=1: run, answer, cancel, subscribe, unsubscribe
-   │  frames; AG-UI events stream back per thread
+   │  frames on existing threads; AG-UI events stream back per thread
    │  REST: reads and thread admin (threads, messages, models, agents, connectors)
    ▼
 Echo server (internal/server, internal/handler, internal/ws)
@@ -42,16 +43,18 @@ implements it, so imports run one way.
 ## The life of a run
 
 ```
-client: {type: "run", requestId, threadId?, agentId?, model?, connectors?, messages}
+client: POST /v1/agent/chat {agentId?, model?, connectors?, messages}   (a new thread)
+     or {type: "run", requestId, threadId, agentId?, model?, connectors?, messages}
   │
   Manager.Start (internal/runs/start.go)
-  ├─ validate the agent and connectors; create the thread when none is named
+  ├─ validate the agent and connectors; for the POST, create the thread
   ├─ claim the thread: SET thread:{id}:run = runId NX (a 60 s lease); a second
   │  start while a run owns the thread is `busy` (a retry of the same message id
   │  returns the existing run)
   ├─ save the user message (OpenSearch); rebuild the adk session if it is missing
   ├─ record the run (run:{id}) with the log cursors where its turn starts
-  └─ enqueue on runs:{agentId}       → {type: "ack", requestId, threadId, runId, seq}
+  └─ enqueue on runs:{agentId}       → 201 {threadId, runId, seq}, or
+                                       {type: "ack", requestId, threadId, runId, seq}
 
 client: {type: "subscribe", threadId, after: seq}
 
@@ -109,14 +112,26 @@ mirrors its status, progress and pending requests (AGENT-ARCHITECTURE.md).
 Deleting a root thread deletes its child threads, their messages and their
 memories.
 
+## Creating a thread
+
+`POST /v1/agent/chat {messages, agentId?, model?, connectors?}` creates a
+thread with its first turn and starts the run. It replies `201 {threadId,
+runId, seq}` only after the thread document is written (with a refresh), so the
+subscribe the client sends next finds it. Creation is HTTP rather than a socket
+frame so a gateway or middleware can check the request's headers before the
+thread exists; a browser cannot add headers to a WebSocket. Every later turn
+goes over the socket.
+
 ## The socket
 
-One WebSocket per browser tab carries everything between the client and its
-agents, each frame naming its thread:
+One WebSocket per browser tab, shared by every thread the UI shows, carries
+everything between the client and its agents on existing threads. The socket
+only reads the threads' logs in Valkey, never the model, so any server
+instance can serve any socket. Each frame names its thread:
 
 | Client frame | Purpose | Reply |
 |---|---|---|
-| `run {requestId, threadId?, agentId?, model?, connectors?, messages}` | start a turn; a new thread when `threadId` is empty | `ack {threadId, runId, seq}` |
+| `run {requestId, threadId, agentId?, model?, connectors?, messages}` | start a turn on the thread, idle or not yet started | `ack {threadId, runId, seq}` |
 | `answer {requestId, threadId, interruptId, approved?, justification?, output?}` | answer an interrupt on that thread | `ack {threadId, runId, seq}` |
 | `cancel {requestId, threadId}` | stop the thread's run | `ack {threadId}` |
 | `subscribe {threadId, after?}` | follow a thread from a cursor (empty: the active turn's start) | `event` frames, or `idle` |
@@ -127,6 +142,22 @@ Server frames: `event {threadId, seq, event}` (an AG-UI 1.0 event, untouched),
 codes `bad_request`, `not_found`, `busy`, `not_paused`, `internal`. Runs,
 answers and cancels are handled off the read loop, so a slow start never holds
 up other frames. AG-UI-RENDERING.md maps every event to the UI.
+
+**Thread access.** The first frame a socket sends about a thread, normally its
+`subscribe`, looks the thread up in OpenSearch (`internal/ws/conn.go`, `allow`).
+A thread that is not found is refused with `not_found` and the frame does
+nothing. With document-level security on, a thread the user may not read is
+not found, so the same lookup is the access check. A thread found is remembered
+for the socket's life: later frames about it are not checked again, and a
+reconnect checks again. Being let in to a thread gives its stream and its
+requests, nothing else; a sub-agent's thread is checked on its own when the
+client first touches it (opening it, or answering its request from the card).
+
+For the check to mean anything in production, the lookup must run as the user:
+the OpenSearch client today uses the service account, which document-level
+security does not restrict. Child threads must also carry whatever fields the
+security rules match on, copied from the root. The REST reads of a thread
+(`/v1/threads/{id}/messages` and the rest) are not covered by this check.
 
 ## Where state lives
 

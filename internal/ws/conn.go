@@ -22,29 +22,38 @@ const (
 	requestTimeout = 30 * time.Second
 )
 
+// Threads looks a thread up as the user sees it. With OpenSearch
+// document-level security on, a thread the user may not read is not found.
+type Threads interface {
+	Thread(ctx context.Context, id string) (*opensearch.Thread, error)
+}
+
 // client serves one socket. Writes go through the socket's own context:
 // coder/websocket closes the connection when a write's context ends, so a
 // subscription that is replaced or unsubscribed must not write with its own.
 type client struct {
-	conn *websocket.Conn
-	ctx  context.Context // the socket's lifetime
-	runs *runs.Manager
+	conn    *websocket.Conn
+	ctx     context.Context // the socket's lifetime
+	runs    *runs.Manager
+	threads Threads
 
-	mu   sync.Mutex
-	subs map[string]*subscription // thread id → its live subscription
+	mu      sync.Mutex
+	subs    map[string]*subscription // thread id → its live subscription
+	allowed map[string]bool          // threads this socket was let in to
 }
 
 type subscription struct{ cancel context.CancelFunc }
 
-// Serve reads frames until the socket closes. Each thread has at most one
+// Serve reads frames until the socket closes. Every frame names a thread the
+// socket must be let in to (see allow). Each thread has at most one
 // subscription; a new subscribe on the same thread replaces it. Runs,
 // answers and cancels are handled off the read loop, so a slow one never
 // holds up the frames behind it.
-func Serve(ctx context.Context, conn *websocket.Conn, m *runs.Manager) {
+func Serve(ctx context.Context, conn *websocket.Conn, m *runs.Manager, threads Threads) {
 	ctx, cancel := context.WithCancel(ctx)
 	defer cancel()
 	defer conn.CloseNow()
-	c := &client{conn: conn, ctx: ctx, runs: m, subs: map[string]*subscription{}}
+	c := &client{conn: conn, ctx: ctx, runs: m, threads: threads, subs: map[string]*subscription{}, allowed: map[string]bool{}}
 	conn.SetReadLimit(readLimit)
 	for {
 		_, data, err := conn.Read(ctx)
@@ -77,7 +86,11 @@ func Serve(ctx context.Context, conn *websocket.Conn, m *runs.Manager) {
 func (c *client) request(f ClientFrame, handle func(context.Context, ClientFrame) (ServerFrame, error)) {
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(c.ctx), requestTimeout)
 	defer cancel()
-	ack, err := handle(ctx, f)
+	err := c.allow(ctx, f.ThreadID)
+	var ack ServerFrame
+	if err == nil {
+		ack, err = handle(ctx, f)
+	}
 	if err != nil {
 		c.sendError(f, code(err), err.Error())
 		return
@@ -86,16 +99,13 @@ func (c *client) request(f ClientFrame, handle func(context.Context, ClientFrame
 	c.send(ack)
 }
 
-// run starts a turn; the ack names the thread (created when none was given)
-// and the cursor to subscribe from.
+// run starts a turn on the thread; the ack has the cursor to subscribe from.
 func (c *client) run(ctx context.Context, f ClientFrame) (ServerFrame, error) {
-	if len(f.Messages) == 0 || f.Messages[len(f.Messages)-1].Role != "user" {
-		return ServerFrame{}, fmt.Errorf("%w: the last message must be from the user", runs.ErrInvalid)
+	in, err := f.StartInput(f.ThreadID)
+	if err != nil {
+		return ServerFrame{}, err
 	}
-	last := f.Messages[len(f.Messages)-1]
-	run, err := c.runs.Start(ctx, runs.StartInput{
-		ThreadID: f.ThreadID, AgentID: f.AgentID, Model: f.Model, Connectors: f.Connectors, MessageID: last.ID, Text: last.Content,
-	})
+	run, err := c.runs.Start(ctx, in)
 	if err != nil {
 		return ServerFrame{}, err
 	}
@@ -129,9 +139,18 @@ func (c *client) subscribe(threadID, after string) {
 	c.mu.Unlock()
 	go func() {
 		defer c.drop(threadID, sub)
+		fail := func(err error) {
+			if subCtx.Err() == nil { // a replaced or ended subscription has nothing to report
+				c.sendError(ClientFrame{ThreadID: threadID}, code(err), err.Error())
+			}
+		}
+		if err := c.allow(subCtx, threadID); err != nil {
+			fail(err)
+			return
+		}
 		entries, err := c.runs.Subscribe(subCtx, threadID, after)
 		if err != nil {
-			c.sendError(ClientFrame{ThreadID: threadID}, CodeInternal, err.Error())
+			fail(err)
 			return
 		}
 		if entries == nil {
@@ -143,7 +162,7 @@ func (c *client) subscribe(threadID, after string) {
 				return
 			}
 			if err != nil {
-				c.sendError(ClientFrame{ThreadID: threadID}, CodeInternal, err.Error())
+				fail(err)
 				return
 			}
 			if !c.send(ServerFrame{Type: FrameEvent, ThreadID: threadID, Seq: e.Seq, Event: e.Raw}) {
@@ -151,6 +170,31 @@ func (c *client) subscribe(threadID, after string) {
 			}
 		}
 	}()
+}
+
+// allow lets the socket in to a thread. The first frame about a thread,
+// normally its subscribe, looks the thread up as the user sees it; a thread
+// that is not found (missing, or hidden by document-level security) is
+// refused. A thread let in stays allowed for the socket's life, so later
+// frames cost nothing. Being let in to a thread gives that thread's stream
+// and requests only.
+func (c *client) allow(ctx context.Context, threadID string) error {
+	if threadID == "" {
+		return fmt.Errorf("%w: threadId is required; a new thread is created with POST /v1/agent/chat", runs.ErrInvalid)
+	}
+	c.mu.Lock()
+	ok := c.allowed[threadID]
+	c.mu.Unlock()
+	if ok {
+		return nil
+	}
+	if _, err := c.threads.Thread(ctx, threadID); err != nil {
+		return err
+	}
+	c.mu.Lock()
+	c.allowed[threadID] = true
+	c.mu.Unlock()
+	return nil
 }
 
 func (c *client) unsubscribe(threadID string) {

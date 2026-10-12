@@ -123,7 +123,9 @@ queryable account of what was asked and how it was decided.
 
 ## Protocol
 
-All of it travels on the one socket (`GET /v1/agent/chat?v=1`):
+All of it travels on the one socket (`GET /v1/agent/chat?v=1`). Answering a
+sub-agent's request from its card is the socket's first frame about the child
+thread, so it checks access to that thread (ARCHITECTURE.md, "Thread access"):
 
 | Frame | Direction | Purpose |
 |---|---|---|

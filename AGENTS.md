@@ -65,9 +65,15 @@ Agents are markdown files in `config/default/agents/`; there is no Go per agent.
 
 ## Interfaces
 
-**Socket** `GET /v1/agent/chat?v=1` (`426` on another version) carries everything between a
-client and its agents: `run`, `answer`, `cancel`, `subscribe`, `unsubscribe` frames in;
-`ack`, `event` (AG-UI), `idle`, `error` frames out. ARCHITECTURE.md has the frames.
+**New thread** `POST /v1/agent/chat {messages, agentId?, model?, connectors?}` creates a
+thread with its first turn and starts the run; `201 {threadId, runId, seq}` once the thread
+is stored. It is HTTP so the request can be checked before the thread exists.
+
+**Socket** `GET /v1/agent/chat?v=1` (`426` on another version), one per client, carries
+everything on existing threads: `run`, `answer`, `cancel`, `subscribe`, `unsubscribe`
+frames in; `ack`, `event` (AG-UI), `idle`, `error` frames out. The first frame about a
+thread (normally its subscribe) looks the thread up in OpenSearch; not found, or hidden by
+document-level security, is `not_found`. ARCHITECTURE.md has the frames.
 
 **REST** (reads and admin):
 
@@ -105,7 +111,8 @@ headers, MCP endpoints and `proxy.provider`.
 
 ## Conventions
 
-- Writes between a client and its agents go over the socket; REST is for reads and admin.
+- A new thread is a POST; everything after it between a client and its agents goes over
+  the socket; the rest of REST is for reads and admin.
 - One wire format (AG-UI), one encoder, one coalescer; the only reducer lives in the UI.
 - `runs` decides when and where work happens; `agents` decides what the model does. `runs`
   defines the interface it needs (`runs.Runtime`) and `agents` implements it.

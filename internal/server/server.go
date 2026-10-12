@@ -53,6 +53,7 @@ func New(cfg *config.Config, h *handler.Handler, log zerolog.Logger) (*echo.Echo
 	e.DELETE("/v1/threads/:id", h.DeleteThread)
 	e.GET("/v1/threads/:id/messages", h.Messages)
 	e.GET("/v1/threads/:id/interrupts", h.Interrupts)
+	e.POST("/v1/agent/chat", h.StartThread)
 	e.GET("/v1/agent/chat", h.Chat)
 	return e, h.RegisterProxies(e)
 }
@@ -80,6 +81,7 @@ func errorHandler(next echo.HTTPErrorHandler) echo.HTTPErrorHandler {
 			err    error
 			status int
 		}{
+			{runs.ErrInvalid, http.StatusBadRequest},
 			{runs.ErrNotFound, http.StatusNotFound},
 			{opensearch.ErrNotFound, http.StatusNotFound},
 			{runs.ErrBusy, http.StatusConflict},
