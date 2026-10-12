@@ -2,7 +2,7 @@ package stream
 
 import "context"
 
-// Sink receives events for a run's log. The engine installs one in the run
+// Sink receives events for a run's log. The runtime installs one in the run
 // context so tools can emit activities and sub-agent events directly.
 type Sink interface {
 	Emit(Event)

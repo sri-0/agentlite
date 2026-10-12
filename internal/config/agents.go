@@ -86,8 +86,8 @@ func (a AgentDef) validate(known map[string]bool) error {
 	if a.Kind != KindLLM && len(a.Subagents) == 0 {
 		return fmt.Errorf("kind %s needs subagents", a.Kind)
 	}
-	if a.Kind == KindLLM && len(a.Subagents) > 0 && a.Tools != nil && !slices.Contains(*a.Tools, "task") {
-		return fmt.Errorf("subagents are unreachable without the task tool")
+	if a.Kind == KindLLM && len(a.Subagents) > 0 && a.Tools != nil && !slices.Contains(*a.Tools, "subagent") {
+		return fmt.Errorf("subagents are unreachable without the subagent tool")
 	}
 	for _, sub := range a.Subagents {
 		if !known[sub] {

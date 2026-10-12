@@ -9,7 +9,7 @@ connectors:
     name: Web
     description: Read public web pages.
     icon: globe
-    tools: [read_url]
+    tools: [webfetch]
   - id: calculator
     name: Calculator
     description: Exact arithmetic.

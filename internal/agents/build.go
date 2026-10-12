@@ -1,4 +1,4 @@
-package engine
+package agents
 
 import (
 	"context"
@@ -15,8 +15,8 @@ import (
 	"google.golang.org/adk/v2/tool/preloadmemorytool"
 	"google.golang.org/genai"
 
-	"agentlite/internal/agent"
 	"agentlite/internal/config"
+	"agentlite/internal/runs"
 	"agentlite/internal/tools/builtin"
 )
 
@@ -25,13 +25,13 @@ const defaultMaxOutputTokens = 8192
 
 // build turns a definition into an adk agent for one run: an llm agent, or a
 // sequential pipeline of its subagents. Every llm agent uses the run's model.
-func (e *Engine) build(ctx context.Context, def config.AgentDef, run *agent.Run) (adkagent.Agent, error) {
+func (rt *Runtime) build(ctx context.Context, def config.AgentDef, run *runs.Run) (adkagent.Agent, error) {
 	if def.Kind == config.KindLLM {
-		return e.buildLLM(ctx, def, run)
+		return rt.buildLLM(ctx, def, run)
 	}
 	steps := make([]adkagent.Agent, 0, len(def.Subagents))
 	for _, id := range def.Subagents {
-		step, err := e.build(ctx, e.defs[id], run)
+		step, err := rt.build(ctx, rt.defs[id], run)
 		if err != nil {
 			return nil, err
 		}
@@ -40,18 +40,18 @@ func (e *Engine) build(ctx context.Context, def config.AgentDef, run *agent.Run)
 	return sequentialagent.New(sequentialagent.Config{AgentConfig: adkagent.Config{Name: def.ID, Description: def.Description, SubAgents: steps}})
 }
 
-func (e *Engine) buildLLM(ctx context.Context, def config.AgentDef, run *agent.Run) (adkagent.Agent, error) {
-	llm, _, err := e.model(ctx, run.Model)
+func (rt *Runtime) buildLLM(ctx context.Context, def config.AgentDef, run *runs.Run) (adkagent.Agent, error) {
+	llm, _, err := rt.model(ctx, run.Model)
 	if err != nil {
 		return nil, fmt.Errorf("agent %q: %w", def.ID, err)
 	}
-	fns, toolsets, err := e.toolsFor(def, run)
+	fns, toolsets, err := rt.toolsFor(def, run)
 	if err != nil {
 		return nil, fmt.Errorf("agent %q: %w", def.ID, err)
 	}
-	if e.memory != nil && run.Root() { // sub-agent runs work from their prompt alone
+	if rt.memory != nil && run.Root() { // sub-agent runs work from their prompt alone
 		fns = append(fns, loadmemorytool.New())
-		if e.preload {
+		if rt.preload {
 			fns = append(fns, preloadmemorytool.New())
 		}
 	}
@@ -63,7 +63,7 @@ func (e *Engine) buildLLM(ctx context.Context, def config.AgentDef, run *agent.R
 		Name:                     def.ID,
 		Description:              def.Description,
 		Model:                    llm,
-		Instruction:              e.instruction(def),
+		Instruction:              rt.instruction(def),
 		Tools:                    fns,
 		Toolsets:                 toolsets,
 		GenerateContentConfig:    &genai.GenerateContentConfig{MaxOutputTokens: int32(maxTokens)},
@@ -75,16 +75,16 @@ func (e *Engine) buildLLM(ctx context.Context, def config.AgentDef, run *agent.R
 // toolsFor resolves an agent's tools for a run. A listed name must be a
 // harness or world tool or, when MCP servers are configured, is taken to be
 // one of their tools. Omitted means every harness tool plus the toolsets of
-// the run's connectors; the task tool only for agents with subagents.
-func (e *Engine) toolsFor(def config.AgentDef, run *agent.Run) ([]tool.Tool, []tool.Toolset, error) {
+// the run's connectors; the subagent tool only for agents with subagents.
+func (rt *Runtime) toolsFor(def config.AgentDef, run *runs.Run) ([]tool.Tool, []tool.Toolset, error) {
 	var fns []tool.Tool
 	if def.Tools != nil {
 		var mcpNames []string
 		for _, name := range *def.Tools {
-			switch t := e.tool(name); {
+			switch t := rt.tool(name); {
 			case t != nil:
 				fns = append(fns, t)
-			case len(e.servers) > 0:
+			case len(rt.servers) > 0:
 				mcpNames = append(mcpNames, name)
 			default:
 				return nil, nil, fmt.Errorf("unknown tool %q", name)
@@ -94,30 +94,30 @@ func (e *Engine) toolsFor(def config.AgentDef, run *agent.Run) ([]tool.Tool, []t
 			return fns, nil, nil
 		}
 		var sets []tool.Toolset
-		for _, srv := range e.servers {
+		for _, srv := range rt.servers {
 			sets = append(sets, tool.FilterToolset(srv.Toolset, tool.AllowedToolsPredicate(mcpNames)))
 		}
 		return fns, sets, nil
 	}
-	for _, name := range slices.Sorted(maps.Keys(e.harness)) {
-		if name == builtin.Task && len(def.Subagents) == 0 {
+	for _, name := range slices.Sorted(maps.Keys(rt.harness)) {
+		if name == builtin.Subagent && len(def.Subagents) == 0 {
 			continue
 		}
 		if !run.Root() && orchestration[name] { // like opencode: sub-agents do the work, they do not delegate or ask
 			continue
 		}
-		fns = append(fns, e.harness[name])
+		fns = append(fns, rt.harness[name])
 	}
-	return fns, e.enabled(run.Connectors), nil
+	return fns, rt.enabled(run.Connectors), nil
 }
 
 // toolList names what a sub-agent can call, so the parent delegates only
 // work it can do. A pipeline lists its steps' tools.
-func (e *Engine) toolList(def config.AgentDef) string {
+func (rt *Runtime) toolList(def config.AgentDef) string {
 	var names []string
 	if def.Kind != config.KindLLM {
 		for _, id := range def.Subagents {
-			names = append(names, e.toolList(e.defs[id]))
+			names = append(names, rt.toolList(rt.defs[id]))
 		}
 	} else if def.Tools != nil {
 		names = *def.Tools
@@ -129,26 +129,26 @@ func (e *Engine) toolList(def config.AgentDef) string {
 }
 
 // orchestration are the harness tools a sub-agent only gets by listing them.
-var orchestration = map[string]bool{builtin.Task: true, "todowrite": true, builtin.Question: true}
+var orchestration = map[string]bool{builtin.Subagent: true, "todowrite": true, builtin.Question: true}
 
-func (e *Engine) tool(name string) tool.Tool {
-	if t, ok := e.harness[name]; ok {
+func (rt *Runtime) tool(name string) tool.Tool {
+	if t, ok := rt.harness[name]; ok {
 		return t
 	}
-	return e.world[name]
+	return rt.world[name]
 }
 
-// instruction appends the sub-agent manifest the task tool relies on.
-func (e *Engine) instruction(def config.AgentDef) string {
-	if len(def.Subagents) == 0 || def.Tools != nil && !slices.Contains(*def.Tools, builtin.Task) {
+// instruction appends the sub-agent manifest the subagent tool relies on.
+func (rt *Runtime) instruction(def config.AgentDef) string {
+	if len(def.Subagents) == 0 || def.Tools != nil && !slices.Contains(*def.Tools, builtin.Subagent) {
 		return def.Instruction
 	}
 	var b strings.Builder
 	b.WriteString(def.Instruction)
 	b.WriteString("\n\n<available_subagents>\n")
 	for _, id := range slices.Sorted(slices.Values(def.Subagents)) {
-		sub := e.defs[id]
-		fmt.Fprintf(&b, "- %s: %s (tools: %s)\n", sub.ID, sub.Description, e.toolList(sub))
+		sub := rt.defs[id]
+		fmt.Fprintf(&b, "- %s: %s (tools: %s)\n", sub.ID, sub.Description, rt.toolList(sub))
 	}
 	b.WriteString("</available_subagents>")
 	return b.String()

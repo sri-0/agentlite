@@ -10,11 +10,11 @@ type reportProgressArgs struct {
 	Message string `json:"message" jsonschema:"one line on what you are doing now"`
 }
 
-// progressTool is the name the task tool watches for in a sub-agent's log.
+// progressTool is the name the subagent tool watches for in a sub-agent's log.
 const progressTool = "report_progress"
 
 // reportProgress has no effect of its own: its call in a sub-agent's log is
-// what the parent's task tool lifts into the agent card.
+// what the parent's subagent call lifts into the agent card.
 func reportProgress(Deps) (tool.Tool, error) {
 	return functiontool.New(functiontool.Config{
 		Name:        progressTool,

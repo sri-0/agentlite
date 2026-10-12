@@ -1,4 +1,4 @@
-package engine
+package agents
 
 import (
 	"context"
@@ -12,11 +12,11 @@ const retainedEvents = 20
 
 // compaction builds adk's compaction config for a run from the global
 // settings, summarising with the run's own model. Nil when compaction is off.
-func (e *Engine) compaction(ctx context.Context, modelID string) (*compaction.Config, error) {
-	if e.compact == nil {
+func (rt *Runtime) compaction(ctx context.Context, modelID string) (*compaction.Config, error) {
+	if rt.compact == nil {
 		return nil, nil
 	}
-	llm, meta, err := e.model(ctx, modelID)
+	llm, meta, err := rt.model(ctx, modelID)
 	if err != nil {
 		return nil, err
 	}
@@ -24,9 +24,9 @@ func (e *Engine) compaction(ctx context.Context, modelID string) (*compaction.Co
 	if err != nil {
 		return nil, err
 	}
-	cfg := &compaction.Config{CompactionInterval: e.compact.Interval, OverlapSize: e.compact.Overlap, Summarizer: summarizer}
-	if e.compact.TokenThreshold > 0 && meta.ContextLength > 0 { // the threshold needs a known window
-		cfg.TokenThreshold = int(e.compact.TokenThreshold * float64(meta.ContextLength))
+	cfg := &compaction.Config{CompactionInterval: rt.compact.Interval, OverlapSize: rt.compact.Overlap, Summarizer: summarizer}
+	if rt.compact.TokenThreshold > 0 && meta.ContextLength > 0 { // the threshold needs a known window
+		cfg.TokenThreshold = int(rt.compact.TokenThreshold * float64(meta.ContextLength))
 		cfg.EventRetentionSize = retainedEvents
 	}
 	return cfg, nil

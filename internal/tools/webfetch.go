@@ -16,28 +16,28 @@ import (
 )
 
 const (
-	readURLTimeout = 20 * time.Second
-	readURLBody    = 2 << 20  // bytes fetched
-	readURLText    = 32 << 10 // bytes returned
+	webFetchTimeout = 20 * time.Second
+	webFetchBody    = 2 << 20  // bytes fetched
+	webFetchText    = 32 << 10 // bytes returned
 )
 
-type readURLArgs struct {
+type webFetchArgs struct {
 	URL string `json:"url" jsonschema:"absolute http or https URL to read"`
 }
 
-// readURL fetches a page and returns its visible text, capped so a page can
+// webFetch fetches a page and returns its visible text, capped so a page can
 // never flood the context or the log.
-func readURL() (tool.Tool, error) {
+func webFetch() (tool.Tool, error) {
 	client := &http.Client{
-		Timeout: readURLTimeout,
+		Timeout: webFetchTimeout,
 		CheckRedirect: func(req *http.Request, _ []*http.Request) error {
 			return publicHost(req.Context(), req.URL.Hostname())
 		},
 	}
 	return functiontool.New(functiontool.Config{
-		Name:        "read_url",
+		Name:        "webfetch",
 		Description: "Fetch a web page and return its readable text (truncated to 32 KiB).",
-	}, func(ctx adkagent.Context, a readURLArgs) (map[string]any, error) {
+	}, func(ctx adkagent.Context, a webFetchArgs) (map[string]any, error) {
 		if !strings.HasPrefix(a.URL, "http://") && !strings.HasPrefix(a.URL, "https://") {
 			return nil, fmt.Errorf("url must start with http:// or https://")
 		}
@@ -57,7 +57,7 @@ func readURL() (tool.Tool, error) {
 		if resp.StatusCode >= 400 {
 			return nil, fmt.Errorf("%s returned HTTP %d", a.URL, resp.StatusCode)
 		}
-		body, err := io.ReadAll(io.LimitReader(resp.Body, readURLBody))
+		body, err := io.ReadAll(io.LimitReader(resp.Body, webFetchBody))
 		if err != nil {
 			return nil, err
 		}
@@ -65,9 +65,9 @@ func readURL() (tool.Tool, error) {
 		if strings.Contains(resp.Header.Get("Content-Type"), "html") {
 			text = []byte(visibleText(body))
 		}
-		truncated := len(text) > readURLText
+		truncated := len(text) > webFetchText
 		if truncated {
-			text = text[:readURLText]
+			text = text[:webFetchText]
 		}
 		return map[string]any{"url": a.URL, "text": string(text), "truncated": truncated}, nil
 	})

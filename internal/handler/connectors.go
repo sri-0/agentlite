@@ -8,12 +8,12 @@ import (
 
 // Connectors lists the tool groups a thread can switch on.
 func (h *Handler) Connectors(c *echo.Context) error {
-	return c.JSON(http.StatusOK, newList(h.Engine.Connectors()))
+	return c.JSON(http.StatusOK, newList(h.Runtime.Connectors()))
 }
 
 // Connector describes one connector, with an MCP server's tools listed live.
 func (h *Handler) Connector(c *echo.Context) error {
-	info, err := h.Engine.Connector(c.Request().Context(), c.Param("id"))
+	info, err := h.Runtime.Connector(c.Request().Context(), c.Param("id"))
 	if err != nil {
 		return err
 	}

@@ -7,10 +7,10 @@ import (
 	"github.com/labstack/echo/v5"
 	"github.com/rs/zerolog"
 
-	"agentlite/internal/agent"
+	"agentlite/internal/agents"
 	"agentlite/internal/config"
-	"agentlite/internal/engine"
 	"agentlite/internal/proxy"
+	"agentlite/internal/runs"
 	"agentlite/pkg/db/opensearch"
 )
 
@@ -18,8 +18,8 @@ import (
 type Handler struct {
 	Config   *config.Config
 	Registry *proxy.Registry
-	Service  *agent.Service
-	Engine   *engine.Engine
+	Runs     *runs.Manager
+	Runtime  *agents.Runtime
 	Store    *opensearch.Client
 	Log      zerolog.Logger
 }

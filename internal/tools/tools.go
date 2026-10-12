@@ -12,7 +12,7 @@ import (
 // World builds every world tool, keyed by name.
 func World() (map[string]tool.Tool, error) {
 	out := map[string]tool.Tool{}
-	for _, build := range []func() (tool.Tool, error){calculate, readURL, writeNote} {
+	for _, build := range []func() (tool.Tool, error){calculate, webFetch, writeNote} {
 		t, err := build()
 		if err != nil {
 			return nil, fmt.Errorf("tool: %w", err)

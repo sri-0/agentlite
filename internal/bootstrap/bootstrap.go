@@ -1,6 +1,6 @@
 // Package bootstrap wires the application from configuration: logging,
 // tracing, the provider registry, Valkey, OpenSearch, sessions, memory, MCP
-// servers, the engine and the run service. Every command starts here.
+// servers, the agent runtime and the run manager. Every command starts here.
 package bootstrap
 
 import (
@@ -11,12 +11,12 @@ import (
 	valkeygo "github.com/valkey-io/valkey-go"
 	"google.golang.org/adk/v2/session"
 
-	"agentlite/internal/agent"
+	"agentlite/internal/agents"
 	"agentlite/internal/config"
-	"agentlite/internal/engine"
 	"agentlite/internal/hitl"
 	"agentlite/internal/mcp"
 	"agentlite/internal/proxy"
+	"agentlite/internal/runs"
 	"agentlite/pkg/db/opensearch"
 	"agentlite/pkg/db/valkey"
 	"agentlite/pkg/logging"
@@ -32,8 +32,8 @@ type App struct {
 	Store    *opensearch.Client
 	Sessions session.Service
 	Memory   *memory.Service // nil when memory is not configured
-	Engine   *engine.Engine
-	Service  *agent.Service
+	Agents   *agents.Runtime
+	Runs     *runs.Manager
 
 	closers []func()
 }
@@ -75,17 +75,17 @@ func New(ctx context.Context) (*App, error) {
 	if app.Memory, err = memoryService(ctx, cfg, app.Registry, app.Store, app.Log); err != nil {
 		return nil, err
 	}
-	var mem engine.Memory
+	var mem agents.Memory
 	if app.Memory != nil {
 		mem = app.Memory
 	}
-	app.Engine = engine.New(cfg, app.Registry, app.Sessions, mem, mcp.Servers(cfg.MCP, app.Log), app.Log)
-	app.Service = agent.NewService(cfg, runsDB, hitl.NewStore(hitlDB), app.Store, app.Store, app.Sessions, app.Engine, app.Log)
-	if err := app.Engine.Bind(app.Service); err != nil { // the task tool dispatches through the service
+	app.Agents = agents.New(cfg, app.Registry, app.Sessions, mem, mcp.Servers(cfg.MCP, app.Log), app.Log)
+	app.Runs = runs.New(cfg, runsDB, hitl.NewStore(hitlDB), app.Store, app.Store, app.Sessions, app.Agents, app.Log)
+	if err := app.Agents.Bind(app.Runs); err != nil { // the subagent tool dispatches through the run manager
 		return nil, err
 	}
-	app.Service.StartWorkers(ctx)
-	app.closers = append(app.closers, app.Service.Stop)
+	app.Runs.StartWorkers(ctx)
+	app.closers = append(app.closers, app.Runs.Stop)
 	return app, nil
 }
 

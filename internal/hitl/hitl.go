@@ -9,6 +9,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strconv"
 	"time"
 
 	"github.com/ag-ui-protocol/ag-ui/sdks/community/go/pkg/core/types"
@@ -24,18 +25,16 @@ const (
 
 // Interrupt is one pause of a run waiting for the user.
 type Interrupt struct {
-	ID       string         `json:"id"`
-	ThreadID string         `json:"thread_id"`
-	RunID    string         `json:"run_id"`
-	Reason   string         `json:"reason"` // confirmation
-	ToolCall string         `json:"tool_call_id"`
-	ToolName string         `json:"tool_name"`
-	Args     map[string]any `json:"args,omitempty"`
-	Message  string         `json:"message,omitempty"`
-	// ChildThreadID is set when the interrupt forwards a sub-agent's request.
-	ChildThreadID string    `json:"child_thread_id,omitempty"`
-	Status        string    `json:"status"`
-	CreatedAt     time.Time `json:"created_at"`
+	ID        string         `json:"id"`
+	ThreadID  string         `json:"thread_id"`
+	RunID     string         `json:"run_id"`
+	Reason    string         `json:"reason"` // confirmation
+	ToolCall  string         `json:"tool_call_id"`
+	ToolName  string         `json:"tool_name"`
+	Args      map[string]any `json:"args,omitempty"`
+	Message   string         `json:"message,omitempty"`
+	Status    string         `json:"status"`
+	CreatedAt time.Time      `json:"created_at"`
 
 	// Set when decided.
 	Decision  *Decision `json:"decision,omitempty"`
@@ -52,7 +51,7 @@ type Decision struct {
 
 // ResumeEntry is the AG-UI form of a decision for the run engine.
 func (i *Interrupt) ResumeEntry() types.ResumeEntry {
-	// An output answers a question (the agent's own, or one a sub-agent forwarded).
+	// An output answers a question.
 	approved := i.Decision.Output != nil || i.Decision.Approved != nil && *i.Decision.Approved
 	payload := map[string]any{"approved": approved, "justification": i.Decision.Justification, "output": i.Decision.Output}
 	return types.ResumeEntry{InterruptID: i.ID, Status: types.ResumeStatusResolved, Payload: payload}
@@ -75,6 +74,7 @@ func NewStore(db valkey.Client) *Store { return &Store{db: db} }
 
 func key(id string) string              { return "hitl:" + id }
 func pendingKey(threadID string) string { return "hitl:thread:" + threadID + ":pending" }
+func decidedKey(threadID string) string { return "hitl:thread:" + threadID + ":decided" }
 
 // Add records the interrupts a run just paused on, from the AG-UI interrupts
 // the encoder produced.
@@ -86,11 +86,8 @@ func (s *Store) Add(ctx context.Context, threadID, runID string, interrupts []ty
 		}
 		rec.ToolName, _ = in.Metadata["toolName"].(string)
 		rec.Args, _ = in.Metadata["args"].(map[string]any)
-		if request, ok := in.Metadata["request"].(map[string]any); ok {
-			rec.ChildThreadID, _ = request["childThreadId"].(string)
-			if request["toolName"] == "question" && rec.ChildThreadID == "" { // the agent's own question
-				rec.Args, _ = request["args"].(map[string]any)
-			}
+		if request, ok := in.Metadata["request"].(map[string]any); ok && request["toolName"] == "question" {
+			rec.Args, _ = request["args"].(map[string]any) // the questions
 		}
 		if err := s.save(ctx, &rec); err != nil {
 			return err
@@ -135,20 +132,53 @@ func (s *Store) Get(ctx context.Context, id string) (*Interrupt, error) {
 	return &rec, nil
 }
 
-// Decide records the user's answer to a pending interrupt and returns it.
-func (s *Store) Decide(ctx context.Context, id string, d Decision) (*Interrupt, error) {
-	rec, err := s.Get(ctx, id)
+// decideScript answers a pending interrupt atomically: it leaves the thread's
+// pending set, its record becomes the decided one, and its id joins the
+// decided set. The reply is how many of the thread's interrupts are still
+// pending, or -1 when this one was not pending.
+var decideScript = valkey.NewLuaScript(`
+if redis.call('SREM', KEYS[1], ARGV[1]) == 0 then return -1 end
+redis.call('SET', KEYS[2], ARGV[2], 'EX', ARGV[3])
+redis.call('SADD', KEYS[3], ARGV[1])
+return redis.call('SCARD', KEYS[1])`)
+
+// Decide records the answer to a pending interrupt and reports how many of the
+// thread's interrupts are still waiting. An interrupt is answered once; a
+// second answer gets ErrNotPending.
+func (s *Store) Decide(ctx context.Context, rec *Interrupt, d Decision) (int64, error) {
+	rec.Status, rec.Decision, rec.DecidedAt = StatusResolved, &d, time.Now()
+	raw, err := json.Marshal(rec)
+	if err != nil {
+		return 0, err
+	}
+	remaining, err := decideScript.Exec(ctx, s.db,
+		[]string{pendingKey(rec.ThreadID), key(rec.ID), decidedKey(rec.ThreadID)},
+		[]string{rec.ID, string(raw), strconv.FormatInt(int64(retention.Seconds()), 10)}).AsInt64()
+	if err != nil {
+		return 0, err
+	}
+	if remaining < 0 {
+		return 0, fmt.Errorf("interrupt %s: %w", rec.ID, ErrNotPending)
+	}
+	return remaining, nil
+}
+
+// TakeDecided returns the thread's answered interrupts that have not been
+// handed to the run yet, and forgets them.
+func (s *Store) TakeDecided(ctx context.Context, threadID string) ([]Interrupt, error) {
+	ids, err := s.db.Do(ctx, s.db.B().Smembers().Key(decidedKey(threadID)).Build()).AsStrSlice()
 	if err != nil {
 		return nil, err
 	}
-	if rec.Status != StatusPending {
-		return nil, fmt.Errorf("interrupt %s: %w", id, ErrNotPending)
+	out := make([]Interrupt, 0, len(ids))
+	for _, id := range ids {
+		rec, err := s.Get(ctx, id)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, *rec)
 	}
-	rec.Status, rec.Decision, rec.DecidedAt = StatusResolved, &d, time.Now()
-	if err := s.save(ctx, rec); err != nil {
-		return nil, err
-	}
-	return rec, s.db.Do(ctx, s.db.B().Srem().Key(pendingKey(rec.ThreadID)).Member(id).Build()).Error()
+	return out, s.db.Do(ctx, s.db.B().Del().Key(decidedKey(threadID)).Build()).Error()
 }
 
 // Cancel closes every pending interrupt of a thread.
@@ -163,7 +193,7 @@ func (s *Store) Cancel(ctx context.Context, threadID string) error {
 			return err
 		}
 	}
-	return s.db.Do(ctx, s.db.B().Del().Key(pendingKey(threadID)).Build()).Error()
+	return s.db.Do(ctx, s.db.B().Del().Key(pendingKey(threadID), decidedKey(threadID)).Build()).Error()
 }
 
 func (s *Store) save(ctx context.Context, rec *Interrupt) error {

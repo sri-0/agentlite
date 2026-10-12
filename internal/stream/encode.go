@@ -194,7 +194,7 @@ func (e *Encoder) closeReasoning(s *step) {
 
 // call emits a tool call once; a confirmation wrapper records an interrupt so
 // Finish pauses the run. Its request, when present, says what is asked: the
-// questions of a question, or a sub-agent's request forwarded by task.
+// questions of a question.
 func (e *Encoder) call(ev *session.Event, fc *genai.FunctionCall) {
 	if fc.Name == toolconfirmation.FunctionCallName {
 		original, err := toolconfirmation.OriginalCallFrom(fc)

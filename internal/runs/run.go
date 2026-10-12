@@ -1,7 +1,7 @@
-// Package agent is the run lifecycle: starting, executing, finalising and
+// Package runs is the run lifecycle: starting, executing, finalising and
 // subscribing to runs. Everything crosses between its parts as data in
 // Valkey, which is what will let the worker loop move to another process.
-package agent
+package runs
 
 import (
 	"context"
@@ -52,7 +52,7 @@ type Run struct {
 const resultCap = 64 << 10
 
 // Root reports whether the run was started by a user rather than by a
-// parent run's task tool.
+// parent run's subagent tool.
 func (r *Run) Root() bool { return r.RootID == r.ThreadID }
 
 func (r *Run) fields() map[string]string {

@@ -5,6 +5,7 @@ import (
 
 	"github.com/labstack/echo/v5"
 
+	"agentlite/internal/runs"
 	"agentlite/pkg/db/opensearch"
 )
 
@@ -29,7 +30,7 @@ func (h *Handler) Threads(c *echo.Context) error {
 	for i, t := range threads {
 		ids[i] = t.ID
 	}
-	statuses, err := h.Service.RunStatuses(ctx, ids)
+	statuses, err := h.Runs.RunStatuses(ctx, ids)
 	if err != nil {
 		return err
 	}
@@ -48,7 +49,7 @@ func (h *Handler) Thread(c *echo.Context) error {
 		return err
 	}
 	item := threadItem{Thread: *t}
-	run, err := h.Service.Active(ctx, t.ID)
+	run, err := h.Runs.Active(ctx, t.ID)
 	if err != nil {
 		return err
 	}
@@ -93,12 +94,12 @@ func (h *Handler) UpdateThread(c *echo.Context) error {
 // messages. A thread with an active run is refused.
 func (h *Handler) DeleteThread(c *echo.Context) error {
 	ctx := c.Request().Context()
-	run, err := h.Service.Active(ctx, c.Param("id"))
+	run, err := h.Runs.Active(ctx, c.Param("id"))
 	if err != nil {
 		return err
 	}
 	if run != nil {
-		return echo.NewHTTPError(http.StatusConflict, "thread has an active run")
+		return runs.ErrBusy
 	}
 	if err := h.Store.DeleteThread(ctx, c.Param("id")); err != nil {
 		return err
@@ -120,7 +121,7 @@ func (h *Handler) Messages(c *echo.Context) error {
 		return err
 	}
 	cursor := ""
-	run, err := h.Service.Active(ctx, c.Param("id"))
+	run, err := h.Runs.Active(ctx, c.Param("id"))
 	if err != nil {
 		return err
 	}

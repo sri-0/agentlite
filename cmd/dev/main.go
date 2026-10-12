@@ -14,8 +14,8 @@ import (
 	"google.golang.org/adk/v2/cmd/launcher"
 	"google.golang.org/adk/v2/cmd/launcher/full"
 
-	"agentlite/internal/agent"
 	"agentlite/internal/bootstrap"
+	"agentlite/internal/runs"
 )
 
 func main() {
@@ -54,11 +54,11 @@ func (l loader) ListAgents() []string {
 }
 
 func (l loader) LoadAgent(name string) (adkagent.Agent, error) {
-	return l.app.Engine.Agent(context.Background(), name)
+	return l.app.Agents.Agent(context.Background(), name)
 }
 
 func (l loader) RootAgent() adkagent.Agent {
-	root, err := l.LoadAgent(agent.DefaultAgent)
+	root, err := l.LoadAgent(runs.DefaultAgent)
 	if err != nil {
 		panic(err)
 	}

@@ -7,17 +7,20 @@ state lives.
 
 ```
 browser (agentui)
-   │  REST: start runs, decide interrupts, cancel, threads, connectors
-   │  WebSocket /v1/agent/chat?v=1: subscribe to threads, receive AG-UI events
+   │  one WebSocket /v1/agent/chat?v=1: run, answer, cancel, subscribe, unsubscribe
+   │  frames; AG-UI events stream back per thread
+   │  REST: reads and thread admin (threads, messages, models, agents, connectors)
    ▼
 Echo server (internal/server, internal/handler, internal/ws)
    │
-   ├─ run service (internal/agent): start, resume, cancel, subscribe; worker and
-   │    finalizer loops; everything it shares goes through Valkey
+   ├─ runs (internal/runs): the run lifecycle. Manager starts runs, answers
+   │    interrupts, cancels, and follows threads; the worker and finalizer loops
+   │    execute and persist them. Everything they share goes through Valkey.
    │      │
-   │      └─ engine (internal/engine): builds adk agents from the roster and runs
-   │           them with adk's runner; the encoder (internal/stream) turns adk
-   │           events into AG-UI events written to the thread's log
+   │      └─ agents (internal/agents): the agent runtime. Builds adk agents from
+   │           the roster and runs one segment of a run with adk's runner; the
+   │           encoder (internal/stream) turns adk events into AG-UI events
+   │           written to the thread's log
    │
    ├─ pass-through proxies (internal/proxy): /v1/chat/completions, /v1/responses,
    │    /v1/messages, /v1/embeddings → the configured provider, bytes untouched
@@ -27,27 +30,34 @@ Echo server (internal/server, internal/handler, internal/ws)
 ```
 
 `internal/bootstrap` wires all of this from configuration; `cmd/server` serves
-it; `cmd/dev` runs adk's own launcher over the same pieces.
+it; `cmd/dev` runs adk's own launcher over the same pieces. `runs` defines the
+small interface it needs from the runtime (`runs.Runtime`), and `agents`
+implements it, so imports run one way.
+
+| Package | Files |
+|---|---|
+| `internal/runs` | `manager.go` (Manager and the interfaces it needs), `start.go`, `answer.go`, `cancel.go`, `subscribe.go` (subscribe, wait, statuses), `worker.go` (worker loops, executing a segment), `finalizer.go`, `queue.go`, `log.go`, `store.go` (run records, leases), `run.go` |
+| `internal/agents` | `runtime.go` (Runtime, running a segment), `build.go` (roster → adk agents and tools), `connectors.go`, `compaction.go`, `seed.go` (rebuild a session), `resume.go` (answers → adk responses) |
 
 ## The life of a run
 
 ```
-POST /v1/agent/chat {messages, thread_id?, agent_id?, model?, connectors?}
+client: {type: "run", requestId, threadId?, agentId?, model?, connectors?, messages}
   │
-  Service.Start
+  Manager.Start (internal/runs/start.go)
+  ├─ validate the agent and connectors; create the thread when none is named
   ├─ claim the thread: SET thread:{id}:run = runId NX (a 60 s lease); a second
-  │  start while a run owns the thread is 409 (a retry of the same message id
+  │  start while a run owns the thread is `busy` (a retry of the same message id
   │  returns the existing run)
-  ├─ create the thread when none is named; save the user message (OpenSearch)
-  ├─ rebuild the thread's adk session from stored events if it is missing
+  ├─ save the user message (OpenSearch); rebuild the adk session if it is missing
   ├─ record the run (run:{id}) with the log cursors where its turn starts
-  └─ enqueue on runs:{agentId}                       → 202 {run id, thread id, cursor}
+  └─ enqueue on runs:{agentId}       → {type: "ack", requestId, threadId, runId, seq}
 
-client: subscribe {threadId, after: cursor} on the socket
+client: {type: "subscribe", threadId, after: seq}
 
-worker (consumer group "workers" on runs:{agentId}, up to 8 at a time)
+worker (consumer group "workers" on runs:{agentId}, up to 32 at a time)
   ├─ status running; keep the lease alive; listen for cancel on run:{id}:ctl
-  ├─ engine.Run: build the agent tree, run adk's runner, encode each adk event
+  ├─ Runtime.Run: build the agent tree, run adk's runner, encode each adk event
   │  into AG-UI events, append them to thread:{id}:log
   └─ settle: status done | error | cancelled | awaiting_input; enqueue runs:done
 
@@ -58,14 +68,19 @@ finalizer (consumer group "finalizers" on runs:done)
      trim the log
 ```
 
-The socket subscription reads `thread:{id}:log` from the cursor and stops at the
+The subscription reads `thread:{id}:log` from the cursor and stops at the
 segment's `RUN_FINISHED` or `RUN_ERROR`. Because the log is the source of truth,
 a client that reconnects, reloads mid-answer or opens the thread on another device
 resumes from its cursor and loses nothing.
 
-A run that pauses (see HITL.md) keeps its lease permanently until it is answered
-or cancelled; the answer queues a new **segment** of the same run, which streams
-into the same assistant message.
+A run that pauses (see HITL.md) keeps its lease until it is answered or
+cancelled; once every pending interrupt is answered (`answer` frames), a new
+**segment** of the same run is queued, which streams into the same assistant
+message.
+
+Each consumer handles up to 32 entries at once. A parent waiting on its
+sub-agents holds one of them for the whole wait, and its children need their
+own, so the limit is set well above the number of sub-agents one turn starts.
 
 Queue entries are acknowledged when the handler returns. An entry whose handler
 failed, or whose consumer died, is retried once the queue is idle and the entry
@@ -77,7 +92,7 @@ re-executed, because tools have side effects.
 ## Threads
 
 A thread is a conversation: a root thread the user started, or a child thread a
-`task` call started for a sub-agent (`parent_id`, `root_id`). Ids are UUIDv7 and
+`subagent` call started for a sub-agent (`parent_id`, `root_id`). Ids are UUIDv7 and
 always the server's. Each thread has:
 
 - one **event log** in Valkey (`thread:{id}:log`), the live channel and the
@@ -88,15 +103,30 @@ always the server's. Each thread has:
 - at most one **active run**, held by the lease `thread:{id}:run`;
 - the **connectors** the user switched on, stored on the thread document.
 
+A sub-agent's thread is followed like any other; the parent's agent card also
+mirrors its status, progress and pending requests (AGENT-ARCHITECTURE.md).
+
 Deleting a root thread deletes its child threads, their messages and their
 memories.
 
-## Streaming
+## The socket
 
-The socket carries frames `{type: "event", threadId, seq, event}`, where `event`
-is an AG-UI 1.0 event untouched, plus `idle` and `error`. One socket per browser
-tab serves every thread the tab follows. AG-UI-RENDERING.md maps every event to
-the UI.
+One WebSocket per browser tab carries everything between the client and its
+agents, each frame naming its thread:
+
+| Client frame | Purpose | Reply |
+|---|---|---|
+| `run {requestId, threadId?, agentId?, model?, connectors?, messages}` | start a turn; a new thread when `threadId` is empty | `ack {threadId, runId, seq}` |
+| `answer {requestId, threadId, interruptId, approved?, justification?, output?}` | answer an interrupt on that thread | `ack {threadId, runId, seq}` |
+| `cancel {requestId, threadId}` | stop the thread's run | `ack {threadId}` |
+| `subscribe {threadId, after?}` | follow a thread from a cursor (empty: the active turn's start) | `event` frames, or `idle` |
+| `unsubscribe {threadId}` | stop following | — |
+
+Server frames: `event {threadId, seq, event}` (an AG-UI 1.0 event, untouched),
+`idle {threadId}`, `ack`, and `error {requestId?, threadId?, code, message}` with
+codes `bad_request`, `not_found`, `busy`, `not_paused`, `internal`. Runs,
+answers and cancels are handled off the read loop, so a slow start never holds
+up other frames. AG-UI-RENDERING.md maps every event to the UI.
 
 ## Where state lives
 
@@ -106,7 +136,7 @@ Valkey is split into logical databases, set by environment:
 |---|---|---|---|
 | `REDIS_DB_RUNS` | 1 | the run lifecycle | `thread:{id}:log` (stream of AG-UI events), `thread:{id}:seq` (message order), `thread:{id}:run` (lease), `run:{id}` (run record, 7 days), `runs:{agentId}` and `runs:done` (queues), `run:{id}:ctl` (cancel, pub/sub) |
 | `REDIS_DB_SESSIONS` | 2 | adk sessions: agent state and history | `session:{id}` (metadata), `session:{id}:events`, `session:{id}:state` (30 days), `sessions:{app}` (index for adk's launcher) |
-| `REDIS_DB_HITL` | 3 | interrupts | `hitl:{interruptId}` (record and decision, 7 days), `hitl:thread:{id}:pending` |
+| `REDIS_DB_HITL` | 3 | interrupts | `hitl:{interruptId}` (record and decision, 7 days), `hitl:thread:{id}:pending` (open), `hitl:thread:{id}:decided` (answered, waiting for the rest) |
 
 OpenSearch indices: `threads`, `messages` (events stored unindexed), `memories`
 (kNN vectors; created only when memory is configured). Every write refreshes the
@@ -130,12 +160,12 @@ With `OTEL_EXPORTER_OTLP_ENDPOINT` set, adk's own telemetry exports traces (Jaeg
 in `docker-compose.yaml`, UI on :16686): a `run` span per run segment with adk's
 `invoke_agent`, `generate_content` and `execute_tool` spans inside, and
 `memory.search`. The trace context travels through the request queue, so a
-sub-agent's run nests under its parent's `task` call.
+sub-agent's run nests under its parent's `subagent` call.
 
 ## Designed to split later
 
 Everything the worker and finalizer need is in Valkey, and they talk to the rest
 only through it, so they can move into separate worker containers: point more
-consumers at the same queues. The persistence sink (`agent.Sink`) and the event
-log (`agent.Log`) are interfaces so OpenSearch writes can become a Kafka producer
-and the log can stream elsewhere without touching the run service.
+consumers at the same queues. The persistence sink (`runs.Sink`) and the event
+log (`runs.Log`) are interfaces so OpenSearch writes can become a Kafka producer
+and the log can stream elsewhere without touching the run lifecycle.

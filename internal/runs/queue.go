@@ -1,4 +1,4 @@
-package agent
+package runs
 
 import (
 	"context"
@@ -10,6 +10,8 @@ import (
 
 	"github.com/rs/zerolog"
 	"github.com/valkey-io/valkey-go"
+	"go.opentelemetry.io/otel"
+	"go.opentelemetry.io/otel/propagation"
 )
 
 // Queue names.
@@ -19,7 +21,9 @@ const (
 	workerGroup = "workers"
 	finalGroup  = "finalizers"
 	staleAfter  = 2 * leaseTTL // longer than a dead worker's lease survives
-	maxInFlight = 8            // entries one consumer handles at once
+	// maxInFlight is how many entries one consumer handles at once. A parent
+	// waiting on a sub-agent (even one paused for the user) holds a slot.
+	maxInFlight = 32
 )
 
 // A queue is a Valkey stream with a consumer group: at-least-once delivery,
@@ -108,4 +112,13 @@ func (q *queue) handle(ctx context.Context, x valkey.XRangeEntry, handler func(c
 	if err := q.db.Do(ctx, q.db.B().Xack().Key(q.key).Group(q.group).Id(x.ID).Build()).Error(); err != nil {
 		q.log.Error().Err(err).Str("queue", q.key).Str("entry", x.ID).Msg("ack")
 	}
+}
+
+// enqueue queues a segment of the run for its agent's workers, carrying the
+// trace context so the worker continues the same trace.
+func (m *Manager) enqueue(ctx context.Context, run *Run, fields map[string]string) error {
+	fields["run_id"] = run.ID
+	otel.GetTextMapPropagator().Inject(ctx, propagation.MapCarrier(fields))
+	q := &queue{db: m.db, key: requestsKey + run.AgentID}
+	return q.enqueue(ctx, fields)
 }

@@ -13,9 +13,9 @@ import (
 	"github.com/labstack/echo/v5/middleware"
 	"github.com/rs/zerolog"
 
-	"agentlite/internal/agent"
 	"agentlite/internal/config"
 	"agentlite/internal/handler"
+	"agentlite/internal/runs"
 	"agentlite/pkg/db/opensearch"
 )
 
@@ -53,9 +53,6 @@ func New(cfg *config.Config, h *handler.Handler, log zerolog.Logger) (*echo.Echo
 	e.DELETE("/v1/threads/:id", h.DeleteThread)
 	e.GET("/v1/threads/:id/messages", h.Messages)
 	e.GET("/v1/threads/:id/interrupts", h.Interrupts)
-	e.POST("/v1/threads/:id/interrupts/:iid", h.DecideInterrupt)
-	e.POST("/v1/threads/:id/cancel", h.CancelRun)
-	e.POST("/v1/agent/chat", h.StartRun)
 	e.GET("/v1/agent/chat", h.Chat)
 	return e, h.RegisterProxies(e)
 }
@@ -83,11 +80,9 @@ func errorHandler(next echo.HTTPErrorHandler) echo.HTTPErrorHandler {
 			err    error
 			status int
 		}{
-			{agent.ErrNotFound, http.StatusNotFound},
+			{runs.ErrNotFound, http.StatusNotFound},
 			{opensearch.ErrNotFound, http.StatusNotFound},
-			{agent.ErrInvalid, http.StatusBadRequest},
-			{agent.ErrBusy, http.StatusConflict},
-			{agent.ErrNotPaused, http.StatusConflict},
+			{runs.ErrBusy, http.StatusConflict},
 		} {
 			if errors.Is(err, m.err) {
 				err = echo.NewHTTPError(m.status, err.Error())

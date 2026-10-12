@@ -11,19 +11,20 @@ query. adk ships the tools that use it; agentlite ships one implementation of
 the interface, `pkg/memory`, on OpenSearch.
 
 There is no identity yet, so every memory belongs to the one adk user
-`default`. The `user_id` column exists for later.
+`default`; memories are not scoped by user until identity exists.
 
 ## What gets stored, and when
 
 After a **user-started** run finishes with status done (not a sub-agent's run,
-not a paused one), the engine calls `AddSessionToMemory` with the thread's adk
+not a paused one), the runtime calls `AddSessionToMemory` with the thread's adk
 session in a detached goroutine, so storing never delays the answer
-(`internal/engine/engine.go`, `remember`).
+(`internal/agents/runtime.go`, `remember`).
 
-`pkg/memory.Service.AddSessionToMemory` walks every event of the session and,
-for each text turn (user or model; tool calls and reasoning are skipped) not
-stored before, embeds the text with the configured embedding model and indexes
-one document in the OpenSearch `memories` index:
+`pkg/memory.Service.AddSessionToMemory` takes the session's latest turn (the
+last user message and everything after it) and, for each text event in it
+(user or model; tool calls and reasoning are skipped), embeds the text with the
+configured embedding model and indexes one document in the OpenSearch
+`memories` index:
 
 ```
 { id, thread_id, author, text, embedding (kNN vector), created_at }
@@ -38,7 +39,7 @@ with a 15 s timeout.
 A search embeds the query with the same model and runs a kNN query (lucene
 HNSW, cosine) for the five nearest entries, **excluding the asking thread's own
 turns**, which the model already has in its context. The exclusion is why the
-engine hands each run a per-thread view: `Memory.ForThread(threadID)` returns
+runtime hands each run a per-thread view: `Memory.ForThread(threadID)` returns
 an adk `memory.Service` whose searches carry that filter.
 
 Search is fail-soft: if embedding or OpenSearch fails, the turn proceeds with
@@ -76,7 +77,7 @@ Omit the block and there is no memory: no index, no tools, no storing. Changing
 
 ## Swapping it
 
-The engine depends on one small interface (`internal/engine`):
+The runtime depends on one small interface (`internal/agents`):
 
 ```go
 type Memory interface {
