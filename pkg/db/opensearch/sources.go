@@ -72,7 +72,7 @@ func (c *Client) LastSourceNumber(ctx context.Context, rootID string) (int, erro
 const citeScript = "if (ctx._source.cited_in == null) { ctx._source.cited_in = []; } " +
 	"if (ctx._source.cited_in.contains(params.ref)) { ctx.op = 'noop'; } else { ctx._source.cited_in.add(params.ref); }"
 
-// Cite records that ref, a message or an artefact, cites the given sources
+// Cite records that ref, a message or an artifact, cites the given sources
 // of a conversation. Each source is updated on its own and retried when
 // another citation is written at the same moment; a number with no source
 // (one the model made up) is skipped.
@@ -80,17 +80,22 @@ func (c *Client) Cite(ctx context.Context, rootID, ref string, numbers []int) er
 	if len(numbers) == 0 {
 		return nil
 	}
-	var body bytes.Buffer
-	enc := json.NewEncoder(&body)
-	for _, n := range numbers {
-		action := map[string]any{"update": map[string]any{"_index": IndexSources, "_id": sourceID(rootID, n), "retry_on_conflict": 3}}
-		script := map[string]any{"script": map[string]any{"lang": "painless", "source": citeScript, "params": map[string]any{"ref": ref}}}
-		if err := errors.Join(enc.Encode(action), enc.Encode(script)); err != nil {
-			return err
-		}
-	}
-	resp, err := c.api.Bulk(ctx, opensearchapi.BulkReq{Body: &body, Params: &opensearchapi.BulkParams{Refresh: "true"}})
+	script, err := json.Marshal(map[string]any{"script": map[string]any{"lang": "painless", "source": citeScript, "params": map[string]any{"ref": ref}}})
 	if err != nil {
+		return err
+	}
+	var body bytes.Buffer
+	for _, n := range numbers {
+		action, _ := json.Marshal(map[string]any{"update": map[string]any{"_index": IndexSources, "_id": sourceID(rootID, n), "retry_on_conflict": 3}})
+		body.Write(action)
+		body.WriteByte('\n')
+		body.Write(script)
+		body.WriteByte('\n')
+	}
+	// A failed item comes back as a PartialBulkError with the response; the
+	// items are checked below, where a missing source is not a failure.
+	resp, err := c.api.Bulk(ctx, opensearchapi.BulkReq{Body: &body, Params: &opensearchapi.BulkParams{Refresh: "true"}})
+	if err != nil && !errors.As(err, new(*opensearchapi.PartialBulkError)) {
 		return fmt.Errorf("cite sources: %w", err)
 	}
 	var errs []error

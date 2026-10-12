@@ -54,17 +54,18 @@ return 0`)
 // highest stored number and the source is numbered again.
 func (r *Recorder) Add(ctx context.Context, from toolx.Call, s toolx.Source) (int, error) {
 	n, err := r.add(ctx, from, s)
-	if errors.Is(err, opensearch.ErrConflict) {
-		var last int
-		if last, err = r.store.LastSourceNumber(ctx, from.Thread.RootID); err != nil {
-			return 0, err
-		}
-		if err := floorScript.Exec(ctx, r.db, []string{seqKey(from.Thread.RootID)}, []string{strconv.Itoa(last)}).Error(); err != nil {
-			return 0, fmt.Errorf("renumber sources: %w", err)
-		}
-		n, err = r.add(ctx, from, s)
+	if !errors.Is(err, opensearch.ErrConflict) {
+		return n, err
 	}
-	return n, err
+	root := from.Thread.RootID
+	last, err := r.store.LastSourceNumber(ctx, root)
+	if err != nil {
+		return 0, err
+	}
+	if err := floorScript.Exec(ctx, r.db, []string{seqKey(root)}, []string{strconv.Itoa(last)}).Error(); err != nil {
+		return 0, fmt.Errorf("renumber sources: %w", err)
+	}
+	return r.add(ctx, from, s)
 }
 
 func (r *Recorder) add(ctx context.Context, from toolx.Call, s toolx.Source) (int, error) {

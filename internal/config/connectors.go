@@ -42,7 +42,12 @@ type HTTP struct {
 	ThreadHeaders bool `yaml:"thread_headers"`
 }
 
-func (h HTTP) set() bool { return len(h.Headers) > 0 || h.Timeout != 0 || h.ThreadHeaders }
+func (h HTTP) configured() bool { return len(h.Headers) > 0 || h.Timeout != 0 || h.ThreadHeaders }
+
+func hasServer(servers map[string]MCPServer, name string) bool {
+	_, ok := servers[name]
+	return ok
+}
 
 // Transport is the client configuration for pkg/transport.
 func (h HTTP) Transport() transport.Config {
@@ -76,9 +81,9 @@ func LoadConnectors(dir string, servers map[string]MCPServer) ([]Connector, erro
 			return nil, fmt.Errorf("connectors.yaml: duplicate connector %q", c.ID)
 		case (len(c.Tools) == 0) == (c.MCP == ""):
 			return nil, fmt.Errorf("connectors.yaml: connector %q needs tools or an mcp server, not both", c.ID)
-		case c.MCP != "" && servers[c.MCP].Endpoint == "" && len(servers[c.MCP].Command) == 0:
+		case c.MCP != "" && !hasServer(servers, c.MCP):
 			return nil, fmt.Errorf("connectors.yaml: connector %q names unknown mcp server %q", c.ID, c.MCP)
-		case c.MCP != "" && c.HTTP.set():
+		case c.MCP != "" && c.HTTP.configured():
 			return nil, fmt.Errorf("connectors.yaml: connector %q: set an mcp server's http settings in mcp.yaml", c.ID)
 		}
 		// A run gets every connector by default, and adk refuses two tools of one name.

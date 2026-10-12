@@ -1,4 +1,4 @@
-// Package opensearch persists threads, messages, sources and artefacts.
+// Package opensearch persists threads, messages, sources and artifacts.
 // Messages are stored as coalesced AG-UI events plus the extracted text;
 // nothing is converted.
 package opensearch
@@ -56,7 +56,7 @@ type Message struct {
 // whose id is taken.
 var (
 	ErrNotFound = errors.New("not found")
-	ErrConflict = errors.New("already exists")
+	ErrConflict = errors.New("write conflict")
 )
 
 // Client is the OpenSearch store.
@@ -97,7 +97,7 @@ var indices = map[string]string{
 	IndexArtifacts: artifactsMapping,
 }
 
-// listCap bounds the lists of one conversation's sources and artefacts.
+// listCap bounds the lists of one conversation's sources and artifacts.
 const listCap = 1000
 
 func (c *Client) ensureIndex(ctx context.Context, name, mapping string) error {
@@ -210,7 +210,7 @@ func get[T any](ctx context.Context, c *Client, index, id string) (*T, error) {
 }
 
 // DeleteThread removes a root thread, its sub-agent threads and everything
-// recorded for them: messages, memories, sources and artefact records.
+// recorded for them: messages, memories, sources and artifact records.
 func (c *Client) DeleteThread(ctx context.Context, id string) error {
 	refresh := &opensearchapi.DeleteByQueryParams{Refresh: "true"}
 	for index, field := range map[string]string{

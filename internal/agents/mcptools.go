@@ -41,7 +41,7 @@ func (rt *Runtime) fillThreadArgs(ctx adkagent.Context, t tool.Tool, args map[st
 	return nil, nil
 }
 
-// recordURLArtifact stores a tool's result as a url artefact when mcp.yaml
+// recordURLArtifact stores a tool's result as a url artifact when mcp.yaml
 // says the result names a page, and shows it in the thread. A failure is
 // logged; the tool's result stands either way.
 func (rt *Runtime) recordURLArtifact(ctx adkagent.Context, t tool.Tool, _, result map[string]any, err error) (map[string]any, error) {

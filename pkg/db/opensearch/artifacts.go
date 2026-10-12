@@ -8,12 +8,12 @@ import (
 	"github.com/opensearch-project/opensearch-go/v5/opensearchapi"
 )
 
-// IndexArtifacts holds the artefacts conversations published.
+// IndexArtifacts holds the artifacts conversations published.
 const IndexArtifacts = "artifacts"
 
 // Artifact is a published document or an embedded page. Its body is in S3
 // (Stored "s3"), in Content (Stored "inline", when S3 is not configured), or
-// nowhere for a url artefact, which only points at a page.
+// nowhere for a url artifact, which only points at a page.
 type Artifact struct {
 	ID        string    `json:"id"` // as the agent names it; unique within a conversation
 	RootID    string    `json:"root_id"`
@@ -31,7 +31,7 @@ type Artifact struct {
 	UpdatedAt time.Time `json:"updated_at"`
 }
 
-// Where an artefact's body is kept.
+// Where an artifact's body is kept.
 const (
 	StoredS3     = "s3"
 	StoredInline = "inline"
@@ -45,21 +45,20 @@ const artifactsMapping = `{"mappings":{"properties":{
 
 func artifactID(rootID, id string) string { return rootID + ":" + id }
 
-// SaveArtifact stores a version of an artefact under its conversation. The
+// SaveArtifact stores a version of an artifact under its conversation. The
 // record only moves forward: when a later version is already stored, it is
 // kept and ErrConflict returned.
 func (c *Client) SaveArtifact(ctx context.Context, a *Artifact) error {
-	version := a.Version
 	return c.write(ctx, IndexArtifacts, artifactID(a.RootID, a.ID), a,
-		opensearchapi.IndexParams{Version: &version, VersionType: opensearchapi.VersionTypeExternal})
+		opensearchapi.IndexParams{Version: &a.Version, VersionType: opensearchapi.VersionTypeExternal})
 }
 
-// Artifact fetches one artefact of a conversation, body included when inline.
+// Artifact fetches one artifact of a conversation, body included when inline.
 func (c *Client) Artifact(ctx context.Context, rootID, id string) (*Artifact, error) {
 	return get[Artifact](ctx, c, IndexArtifacts, artifactID(rootID, id))
 }
 
-// Artifacts lists a conversation's artefacts, newest first, without bodies.
+// Artifacts lists a conversation's artifacts, newest first, without bodies.
 func (c *Client) Artifacts(ctx context.Context, rootID string) ([]Artifact, error) {
 	return search[Artifact](ctx, c, IndexArtifacts, fmt.Sprintf(`{"size":%d,"sort":[{"updated_at":"desc"}],
 		"_source":{"excludes":["content"]},"query":{"term":{"root_id":%q}}}`, listCap, rootID))

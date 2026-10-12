@@ -1,6 +1,6 @@
 // Package bootstrap wires the application from configuration: logging,
 // tracing, the provider registry, Valkey, OpenSearch, S3, sessions, memory,
-// sources, artefacts, MCP servers, the agent runtime and the run manager.
+// sources, artifacts, MCP servers, the agent runtime and the run manager.
 // Every command starts here.
 package bootstrap
 
@@ -119,7 +119,7 @@ func (a *App) Close() {
 	}
 }
 
-// artifactStore keeps artefact bodies in S3 when S3_ENDPOINT is set, and in
+// artifactStore keeps artifact bodies in S3 when S3_ENDPOINT is set, and in
 // OpenSearch otherwise.
 func artifactStore(ctx context.Context, cfg *config.Config, records *opensearch.Client, versions valkeygo.Client, recorder *sources.Recorder, log zerolog.Logger) (*artifacts.Store, error) {
 	var bodies *s3.Client

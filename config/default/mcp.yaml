@@ -7,7 +7,7 @@
 # connectors; no timeout, which would cut the session's event stream):
 #   thread_args  tool → the argument the harness fills with the root thread id
 #   ui           tool → the UI renderer for its calls
-#   artifacts    tool → result fields {id, title, url} recorded as a url artefact
+#   artifacts    tool → result fields {id, title, url} recorded as a url artifact
 servers:
   open-slide:
     endpoint: ${OPEN_SLIDE_MCP_URL}

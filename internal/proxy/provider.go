@@ -53,7 +53,7 @@ func (c *Client) Authorization() string {
 // variables that hold the file paths. A variable named but not set is an
 // error, never a silent fall back to plain TLS. Nil when none are named.
 func tlsFiles(p config.Provider) (*transport.TLS, error) {
-	if p.SSLClientCertEnv == "" && p.SSLTrustStoreEnv == "" && !p.SSLInsecureSkipVerify {
+	if p.SSLClientCertEnv == "" && p.SSLClientKeyEnv == "" && p.SSLTrustStoreEnv == "" && !p.SSLInsecureSkipVerify {
 		return nil, nil
 	}
 	for _, env := range []string{p.SSLClientCertEnv, p.SSLClientKeyEnv, p.SSLTrustStoreEnv} {

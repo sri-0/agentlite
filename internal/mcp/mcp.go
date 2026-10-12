@@ -111,9 +111,10 @@ func mcpTransport(s config.MCPServer) (mcp.Transport, error) {
 	return outsideRun{&mcp.StreamableClientTransport{Endpoint: s.Endpoint, HTTPClient: client}}, nil
 }
 
-// outsideRun opens sessions without the thread of the run that happened to
-// need one first: a session and its event stream outlive that run, so only
-// each tool call's own request carries thread headers.
+// outsideRun connects without the thread of the run that happened to need
+// the session first. The session's standalone event stream outlives that
+// run, so it carries no thread; each request (initialize, tools/list,
+// tools/call) still carries the thread of the run that sent it.
 type outsideRun struct{ mcp.Transport }
 
 func (t outsideRun) Connect(ctx context.Context) (mcp.Connection, error) {

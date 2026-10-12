@@ -1,6 +1,6 @@
 // Package artifacts stores what agents publish: the record in OpenSearch and
 // the body in S3, or in the record itself when S3 is not configured. A url
-// artefact has no body; it points at a page the UI embeds.
+// artifact has no body; it points at a page the UI embeds.
 package artifacts
 
 import (
@@ -22,10 +22,10 @@ import (
 	"agentlite/pkg/s3"
 )
 
-// KindURL is an artefact that only points at a page.
+// KindURL is an artifact that only points at a page.
 const KindURL = "url"
 
-// Kinds an artefact with a body can have, and the content type it is served with.
+// Kinds an artifact with a body can have, and the content type it is served with.
 var contentTypes = map[string]string{
 	"markdown": "text/markdown; charset=utf-8",
 	"code":     "text/plain; charset=utf-8",
@@ -34,13 +34,13 @@ var contentTypes = map[string]string{
 	"csv":      "text/csv; charset=utf-8",
 }
 
-// Kinds lists the kinds an artefact with a body may have.
+// Kinds lists the kinds an artifact with a body may have.
 func Kinds() []string { return slices.Sorted(maps.Keys(contentTypes)) }
 
 // ContentType is how a kind's body is served.
 func ContentType(kind string) string { return contentTypes[kind] }
 
-// Store keeps artefacts.
+// Store keeps artifacts.
 type Store struct {
 	records  *opensearch.Client
 	bodies   *s3.Client    // nil keeps bodies in the records
@@ -56,14 +56,24 @@ func New(records *opensearch.Client, bodies *s3.Client, versions valkey.Client, 
 
 func versionsKey(rootID string) string { return "thread:" + rootID + ":artifacts" }
 
-// validID is what an artefact id may be: it is part of a document id, an S3
-// key and a URL.
-var validID = regexp.MustCompile(`^[A-Za-z0-9._-]{1,128}$`)
+// nextVersion adds by to the artifact's version counter and returns the new
+// value; HINCRBY makes concurrent saves get distinct versions.
+func (s *Store) nextVersion(ctx context.Context, rootID, id string, by int) (int, error) {
+	v, err := s.versions.Do(ctx, s.versions.B().Hincrby().Key(versionsKey(rootID)).Field(id).Increment(int64(by)).Build()).AsInt64()
+	if err != nil {
+		return 0, fmt.Errorf("number artifact version: %w", err)
+	}
+	return int(v), nil
+}
 
-// Save stores a new version of an artefact, keeping its creation time, and
+// validID is what an artifact id may be: it is part of a document id, an S3
+// key and a URL.
+var validID = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$`)
+
+// Save stores a new version of an artifact, keeping its creation time, and
 // records the sources its body cites. Versions are numbered atomically, each
 // body has its own key, and the record only moves forward, so two saves of
-// one artefact at once both keep their versions and the later one is served.
+// one artifact at once both keep their versions and the later one is served.
 func (s *Store) Save(ctx context.Context, a *opensearch.Artifact, body string) error {
 	switch {
 	case !validID.MatchString(a.ID):
@@ -73,19 +83,25 @@ func (s *Store) Save(ctx context.Context, a *opensearch.Artifact, body string) e
 	case a.Kind != KindURL && contentTypes[a.Kind] == "":
 		return fmt.Errorf("unknown artifact kind %q; use one of %v", a.Kind, Kinds())
 	}
-	version, err := s.versions.Do(ctx, s.versions.B().Hincrby().Key(versionsKey(a.RootID)).Field(a.ID).Increment(1).Build()).AsInt64()
+	version, err := s.nextVersion(ctx, a.RootID, a.ID, 1)
 	if err != nil {
-		return fmt.Errorf("number artifact version: %w", err)
+		return err
 	}
 	now := time.Now()
-	a.Version, a.CreatedAt, a.UpdatedAt = int(version), now, now
+	a.CreatedAt, a.UpdatedAt = now, now
 	prev, err := s.records.Artifact(ctx, a.RootID, a.ID)
 	switch {
 	case err == nil:
 		a.CreatedAt = prev.CreatedAt
+		if version <= prev.Version { // Valkey lost the count: move it past the stored version
+			if version, err = s.nextVersion(ctx, a.RootID, a.ID, prev.Version+1-version); err != nil {
+				return err
+			}
+		}
 	case !errors.Is(err, opensearch.ErrNotFound):
 		return err
 	}
+	a.Version = version
 	if a.Kind != KindURL {
 		a.Size = len(body)
 		if s.bodies != nil {
@@ -97,10 +113,12 @@ func (s *Store) Save(ctx context.Context, a *opensearch.Artifact, body string) e
 			a.Stored, a.Content = opensearch.StoredInline, body
 		}
 	}
+	// On a conflict a later version, saved at the same moment, is already the
+	// record; this version's body stays in S3 unread until the thread goes.
 	if err := s.records.SaveArtifact(ctx, a); err != nil && !errors.Is(err, opensearch.ErrConflict) {
-		return err // on a conflict a later version is already stored; this body stays as history
+		return err
 	}
-	// The artefact is saved; a citation that fails to record is logged, not
+	// The artifact is saved; a citation that fails to record is logged, not
 	// reported as a failed save the model would retry.
 	if err := s.sources.Cite(ctx, a.RootID, "artifact:"+a.ID, body); err != nil {
 		s.log.Warn().Err(err).Str("artifact", a.ID).Msg("record citations")
@@ -108,7 +126,7 @@ func (s *Store) Save(ctx context.Context, a *opensearch.Artifact, body string) e
 	return nil
 }
 
-// Summary is an artefact as the model and the event stream see it: what it
+// Summary is an artifact as the model and the event stream see it: what it
 // is and where, never its body. The UI fetches the body from the API.
 func Summary(a *opensearch.Artifact) map[string]any {
 	out := map[string]any{"id": a.ID, "title": a.Title, "kind": a.Kind, "version": a.Version}
@@ -121,7 +139,7 @@ func Summary(a *opensearch.Artifact) map[string]any {
 	return out
 }
 
-// Body opens an artefact's body; opensearch.ErrNotFound for a url artefact.
+// Body opens an artifact's body; opensearch.ErrNotFound for a url artifact.
 func (s *Store) Body(ctx context.Context, a *opensearch.Artifact) (io.ReadCloser, error) {
 	switch a.Stored {
 	case opensearch.StoredS3:

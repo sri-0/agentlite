@@ -41,7 +41,7 @@ func (h *Handler) ThreadSource(c *echo.Context) error {
 	return c.JSON(http.StatusOK, s)
 }
 
-// rootOf is the conversation a thread belongs to: sources and artefacts are
+// rootOf is the conversation a thread belongs to: sources and artifacts are
 // kept per conversation, so a sub-agent's thread sees its parent's.
 func (h *Handler) rootOf(ctx context.Context, threadID string) (string, error) {
 	t, err := h.Store.Thread(ctx, threadID)

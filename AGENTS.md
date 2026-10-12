@@ -8,7 +8,7 @@ resumable, persisted as the same events, and sub-agents are real threads.
 This file is the operating manual. How things work is in `docs/` (start at
 `docs/README.md`): ARCHITECTURE (components, run lifecycle, the socket, storage),
 AGENT-ARCHITECTURE (roster, the assistant, sub-agents, tools, todos), TOOLS (building
-tools, transports, sources, artefacts, tool UI), HITL (approvals and questions),
+tools, transports, sources, artifacts, tool UI), HITL (approvals and questions),
 AG-UI-RENDERING (event → UI mapping), MEMORY. A change to a protocol, config
 schema, the roster, the run lifecycle, HITL or storage updates the matching doc in the same
 commit.
@@ -37,7 +37,7 @@ cmd/server/            the API: bootstrap → handlers → Echo
 cmd/dev/               adk's launcher (web UI, cli, api) over the same roster and stores
 internal/
   bootstrap/           wires config, logging, tracing, registry, Valkey, OpenSearch, S3,
-                       sessions, memory, sources, artefacts, MCP, the runtime and run manager
+                       sessions, memory, sources, artifacts, MCP, the runtime and run manager
   config/              env (go-envconfig) + models.yaml, mcp.yaml, connectors.yaml, agents/*.md
   server/              Echo app: middleware, routes, error → status mapping
   handler/             REST reads and thread admin; the socket upgrade
@@ -52,14 +52,14 @@ internal/
                        catalog; tools/builtin: subagent, todowrite, question, emit_artifact,
                        report_progress
   sources/             numbers and stores the sources tools return
-  artifacts/           artefact records (OpenSearch) and bodies (S3)
+  artifacts/           artifact records (OpenSearch) and bodies (S3)
   mcp/                 mcp.yaml → adk toolsets
   proxy/               provider clients, model discovery, reverse proxies, embeddings
 pkg/
   toolx/               the tool wrapper every function tool is built with
   transport/           HTTP clients for providers, toolsets and MCP servers
   s3/                  S3-compatible object storage (minio-go)
-  db/opensearch/       threads, messages, memories (kNN), sources, artefacts
+  db/opensearch/       threads, messages, memories (kNN), sources, artifacts
   db/valkey/           client per logical database
   memory/              adk memory.Service on OpenSearch
   session/valkey/      adk session.Service on Valkey
@@ -94,7 +94,7 @@ document-level security, is `not_found`. ARCHITECTURE.md has the frames.
 | GET | `/v1/threads/{id}/messages?before=&limit=` | `{data: [{id, thread_id, role, seq, created_at, text, events}], cursor}` |
 | GET | `/v1/threads/{id}/interrupts` | the paused run's pending interrupts |
 | GET | `/v1/threads/{id}/sources`, `/v1/threads/{id}/sources/{n}` | the conversation's sources by number; one source, what `[source:n]` refers to |
-| GET | `/v1/threads/{id}/artifacts`, `/v1/threads/{id}/artifacts/{artifactId}/content` | the conversation's artefacts, newest first; one artefact's body |
+| GET | `/v1/threads/{id}/artifacts`, `/v1/threads/{id}/artifacts/{artifactId}/content` | the conversation's artifacts, newest first; one artifact's body |
 | POST | `/v1/chat/completions`, `/v1/responses`, `/v1/messages`, `/v1/embeddings` | reverse proxies to the configured provider, bodies untouched |
 
 There is no authentication or identity yet.
@@ -104,7 +104,7 @@ There is no authentication or identity yet.
 Environment (`internal/config/config.go`): `PORT`, `HOST`, `APP_NAME`, `CONFIG_DIR`,
 `LOG_LEVEL`, `LOG_JSON`, `ALLOWED_ORIGINS`, `REDIS_HOST/PORT/USER/PASS`,
 `REDIS_DB_RUNS/SESSIONS/HITL` (default 1/2/3), `OPENSEARCH_URL/USERNAME/PASSWORD`,
-`S3_ENDPOINT/ACCESS_KEY/SECRET_KEY/BUCKET/REGION/USE_SSL` (no endpoint keeps artefact bodies
+`S3_ENDPOINT/ACCESS_KEY/SECRET_KEY/BUCKET/REGION/USE_SSL` (no endpoint keeps artifact bodies
 in OpenSearch), `OTEL_EXPORTER_OTLP_ENDPOINT`, plus what the YAML references (`PROXY_PROVIDER`,
 `LITELLM_BASE_URL`, `*_API_KEY`, `OPEN_SLIDE_MCP_URL`, …). `${VAR}` expands in `base_url`,
 headers, MCP endpoints and `proxy.provider`.

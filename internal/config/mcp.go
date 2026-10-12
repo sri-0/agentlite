@@ -31,7 +31,7 @@ type MCPServer struct {
 	ThreadArgs map[string]string `yaml:"thread_args"`
 	// UI names, per tool, the renderer the UI uses for its calls.
 	UI map[string]string `yaml:"ui"`
-	// Artifacts records, per tool, its result as a url artefact.
+	// Artifacts records, per tool, its result as a url artifact.
 	Artifacts map[string]URLArtifact `yaml:"artifacts"`
 }
 
@@ -44,10 +44,8 @@ func (s MCPServer) HTTP() HTTP {
 
 // hooked lists the tools the server's hook maps name.
 func (s MCPServer) hooked() []string {
-	var out []string
-	for _, m := range []map[string]string{s.ThreadArgs, s.UI} {
-		out = slices.AppendSeq(out, maps.Keys(m))
-	}
+	out := slices.Collect(maps.Keys(s.ThreadArgs))
+	out = slices.AppendSeq(out, maps.Keys(s.UI))
 	return slices.AppendSeq(out, maps.Keys(s.Artifacts))
 }
 

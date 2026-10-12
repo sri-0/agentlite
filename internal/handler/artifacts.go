@@ -8,7 +8,7 @@ import (
 	"agentlite/internal/artifacts"
 )
 
-// ThreadArtifacts lists the artefacts of a thread's conversation, newest
+// ThreadArtifacts lists the artifacts of a thread's conversation, newest
 // first, without their bodies.
 func (h *Handler) ThreadArtifacts(c *echo.Context) error {
 	ctx := c.Request().Context()
@@ -23,7 +23,7 @@ func (h *Handler) ThreadArtifacts(c *echo.Context) error {
 	return c.JSON(http.StatusOK, newList(list))
 }
 
-// ArtifactContent serves an artefact's body, from S3 or the record.
+// ArtifactContent serves an artifact's body, from S3 or the record.
 func (h *Handler) ArtifactContent(c *echo.Context) error {
 	ctx := c.Request().Context()
 	rootID, err := h.rootOf(ctx, c.Param("id"))
