@@ -24,14 +24,15 @@ describe the result.
 3. **Toolsets come from configuration; tools stay independent.** A connector in
    `connectors.yaml` is one system: its tools and an optional `http:` block.
    The runtime builds one HTTP client per connector and passes it to each tool's
-   constructor. Tools take the client and nothing else, so the same tool can
-   serve two systems. The alternative, toolsets declared by the tools
-   themselves, was rejected: connectors already carry the user-facing name,
-   icon and description, and a second place to group tools would drift.
+   constructor. Tools take the client and nothing else. The alternative,
+   toolsets declared by the tools themselves, was rejected: connectors already
+   carry the user-facing name, icon and description, and a second place to
+   group tools would drift.
 4. **Thread information travels in HTTP headers.** The runtime puts the run's
-   thread into the context. Toolset and MCP clients add `X-Thread-ID`,
-   `X-Root-Thread-ID` and `X-Run-ID` to every request made with that context,
-   so a downstream system can scope, audit or authorise by thread.
+   thread into the context. Toolset and MCP clients that opt in
+   (`thread_headers`) add `X-Thread-ID`, `X-Root-Thread-ID` and `X-Run-ID` to
+   every request made with that context, so a downstream system can scope,
+   audit or authorise by thread.
 5. **Sources are recorded by the harness, not written by the model.** A tool
    calls `ctx.AddSource(...)` for each item it returns, with the item's system,
    key, URL, title and metadata (row UUIDs, markings, control sets). The
@@ -73,8 +74,10 @@ Who builds one:
   embeddings.
 - **Each connector of function tools** (`internal/agents/connectors.go`, from the
   connector's `http:` block). Every tool of the connector gets it.
-- **Each MCP server reached over HTTP** (`internal/mcp`, from the server's `headers`,
-  `timeout`, `thread_headers`).
+- **Each MCP server reached over HTTP** (`internal/mcp`, from the server's `headers` and
+  `thread_headers`). It has no timeout, which would also cut the session's long-lived event
+  stream. A session is opened outside any run, so only each tool call's own request
+  carries thread headers.
 
 `config.HTTP` is the shared shape of those blocks:
 
@@ -112,8 +115,9 @@ func searchRecords(client *http.Client) (toolx.Tool, error) {
   adk's `functiontool`.
 - A world tool is a `tools.Builder`, `func(*http.Client) (toolx.Tool, error)`, registered
   by name in `tools.Catalog`. A connector lists tool names; the runtime builds each tool
-  with the connector's client. A tool an agent lists by name directly is the instance of
-  the first connector that names it.
+  with the connector's client. A tool belongs to one connector at most (`connectors.yaml`
+  is rejected otherwise: a run gets every connector by default, and adk refuses two tools
+  of one name); one in no connector is built on a plain client for agents that list it.
 - A harness tool (`internal/tools/builtin`) is built the same way from `builtin.Deps`.
 - Registries and `toolx.Toolset` accept only `toolx.Tool`, and
   `TestOnlyToolxBuildsFunctionTools` fails if any package but `toolx` imports
@@ -137,13 +141,18 @@ UI    ──[source:2] chip ──► GET /v1/threads/{id}/sources/2
   number its key already has, or the next one: the same row returned twice keeps its
   number. The key is `Key`, or the URL when there is none; an item with neither always
   gets a new number.
+- **A number is never reused.** A record is created, never overwritten. If Valkey ever
+  loses the count, the next record collides with a stored number; the recorder then
+  resumes the count after the highest stored number and numbers the source again.
 - **The record is the tool's, not the model's.** The model sees only the number on the
   item; the system, key, URL, title and metadata (row ids, data markings, control sets)
   come from the tool's own data, stored as given.
 - **Citations are recorded.** Before a segment's closing event, the runtime records every
   `[source:N]` its text showed against the turn (`cited_in: ["message:<turn id>"]`), and an
   artefact's body records its own (`artifact:<id>`). A client that reads the sources when
-  the run ends sees them.
+  the run ends sees them. Each source is updated on its own and retried when two
+  citations land at once; a number no source has is skipped. Recording is best effort: a
+  failure is logged, never turned into a failed turn or save.
 - **The model is told how to cite.** Every agent with tools gets a `<citations>` block in
   its instruction (`internal/agents/build.go`).
 
@@ -169,16 +178,23 @@ records and records every hit with the row's id, marking and control set as meta
 - the record in OpenSearch `artifacts` (id `{root}:{artifact id}`): `id, root_id,
   thread_id, run_id, title, kind, language, url, size, stored, version, created_at,
   updated_at`;
-- the body in S3 at `artifacts/{root}/{artifact id}` (`stored: s3`), or in the record's
-  `content` when `S3_ENDPOINT` is not set (`stored: inline`).
+- the body in S3 at `artifacts/{root}/{artifact id}/{version}` (`stored: s3`), or in the
+  record's `content` when `S3_ENDPOINT` is not set (`stored: inline`).
+
+An artefact id is letters, digits, `.`, `_` and `-` (it is part of a document id, an S3
+key and a URL); the model may name one, and gets a UUID otherwise.
 
 Kinds with a body: `markdown`, `code`, `html`, `json`, `csv`. Kind `url` has no body: it
-points at a page the UI embeds. Publishing the same id again stores a new version and
-bumps `version`. The tool's result, and the `artifact` activity the encoder makes of it,
+points at a page the UI embeds. Publishing the same id again stores a new version under
+its own key. Versions are numbered atomically in Valkey (`thread:{root}:artifacts`, a hash
+of artefact id → last version), and the record is written with OpenSearch external
+versioning, so it only moves forward: two saves of one artefact at once both keep their
+bodies, and the higher version is served. The tool's result, and the `artifact` activity the encoder makes of it,
 is a summary without the body (`artifacts.Summary`): `{id, title, kind, version,
 language?, url?}`. The UI fetches the body from
 `GET /v1/threads/{id}/artifacts/{artifactId}/content`, served with the kind's content
-type; `GET /v1/threads/{id}/artifacts` lists the conversation's artefacts.
+type, with `Content-Security-Policy: sandbox` so a body opened directly never runs as the
+API's origin; `GET /v1/threads/{id}/artifacts` lists the conversation's artefacts.
 
 S3 is any S3-compatible store through `minio-go` (`pkg/s3`); `docker-compose.yaml` runs
 MinIO on `:9000` (console `:9001`, `minioadmin`/`minioadmin`). The bucket is created on

@@ -9,8 +9,8 @@ import (
 
 // Context is what a tool's function receives: adk's tool context (the call
 // id, confirmations) plus the thread the call belongs to. Pass it as the
-// context of the tool's HTTP requests: the clients agentlite builds for
-// toolsets add the thread headers from it.
+// context of the tool's HTTP requests: a client built with Headers as its
+// context headers (thread_headers in agentlite's config) sends the thread.
 type Context struct {
 	agent.Context
 	Thread Thread
@@ -33,8 +33,7 @@ type Call struct {
 	ID     string // the call id the model gave it
 }
 
-// Thread headers sent on every request a toolset or MCP client makes for a
-// tool call (see Headers).
+// Thread headers, sent by clients that use Headers (see Context).
 const (
 	HeaderThread     = "X-Thread-ID"
 	HeaderRootThread = "X-Root-Thread-ID"

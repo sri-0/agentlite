@@ -3,8 +3,10 @@ package config
 import (
 	"errors"
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
+	"slices"
 
 	"github.com/goccy/go-yaml"
 )
@@ -15,14 +17,14 @@ type MCPConfig struct {
 	Servers map[string]MCPServer `yaml:"servers"`
 }
 
-// MCPServer is reached over streamable HTTP (Endpoint, with the HTTP
-// settings) or stdio (Command).
+// MCPServer is reached over streamable HTTP (Endpoint) or stdio (Command).
 type MCPServer struct {
-	Endpoint            string   `yaml:"endpoint"`
-	Command             []string `yaml:"command"`
-	HTTP                `yaml:",inline"`
-	Tools               []string `yaml:"tools"`                // omitted ⇒ every tool the server offers
-	RequireConfirmation []string `yaml:"require_confirmation"` // tool names that need approval
+	Endpoint            string            `yaml:"endpoint"`
+	Command             []string          `yaml:"command"`
+	Headers             map[string]string `yaml:"headers"`              // values may use ${ENV}
+	ThreadHeaders       bool              `yaml:"thread_headers"`       // as for connectors (HTTP)
+	Tools               []string          `yaml:"tools"`                // omitted ⇒ every tool the server offers
+	RequireConfirmation []string          `yaml:"require_confirmation"` // tool names that need approval
 
 	// ThreadArgs names, per tool, the argument the harness fills with the
 	// conversation's root thread id, so the model never has to supply it.
@@ -31,6 +33,22 @@ type MCPServer struct {
 	UI map[string]string `yaml:"ui"`
 	// Artifacts records, per tool, its result as a url artefact.
 	Artifacts map[string]URLArtifact `yaml:"artifacts"`
+}
+
+// HTTP is the server's client configuration. It has no timeout: a client
+// timeout also bounds reading a response, which would cut the session's
+// long-lived event stream.
+func (s MCPServer) HTTP() HTTP {
+	return HTTP{Headers: s.Headers, ThreadHeaders: s.ThreadHeaders}
+}
+
+// hooked lists the tools the server's hook maps name.
+func (s MCPServer) hooked() []string {
+	var out []string
+	for _, m := range []map[string]string{s.ThreadArgs, s.UI} {
+		out = slices.AppendSeq(out, maps.Keys(m))
+	}
+	return slices.AppendSeq(out, maps.Keys(s.Artifacts))
 }
 
 // URLArtifact names the fields of a tool's structured result that hold a
@@ -54,13 +72,19 @@ func LoadMCP(dir string) (*MCPConfig, error) {
 	if err := yaml.Unmarshal(raw, &cfg); err != nil {
 		return nil, fmt.Errorf("mcp.yaml: %w", err)
 	}
+	hookedBy := map[string]string{} // tool → the server whose hooks name it
 	for name, s := range cfg.Servers {
 		if s.Endpoint == "" && len(s.Command) == 0 {
 			return nil, fmt.Errorf("mcp.yaml: server %q needs endpoint or command", name)
 		}
-		for k, v := range s.Headers {
-			s.Headers[k] = os.ExpandEnv(v)
+		// The harness applies hooks by tool name, so a name must be one server's.
+		for _, tool := range s.hooked() {
+			if other, ok := hookedBy[tool]; ok && other != name {
+				return nil, fmt.Errorf("mcp.yaml: tool %q has hooks in servers %q and %q", tool, other, name)
+			}
+			hookedBy[tool] = name
 		}
+		expandEnv(s.Headers)
 		s.Endpoint = os.ExpandEnv(s.Endpoint)
 		cfg.Servers[name] = s
 	}

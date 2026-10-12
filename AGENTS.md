@@ -113,11 +113,12 @@ headers, MCP endpoints and `proxy.provider`.
   headers, discover, models[], ssl_*`), `default_model`, `compaction`, `memory`, `proxy`.
   Discovered models merge under YAML entries; the first provider in file order that serves
   an id wins; a provider with an empty `base_url` is skipped.
-- `mcp.yaml`: `servers: {name: {endpoint | command, headers, timeout, thread_headers, tools,
+- `mcp.yaml`: `servers: {name: {endpoint | command, headers, thread_headers, tools,
   require_confirmation, thread_args, ui, artifacts}}` (TOOLS.md).
   The development server is open-slide-mcp (`~/code/open-slide-mcp`, `make run`, `:8090/mcp`).
 - `connectors.yaml`: `connectors[]` (`id, name, description, icon, tools[] | mcp, http`);
-  `http: {headers, timeout, thread_headers}` configures the connector's own HTTP client.
+  `http: {headers, timeout, thread_headers}` configures the connector's own HTTP client. A
+  tool belongs to one connector at most.
 - `agents/*.md`: frontmatter `id, name, description, kind, mode, tools, subagents,
   max_output_tokens` and the instruction (AGENT-ARCHITECTURE.md).
 

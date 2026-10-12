@@ -20,7 +20,7 @@ type Config struct {
 	SecretKey string `env:"SECRET_KEY"`
 	Bucket    string `env:"BUCKET, default=agentlite"`
 	Region    string `env:"REGION"`
-	UseSSL    bool   `env:"USE_SSL, default=false"`
+	UseSSL    bool   `env:"USE_SSL"`
 }
 
 // ErrNotFound is returned for a missing object.
@@ -70,20 +70,20 @@ func (c *Client) Get(ctx context.Context, key string) (io.ReadCloser, error) {
 	if _, err := obj.Stat(); err != nil { // GetObject is lazy; Stat reports a missing key
 		obj.Close()
 		if minio.ToErrorResponse(err).Code == minio.NoSuchKey {
-			return nil, ErrNotFound
+			return nil, fmt.Errorf("s3 get %s: %w", key, ErrNotFound)
 		}
 		return nil, fmt.Errorf("s3 get %s: %w", key, err)
 	}
 	return obj, nil
 }
 
-// DeletePrefix removes every object whose key starts with prefix.
+// DeletePrefix removes every object whose key starts with prefix. The error
+// channel is read to the end: minio's sender blocks until it is.
 func (c *Client) DeletePrefix(ctx context.Context, prefix string) error {
 	objects := c.mc.ListObjects(ctx, c.bucket, minio.ListObjectsOptions{Prefix: prefix, Recursive: true})
+	var errs []error
 	for e := range c.mc.RemoveObjects(ctx, c.bucket, objects, minio.RemoveObjectsOptions{}) {
-		if e.Err != nil {
-			return fmt.Errorf("s3 delete %s: %w", e.ObjectName, e.Err)
-		}
+		errs = append(errs, fmt.Errorf("s3 delete %s: %w", e.ObjectName, e.Err))
 	}
-	return nil
+	return errors.Join(errs...)
 }

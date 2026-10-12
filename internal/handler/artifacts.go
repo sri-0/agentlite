@@ -39,5 +39,8 @@ func (h *Handler) ArtifactContent(c *echo.Context) error {
 		return err
 	}
 	defer body.Close()
+	// A body is model-written: opened directly, an HTML one must not run as this origin.
+	c.Response().Header().Set("Content-Security-Policy", "sandbox")
+	c.Response().Header().Set("X-Content-Type-Options", "nosniff")
 	return c.Stream(http.StatusOK, artifacts.ContentType(a.Kind), body)
 }

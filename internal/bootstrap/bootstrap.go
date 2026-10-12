@@ -86,7 +86,7 @@ func New(ctx context.Context) (*App, error) {
 		mem = app.Memory
 	}
 	app.Sources = sources.New(runsDB, app.Store)
-	if app.Artifacts, err = artifactStore(ctx, cfg, app.Store, app.Log); err != nil {
+	if app.Artifacts, err = artifactStore(ctx, cfg, app.Store, runsDB, app.Sources, app.Log); err != nil {
 		return nil, err
 	}
 	app.Agents = agents.New(cfg, agents.Deps{
@@ -121,16 +121,17 @@ func (a *App) Close() {
 
 // artifactStore keeps artefact bodies in S3 when S3_ENDPOINT is set, and in
 // OpenSearch otherwise.
-func artifactStore(ctx context.Context, cfg *config.Config, records *opensearch.Client, log zerolog.Logger) (*artifacts.Store, error) {
+func artifactStore(ctx context.Context, cfg *config.Config, records *opensearch.Client, versions valkeygo.Client, recorder *sources.Recorder, log zerolog.Logger) (*artifacts.Store, error) {
+	var bodies *s3.Client
 	if cfg.S3.Endpoint == "" {
 		log.Info().Msg("S3 not configured; artifact bodies are kept in OpenSearch")
-		return artifacts.New(records, nil), nil
+	} else {
+		var err error
+		if bodies, err = s3.New(ctx, cfg.S3); err != nil {
+			return nil, err
+		}
 	}
-	bodies, err := s3.New(ctx, cfg.S3)
-	if err != nil {
-		return nil, err
-	}
-	return artifacts.New(records, bodies), nil
+	return artifacts.New(records, bodies, versions, recorder, log), nil
 }
 
 // memoryService builds long-term memory when models.yaml configures it.

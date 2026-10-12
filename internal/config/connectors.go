@@ -42,6 +42,8 @@ type HTTP struct {
 	ThreadHeaders bool `yaml:"thread_headers"`
 }
 
+func (h HTTP) set() bool { return len(h.Headers) > 0 || h.Timeout != 0 || h.ThreadHeaders }
+
 // Transport is the client configuration for pkg/transport.
 func (h HTTP) Transport() transport.Config {
 	cfg := transport.Config{Headers: h.Headers, Timeout: h.Timeout}
@@ -65,6 +67,7 @@ func LoadConnectors(dir string, servers map[string]MCPServer) ([]Connector, erro
 		return nil, fmt.Errorf("connectors.yaml: %w", err)
 	}
 	seen := map[string]bool{}
+	listedBy := map[string]string{} // tool → the connector that lists it
 	for _, c := range cfg.Connectors {
 		switch {
 		case c.ID == "":
@@ -75,13 +78,27 @@ func LoadConnectors(dir string, servers map[string]MCPServer) ([]Connector, erro
 			return nil, fmt.Errorf("connectors.yaml: connector %q needs tools or an mcp server, not both", c.ID)
 		case c.MCP != "" && servers[c.MCP].Endpoint == "" && len(servers[c.MCP].Command) == 0:
 			return nil, fmt.Errorf("connectors.yaml: connector %q names unknown mcp server %q", c.ID, c.MCP)
+		case c.MCP != "" && c.HTTP.set():
+			return nil, fmt.Errorf("connectors.yaml: connector %q: set an mcp server's http settings in mcp.yaml", c.ID)
+		}
+		// A run gets every connector by default, and adk refuses two tools of one name.
+		for _, tool := range c.Tools {
+			if other, ok := listedBy[tool]; ok {
+				return nil, fmt.Errorf("connectors.yaml: tool %q is in connectors %q and %q", tool, other, c.ID)
+			}
+			listedBy[tool] = c.ID
 		}
 		seen[c.ID] = true
-		for k, v := range c.HTTP.Headers {
-			c.HTTP.Headers[k] = os.ExpandEnv(v)
-		}
+		expandEnv(c.HTTP.Headers)
 	}
 	return cfg.Connectors, nil
+}
+
+// expandEnv replaces ${VAR} in header values.
+func expandEnv(headers map[string]string) {
+	for k, v := range headers {
+		headers[k] = os.ExpandEnv(v)
+	}
 }
 
 // CheckConnectors rejects ids that are not configured.

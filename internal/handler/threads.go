@@ -93,15 +93,14 @@ func (h *Handler) UpdateThread(c *echo.Context) error {
 // DeleteThread removes a root thread, its sub-agent threads and all their
 // messages. A thread with an active run is refused.
 func (h *Handler) DeleteThread(c *echo.Context) error {
-	ctx := c.Request().Context()
-	run, err := h.Runs.Active(ctx, c.Param("id"))
+	ctx, id := c.Request().Context(), c.Param("id")
+	run, err := h.Runs.Active(ctx, id)
 	if err != nil {
 		return err
 	}
 	if run != nil {
 		return runs.ErrBusy
 	}
-	id := c.Param("id")
 	if err := h.Artifacts.Delete(ctx, id); err != nil {
 		return err
 	}

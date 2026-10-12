@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"time"
+
+	"github.com/opensearch-project/opensearch-go/v5/opensearchapi"
 )
 
 // IndexArtifacts holds the artefacts conversations published.
@@ -43,9 +45,13 @@ const artifactsMapping = `{"mappings":{"properties":{
 
 func artifactID(rootID, id string) string { return rootID + ":" + id }
 
-// SaveArtifact upserts an artefact under its conversation.
+// SaveArtifact stores a version of an artefact under its conversation. The
+// record only moves forward: when a later version is already stored, it is
+// kept and ErrConflict returned.
 func (c *Client) SaveArtifact(ctx context.Context, a *Artifact) error {
-	return c.index(ctx, IndexArtifacts, artifactID(a.RootID, a.ID), a)
+	version := a.Version
+	return c.write(ctx, IndexArtifacts, artifactID(a.RootID, a.ID), a,
+		opensearchapi.IndexParams{Version: &version, VersionType: opensearchapi.VersionTypeExternal})
 }
 
 // Artifact fetches one artefact of a conversation, body included when inline.

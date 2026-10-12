@@ -21,17 +21,16 @@ const (
 	ActivityAgent    = "agent"     // messageId = subagentRunId
 )
 
-// Metadata keys on RUN_STARTED and RUN_FINISHED.
+// Metadata keys: the turn on RUN_STARTED and RUN_FINISHED, a tool's UI
+// renderer on TOOL_CALL_START.
 const (
 	MetaTurnID     = "turnId"
 	MetaAgentID    = "agentId"
 	MetaModel      = "model"
 	MetaCreatedAt  = "createdAt"
 	MetaDurationMs = "durationMs"
+	MetaUI         = "ui"
 )
-
-// MetaUI is the TOOL_CALL_START metadata key naming the tool's UI renderer.
-const MetaUI = "ui"
 
 // ReasonConfirmation is the reason of every interrupt: adk's tool
 // confirmation, answered with an approval or, for a question, an output.

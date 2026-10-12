@@ -3,8 +3,8 @@
 # streamable HTTP (endpoint) or stdio (command). Expose one to users through
 # connectors.yaml.
 #
-# Per server, besides how to reach it (`headers`, `timeout`, `thread_headers`
-# as for connectors):
+# Per server, besides how to reach it (`headers`, `thread_headers` as for
+# connectors; no timeout, which would cut the session's event stream):
 #   thread_args  tool → the argument the harness fills with the root thread id
 #   ui           tool → the UI renderer for its calls
 #   artifacts    tool → result fields {id, title, url} recorded as a url artefact

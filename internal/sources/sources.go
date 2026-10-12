@@ -6,7 +6,9 @@ package sources
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"strconv"
 	"time"
 
 	"github.com/valkey-io/valkey-go"
@@ -41,9 +43,32 @@ local n = redis.call('INCR', KEYS[2])
 if ARGV[1] ~= '' then redis.call('HSET', KEYS[1], ARGV[1], n) end
 return {n, 1}`)
 
+// floorScript raises the counter to at least ARGV[1].
+var floorScript = valkey.NewLuaScript(`
+if tonumber(redis.call('GET', KEYS[1]) or '0') < tonumber(ARGV[1]) then redis.call('SET', KEYS[1], ARGV[1]) end
+return 0`)
+
 // Add numbers the source and, the first time its key is seen in the
-// conversation, stores its record.
+// conversation, stores its record. A stored record is never replaced: if
+// its number is taken (Valkey lost the count), the count resumes after the
+// highest stored number and the source is numbered again.
 func (r *Recorder) Add(ctx context.Context, from toolx.Call, s toolx.Source) (int, error) {
+	n, err := r.add(ctx, from, s)
+	if errors.Is(err, opensearch.ErrConflict) {
+		var last int
+		if last, err = r.store.LastSourceNumber(ctx, from.Thread.RootID); err != nil {
+			return 0, err
+		}
+		if err := floorScript.Exec(ctx, r.db, []string{seqKey(from.Thread.RootID)}, []string{strconv.Itoa(last)}).Error(); err != nil {
+			return 0, fmt.Errorf("renumber sources: %w", err)
+		}
+		n, err = r.add(ctx, from, s)
+	}
+	return n, err
+}
+
+func (r *Recorder) add(ctx context.Context, from toolx.Call, s toolx.Source) (int, error) {
+	root := from.Thread.RootID
 	key := s.Key
 	if key == "" {
 		key = s.URL
@@ -51,33 +76,34 @@ func (r *Recorder) Add(ctx context.Context, from toolx.Call, s toolx.Source) (in
 	if key != "" {
 		key = s.System + " " + key
 	}
-	res, err := numberScript.Exec(ctx, r.db, []string{keysKey(from.Thread.RootID), seqKey(from.Thread.RootID)}, []string{key}).ToArray()
-	if err != nil || len(res) != 2 {
+	res, err := numberScript.Exec(ctx, r.db, []string{keysKey(root), seqKey(root)}, []string{key}).ToArray()
+	if err != nil {
 		return 0, fmt.Errorf("number source: %w", err)
+	}
+	if len(res) != 2 {
+		return 0, fmt.Errorf("number source: got %d values", len(res))
 	}
 	n, _ := res[0].AsInt64()
 	if fresh, _ := res[1].AsInt64(); fresh == 0 {
 		return int(n), nil
 	}
 	err = r.store.SaveSource(ctx, &opensearch.Source{
-		RootID: from.Thread.RootID, Number: int(n), ThreadID: from.Thread.ID, RunID: from.Thread.RunID, Tool: from.Tool, ToolCallID: from.ID,
+		RootID: root, Number: int(n), ThreadID: from.Thread.ID, RunID: from.Thread.RunID, Tool: from.Tool, ToolCallID: from.ID,
 		System: s.System, Key: s.Key, URL: s.URL, Title: s.Title, Metadata: s.Metadata, RetrievedAt: time.Now(),
 	})
-	if err != nil && key != "" {
-		// Forget the key so the next call stores the record under a new number.
-		r.db.Do(context.WithoutCancel(ctx), r.db.B().Hdel().Key(keysKey(from.Thread.RootID)).Field(key).Build())
+	if err != nil {
+		if key != "" { // forget the key, so the next call numbers and stores it again
+			err = errors.Join(err, r.db.Do(context.WithoutCancel(ctx), r.db.B().Hdel().Key(keysKey(root)).Field(key).Build()).Error())
+		}
+		return 0, fmt.Errorf("save source %d: %w", n, err)
 	}
-	return int(n), err
+	return int(n), nil
 }
 
-// Cite records that ref ("message:<id>") cites the sources a text names as
-// [source:N].
+// Cite records that ref ("message:<id>" or "artifact:<id>") cites the
+// sources a text names as [source:N].
 func (r *Recorder) Cite(ctx context.Context, rootID, ref, text string) error {
-	cited := toolx.Citations(text)
-	if len(cited) == 0 {
-		return nil
-	}
-	return r.store.Cite(ctx, rootID, ref, cited)
+	return r.store.Cite(ctx, rootID, ref, toolx.Citations(text))
 }
 
 // Delete forgets a conversation's numbering; its records are deleted with

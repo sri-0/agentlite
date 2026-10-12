@@ -168,7 +168,7 @@ Valkey is split into logical databases, set by environment:
 
 | Env | Default | Holds | Keys |
 |---|---|---|---|
-| `REDIS_DB_RUNS` | 1 | the run lifecycle | `thread:{id}:log` (stream of AG-UI events), `thread:{id}:seq` (message order), `thread:{id}:run` (lease), `run:{id}` (run record, 7 days), `runs:{agentId}` and `runs:done` (queues), `run:{id}:ctl` (cancel, pub/sub), `thread:{root}:sources` and `thread:{root}:sources:seq` (source numbers, as long as the thread) |
+| `REDIS_DB_RUNS` | 1 | the run lifecycle | `thread:{id}:log` (stream of AG-UI events), `thread:{id}:seq` (message order), `thread:{id}:run` (lease), `run:{id}` (run record, 7 days), `runs:{agentId}` and `runs:done` (queues), `run:{id}:ctl` (cancel, pub/sub), `thread:{root}:sources` and `thread:{root}:sources:seq` (source numbers), `thread:{root}:artifacts` (artefact versions); these last as long as the thread |
 | `REDIS_DB_SESSIONS` | 2 | adk sessions: agent state and history | `session:{id}` (metadata), `session:{id}:events`, `session:{id}:state` (30 days), `sessions:{app}` (index for adk's launcher) |
 | `REDIS_DB_HITL` | 3 | interrupts | `hitl:{interruptId}` (record and decision, 7 days), `hitl:thread:{id}:pending` (open), `hitl:thread:{id}:decided` (answered, waiting for the rest) |
 
@@ -177,7 +177,8 @@ OpenSearch indices: `threads`, `messages` (events stored unindexed), `memories`
 Every write refreshes the index, so a read after a save sees it.
 
 S3 (`S3_ENDPOINT`, MinIO in `docker-compose.yaml`): artefact bodies at
-`artifacts/{root}/{artifact id}`. Without it they stay in the `artifacts` records.
+`artifacts/{root}/{artifact id}/{version}`. Without it they stay in the `artifacts`
+records.
 
 ## Configuration
 

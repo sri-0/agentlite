@@ -32,7 +32,8 @@ type Config struct {
 	DisableCompression bool
 }
 
-// TLS names PEM files.
+// TLS adds a client certificate and trusted authorities, from PEM files, or
+// turns verification off.
 type TLS struct {
 	CertFile, KeyFile  string // client certificate, for mutual TLS
 	CAFile             string // trusted certificate authorities
@@ -41,8 +42,7 @@ type TLS struct {
 
 // New returns a client with its own connection pool.
 func New(cfg Config) (*http.Client, error) {
-	t := http.DefaultTransport.(*http.Transport).Clone()
-	t.ForceAttemptHTTP2 = true
+	t := http.DefaultTransport.(*http.Transport).Clone() // proxy from the environment, HTTP/2, sane timeouts
 	t.MaxIdleConnsPerHost = 100
 	t.DisableCompression = cfg.DisableCompression
 	if cfg.TLS != nil {

@@ -52,8 +52,12 @@ type Message struct {
 	Events    []json.RawMessage `json:"events"`
 }
 
-// ErrNotFound is returned for a missing thread.
-var ErrNotFound = errors.New("not found")
+// Errors the store returns for a missing document, and for creating one
+// whose id is taken.
+var (
+	ErrNotFound = errors.New("not found")
+	ErrConflict = errors.New("already exists")
+)
 
 // Client is the OpenSearch store.
 type Client struct {
@@ -107,13 +111,22 @@ func (c *Client) ensureIndex(ctx context.Context, name, mapping string) error {
 // index upserts a document and refreshes the index at once: writes are few,
 // and a thread or message must be readable as soon as its save returns.
 func (c *Client) index(ctx context.Context, index, id string, doc any) error {
+	return c.write(ctx, index, id, doc, opensearchapi.IndexParams{})
+}
+
+// write stores a document and refreshes the index. A write the params
+// forbid (create of a taken id, an external version not above the stored
+// one) keeps the stored document and returns ErrConflict.
+func (c *Client) write(ctx context.Context, index, id string, doc any, params opensearchapi.IndexParams) error {
 	body, err := json.Marshal(doc)
 	if err != nil {
 		return err
 	}
-	_, err = c.api.Document.Index(ctx, opensearchapi.IndexReq{
-		Index: index, ID: id, Body: bytes.NewReader(body), Params: &opensearchapi.IndexParams{Refresh: "true"},
-	})
+	params.Refresh = "true"
+	_, err = c.api.Document.Index(ctx, opensearchapi.IndexReq{Index: index, ID: id, Body: bytes.NewReader(body), Params: &params})
+	if errStatus(err) == 409 {
+		return fmt.Errorf("index %s/%s: %w", index, id, ErrConflict)
+	}
 	if err != nil {
 		return fmt.Errorf("index %s/%s: %w", index, id, err)
 	}
@@ -191,7 +204,7 @@ func get[T any](ctx context.Context, c *Client, index, id string) (*T, error) {
 	}
 	var out T
 	if err := json.Unmarshal(resp.Source, &out); err != nil {
-		return nil, err
+		return nil, fmt.Errorf("get %s/%s: %w", index, id, err)
 	}
 	return &out, nil
 }

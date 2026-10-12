@@ -14,6 +14,7 @@ import (
 	"google.golang.org/adk/v2/tool/mcptoolset"
 
 	"agentlite/internal/config"
+	"agentlite/pkg/toolx"
 	"agentlite/pkg/transport"
 )
 
@@ -103,11 +104,20 @@ func mcpTransport(s config.MCPServer) (mcp.Transport, error) {
 	if s.Endpoint == "" {
 		return commandTransport(s.Command), nil
 	}
-	client, err := transport.New(s.HTTP.Transport())
+	client, err := transport.New(s.HTTP().Transport())
 	if err != nil {
 		return nil, err
 	}
-	return &mcp.StreamableClientTransport{Endpoint: s.Endpoint, HTTPClient: client}, nil
+	return outsideRun{&mcp.StreamableClientTransport{Endpoint: s.Endpoint, HTTPClient: client}}, nil
+}
+
+// outsideRun opens sessions without the thread of the run that happened to
+// need one first: a session and its event stream outlive that run, so only
+// each tool call's own request carries thread headers.
+type outsideRun struct{ mcp.Transport }
+
+func (t outsideRun) Connect(ctx context.Context) (mcp.Connection, error) {
+	return t.Transport.Connect(toolx.WithRun(ctx, toolx.Thread{}, nil))
 }
 
 // commandTransport starts a fresh process on every Connect, so adk's

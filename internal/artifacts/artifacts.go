@@ -9,13 +9,17 @@ import (
 	"fmt"
 	"io"
 	"maps"
+	"regexp"
 	"slices"
 	"strings"
 	"time"
 
+	"github.com/rs/zerolog"
+	"github.com/valkey-io/valkey-go"
+
+	"agentlite/internal/sources"
 	"agentlite/pkg/db/opensearch"
 	"agentlite/pkg/s3"
-	"agentlite/pkg/toolx"
 )
 
 // KindURL is an artefact that only points at a page.
@@ -38,27 +42,47 @@ func ContentType(kind string) string { return contentTypes[kind] }
 
 // Store keeps artefacts.
 type Store struct {
-	records *opensearch.Client
-	bodies  *s3.Client // nil keeps bodies in the records
+	records  *opensearch.Client
+	bodies   *s3.Client    // nil keeps bodies in the records
+	versions valkey.Client // version counters, one hash per conversation
+	sources  *sources.Recorder
+	log      zerolog.Logger
 }
 
 // New returns a store; bodies may be nil.
-func New(records *opensearch.Client, bodies *s3.Client) *Store {
-	return &Store{records: records, bodies: bodies}
+func New(records *opensearch.Client, bodies *s3.Client, versions valkey.Client, sources *sources.Recorder, log zerolog.Logger) *Store {
+	return &Store{records: records, bodies: bodies, versions: versions, sources: sources, log: log}
 }
 
+func versionsKey(rootID string) string { return "thread:" + rootID + ":artifacts" }
+
+// validID is what an artefact id may be: it is part of a document id, an S3
+// key and a URL.
+var validID = regexp.MustCompile(`^[A-Za-z0-9._-]{1,128}$`)
+
 // Save stores a new version of an artefact, keeping its creation time, and
-// records the sources its body cites.
+// records the sources its body cites. Versions are numbered atomically, each
+// body has its own key, and the record only moves forward, so two saves of
+// one artefact at once both keep their versions and the later one is served.
 func (s *Store) Save(ctx context.Context, a *opensearch.Artifact, body string) error {
-	if a.Kind != KindURL && contentTypes[a.Kind] == "" {
-		return fmt.Errorf("unknown artifact kind %q; use one of %v or %s", a.Kind, Kinds(), KindURL)
+	switch {
+	case !validID.MatchString(a.ID):
+		return fmt.Errorf("artifact id %q: use letters, digits, '.', '_' and '-'", a.ID)
+	case a.Kind == KindURL && a.URL == "":
+		return fmt.Errorf("a %s artifact needs a url", KindURL)
+	case a.Kind != KindURL && contentTypes[a.Kind] == "":
+		return fmt.Errorf("unknown artifact kind %q; use one of %v", a.Kind, Kinds())
+	}
+	version, err := s.versions.Do(ctx, s.versions.B().Hincrby().Key(versionsKey(a.RootID)).Field(a.ID).Increment(1).Build()).AsInt64()
+	if err != nil {
+		return fmt.Errorf("number artifact version: %w", err)
 	}
 	now := time.Now()
-	a.CreatedAt, a.UpdatedAt, a.Version = now, now, 1
+	a.Version, a.CreatedAt, a.UpdatedAt = int(version), now, now
 	prev, err := s.records.Artifact(ctx, a.RootID, a.ID)
 	switch {
 	case err == nil:
-		a.CreatedAt, a.Version = prev.CreatedAt, prev.Version+1
+		a.CreatedAt = prev.CreatedAt
 	case !errors.Is(err, opensearch.ErrNotFound):
 		return err
 	}
@@ -73,11 +97,13 @@ func (s *Store) Save(ctx context.Context, a *opensearch.Artifact, body string) e
 			a.Stored, a.Content = opensearch.StoredInline, body
 		}
 	}
-	if err := s.records.SaveArtifact(ctx, a); err != nil {
-		return err
+	if err := s.records.SaveArtifact(ctx, a); err != nil && !errors.Is(err, opensearch.ErrConflict) {
+		return err // on a conflict a later version is already stored; this body stays as history
 	}
-	if cited := toolx.Citations(body); len(cited) > 0 {
-		return s.records.Cite(ctx, a.RootID, "artifact:"+a.ID, cited)
+	// The artefact is saved; a citation that fails to record is logged, not
+	// reported as a failed save the model would retry.
+	if err := s.sources.Cite(ctx, a.RootID, "artifact:"+a.ID, body); err != nil {
+		s.log.Warn().Err(err).Str("artifact", a.ID).Msg("record citations")
 	}
 	return nil
 }
@@ -109,14 +135,18 @@ func (s *Store) Body(ctx context.Context, a *opensearch.Artifact) (io.ReadCloser
 	return nil, opensearch.ErrNotFound
 }
 
-// Delete removes a conversation's bodies; the records are deleted with the
-// thread's documents.
+// Delete removes a conversation's bodies and version counters; the records
+// are deleted with the thread's documents.
 func (s *Store) Delete(ctx context.Context, rootID string) error {
-	if s.bodies == nil {
-		return nil
+	if s.bodies != nil {
+		if err := s.bodies.DeletePrefix(ctx, "artifacts/"+rootID+"/"); err != nil {
+			return err
+		}
 	}
-	return s.bodies.DeletePrefix(ctx, "artifacts/"+rootID+"/")
+	return s.versions.Do(ctx, s.versions.B().Del().Key(versionsKey(rootID)).Build()).Error()
 }
 
-// key is where a body lives in S3; a new version replaces the old one.
-func key(a *opensearch.Artifact) string { return "artifacts/" + a.RootID + "/" + a.ID }
+// key is where a version's body lives in S3.
+func key(a *opensearch.Artifact) string {
+	return fmt.Sprintf("artifacts/%s/%s/%d", a.RootID, a.ID, a.Version)
+}

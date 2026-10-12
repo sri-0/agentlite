@@ -3,7 +3,6 @@ package agents
 import (
 	"context"
 	"fmt"
-	"net/http"
 	"slices"
 
 	"google.golang.org/adk/v2/tool"
@@ -17,8 +16,8 @@ import (
 
 // connectorSets builds one toolset per connector: the MCP server it points
 // at, or the world tools it names, built with an HTTP client of the
-// connector's own. A world tool an agent lists by name is the instance of the
-// first connector that names it, or one on a plain client if none does.
+// connector's own. Tools no connector names are built on a plain client, for
+// agents that list them by name.
 func (rt *Runtime) connectorSets() error {
 	rt.world, rt.sets = map[string]toolx.Tool{}, map[string]tool.Toolset{}
 	for _, c := range rt.connectors {
@@ -30,42 +29,43 @@ func (rt *Runtime) connectorSets() error {
 			rt.sets[c.ID] = srv.Toolset
 			continue
 		}
-		client, err := transport.New(c.HTTP.Transport())
+		built, err := rt.buildTools(c.Tools, c.HTTP.Transport())
 		if err != nil {
 			return fmt.Errorf("connector %q: %w", c.ID, err)
 		}
-		built := make([]toolx.Tool, 0, len(c.Tools))
-		for _, name := range c.Tools {
-			t, err := buildTool(name, client)
-			if err != nil {
-				return fmt.Errorf("connector %q: %w", c.ID, err)
-			}
-			built = append(built, t)
-			if _, ok := rt.world[name]; !ok {
-				rt.world[name] = t
-			}
-		}
 		rt.sets[c.ID] = toolx.Toolset(c.ID, built)
 	}
+	var unlisted []string
 	for name := range tools.Catalog {
-		if _, ok := rt.world[name]; ok {
-			continue
+		if _, ok := rt.world[name]; !ok {
+			unlisted = append(unlisted, name)
 		}
-		t, err := buildTool(name, http.DefaultClient)
-		if err != nil {
-			return err
-		}
-		rt.world[name] = t
 	}
-	return nil
+	_, err := rt.buildTools(unlisted, transport.Config{})
+	return err
 }
 
-func buildTool(name string, client *http.Client) (toolx.Tool, error) {
-	build, ok := tools.Catalog[name]
-	if !ok {
-		return toolx.Tool{}, fmt.Errorf("unknown tool %q", name)
+// buildTools builds the named world tools on one new client and records them
+// in rt.world.
+func (rt *Runtime) buildTools(names []string, cfg transport.Config) ([]toolx.Tool, error) {
+	client, err := transport.New(cfg)
+	if err != nil {
+		return nil, err
 	}
-	return build(client)
+	built := make([]toolx.Tool, 0, len(names))
+	for _, name := range names {
+		build, ok := tools.Catalog[name]
+		if !ok {
+			return nil, fmt.Errorf("unknown tool %q", name)
+		}
+		t, err := build(client)
+		if err != nil {
+			return nil, err
+		}
+		rt.world[name] = t
+		built = append(built, t)
+	}
+	return built, nil
 }
 
 // enabled returns the toolsets of the run's connectors, in connectors.yaml
