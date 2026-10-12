@@ -35,7 +35,10 @@ func run() error {
 	}
 	defer app.Close()
 
-	h := &handler.Handler{Config: app.Config, Registry: app.Registry, Runs: app.Runs, Runtime: app.Agents, Store: app.Store, Log: app.Log}
+	h := &handler.Handler{
+		Config: app.Config, Registry: app.Registry, Runs: app.Runs, Runtime: app.Agents,
+		Store: app.Store, Artifacts: app.Artifacts, Sources: app.Sources, Log: app.Log,
+	}
 	e, err := server.New(app.Config, h, app.Log)
 	if err != nil {
 		return err

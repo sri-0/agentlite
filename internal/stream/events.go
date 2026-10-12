@@ -30,6 +30,9 @@ const (
 	MetaDurationMs = "durationMs"
 )
 
+// MetaUI is the TOOL_CALL_START metadata key naming the tool's UI renderer.
+const MetaUI = "ui"
+
 // ReasonConfirmation is the reason of every interrupt: adk's tool
 // confirmation, answered with an approval or, for a question, an output.
 const ReasonConfirmation = "confirmation"

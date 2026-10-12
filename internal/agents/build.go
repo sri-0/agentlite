@@ -69,6 +69,8 @@ func (rt *Runtime) buildLLM(ctx context.Context, def config.AgentDef, run *runs.
 		GenerateContentConfig:    &genai.GenerateContentConfig{MaxOutputTokens: int32(maxTokens)},
 		DisallowTransferToParent: true,
 		DisallowTransferToPeers:  true,
+		BeforeToolCallbacks:      []llmagent.BeforeToolCallback{rt.fillThreadArgs},
+		AfterToolCallbacks:       []llmagent.AfterToolCallback{rt.recordURLArtifact},
 	})
 }
 
@@ -106,7 +108,7 @@ func (rt *Runtime) toolsFor(def config.AgentDef, run *runs.Run) ([]tool.Tool, []
 		if !run.Root() && orchestration[name] { // like opencode: sub-agents do the work, they do not delegate or ask
 			continue
 		}
-		fns = append(fns, rt.harness[name])
+		fns = append(fns, rt.harness[name].ADK())
 	}
 	return fns, rt.enabled(run.Connectors), nil
 }
@@ -131,20 +133,28 @@ func (rt *Runtime) toolList(def config.AgentDef) string {
 // orchestration are the harness tools a sub-agent only gets by listing them.
 var orchestration = map[string]bool{builtin.Subagent: true, "todowrite": true, builtin.Question: true}
 
+// tool finds a harness or world tool by name; nil if there is none.
 func (rt *Runtime) tool(name string) tool.Tool {
 	if t, ok := rt.harness[name]; ok {
-		return t
+		return t.ADK()
 	}
-	return rt.world[name]
+	if t, ok := rt.world[name]; ok {
+		return t.ADK()
+	}
+	return nil
 }
 
-// instruction appends the sub-agent manifest the subagent tool relies on.
+// instruction is the agent's own instruction, plus how to cite sources for an
+// agent with tools, plus the manifest the subagent tool relies on.
 func (rt *Runtime) instruction(def config.AgentDef) string {
-	if len(def.Subagents) == 0 || def.Tools != nil && !slices.Contains(*def.Tools, builtin.Subagent) {
-		return def.Instruction
-	}
 	var b strings.Builder
 	b.WriteString(def.Instruction)
+	if def.Tools == nil || len(*def.Tools) > 0 {
+		b.WriteString("\n\n" + citeInstruction)
+	}
+	if len(def.Subagents) == 0 || def.Tools != nil && !slices.Contains(*def.Tools, builtin.Subagent) {
+		return b.String()
+	}
 	b.WriteString("\n\n<available_subagents>\n")
 	for _, id := range slices.Sorted(slices.Values(def.Subagents)) {
 		sub := rt.defs[id]
@@ -153,3 +163,9 @@ func (rt *Runtime) instruction(def config.AgentDef) string {
 	b.WriteString("</available_subagents>")
 	return b.String()
 }
+
+// citeInstruction tells a model with tools how to cite the sources tools
+// number (pkg/toolx).
+const citeInstruction = `<citations>
+Some tool results give an item a "source" number. When you use such an item, cite it right after the statement it supports as [source:N], with the number exactly as given; cite several as [source:1][source:4]. Never cite a number no tool gave you. Keep the citations in whatever you pass on: in artifacts, and in your answer to whoever dispatched you.
+</citations>`

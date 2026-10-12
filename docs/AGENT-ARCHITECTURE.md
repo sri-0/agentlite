@@ -40,13 +40,18 @@ compaction summarizer, and by every sub-agent the run starts.
 
 ## Tools
 
-- **World tools** (`internal/tools`): `calculate`, `webfetch` (public hosts only),
-  `write_note` (the approval demo; it only logs).
+- **World tools** (`internal/tools`): `calculate`, `webfetch` (public hosts only; each
+  page is a source), `write_note` (the approval demo; it only logs), `search_records`
+  (the sources demo over sample records).
 - **Harness tools** (`internal/tools/builtin`): `subagent`, `todowrite`, `question`,
-  `emit_artifact`, `report_progress`.
+  `emit_artifact` (stored; TOOLS.md), `report_progress`.
+- Every function tool is built with `pkg/toolx` (TOOLS.md): it gets the thread its call
+  belongs to and records the sources it returns.
 - **Connectors** (`config/default/connectors.yaml`): user-toggled groups of world
   tools or one MCP server each, every one an adk `tool.Toolset`
-  (`internal/agents/connectors.go`). Switching one off removes all its tools.
+  (`internal/agents/connectors.go`). Switching one off removes all its tools. A
+  connector of world tools is one system: its tools share one HTTP client, configured by
+  its `http:` block.
 - **MCP** (`config/default/mcp.yaml`): servers become adk `mcptoolset`s; a server
   that cannot list its tools costs a warning, not the run.
 
@@ -66,7 +71,8 @@ self-contained or when several pieces can run at once, to research before
 building, to keep a todo list for anything with three or more steps, and to ask
 the user only for decisions that are theirs. The runtime appends an
 `<available_subagents>` block listing each sub-agent's description and tools, so
-the assistant knows what each can do.
+the assistant knows what each can do, and gives every agent with tools a
+`<citations>` block: cite numbered tool results as `[source:N]` (TOOLS.md).
 
 A typical turn: write the todo list; dispatch deep-research or researchers (in
 parallel when independent); take their results; build the deliverable with its

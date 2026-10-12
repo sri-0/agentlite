@@ -2,8 +2,15 @@
 # function tools, or one MCP server named in mcp.yaml. A thread with no
 # choice has every connector on; the choice is remembered on the thread and
 # inherited by its sub-agents. Agents that list their own `tools:` ignore it.
-# Harness tools (task, todowrite, emit_artifact, question, report_progress)
-# are always available. `icon` is a lucide icon name.
+# Harness tools (subagent, todowrite, emit_artifact, question,
+# report_progress) are always available. `icon` is a lucide icon name.
+#
+# A connector of function tools is one system: its tools share one HTTP
+# client (pkg/transport), configured by an optional `http:` block:
+#   http:
+#     headers: {Authorization: "Bearer ${RECORDS_TOKEN}"}
+#     timeout: 30s
+#     thread_headers: true   # send X-Thread-ID, X-Root-Thread-ID, X-Run-ID
 connectors:
   - id: web
     name: Web
@@ -20,6 +27,11 @@ connectors:
     description: Save notes; each save asks for approval.
     icon: notebook-pen
     tools: [write_note]
+  - id: records
+    name: Records
+    description: Search the organisation's records (sample data); every hit is a citable source.
+    icon: database
+    tools: [search_records]
   - id: slides
     name: Slides
     description: Create and edit slide decks (open-slide).

@@ -1,4 +1,4 @@
-.PHONY: run dev build vet tidy up down
+.PHONY: run dev build vet test tidy up down
 
 run:
 	go run ./cmd/server
@@ -15,6 +15,9 @@ build:
 
 vet:
 	go vet ./...
+
+test:
+	go test ./...
 
 tidy:
 	go mod tidy

@@ -1,6 +1,7 @@
 // Package bootstrap wires the application from configuration: logging,
-// tracing, the provider registry, Valkey, OpenSearch, sessions, memory, MCP
-// servers, the agent runtime and the run manager. Every command starts here.
+// tracing, the provider registry, Valkey, OpenSearch, S3, sessions, memory,
+// sources, artefacts, MCP servers, the agent runtime and the run manager.
+// Every command starts here.
 package bootstrap
 
 import (
@@ -12,28 +13,33 @@ import (
 	"google.golang.org/adk/v2/session"
 
 	"agentlite/internal/agents"
+	"agentlite/internal/artifacts"
 	"agentlite/internal/config"
 	"agentlite/internal/hitl"
 	"agentlite/internal/mcp"
 	"agentlite/internal/proxy"
 	"agentlite/internal/runs"
+	"agentlite/internal/sources"
 	"agentlite/pkg/db/opensearch"
 	"agentlite/pkg/db/valkey"
 	"agentlite/pkg/logging"
 	"agentlite/pkg/memory"
+	"agentlite/pkg/s3"
 	valkeysession "agentlite/pkg/session/valkey"
 )
 
 // App is the wired application.
 type App struct {
-	Config   *config.Config
-	Log      zerolog.Logger
-	Registry *proxy.Registry
-	Store    *opensearch.Client
-	Sessions session.Service
-	Memory   *memory.Service // nil when memory is not configured
-	Agents   *agents.Runtime
-	Runs     *runs.Manager
+	Config    *config.Config
+	Log       zerolog.Logger
+	Registry  *proxy.Registry
+	Store     *opensearch.Client
+	Sessions  session.Service
+	Memory    *memory.Service // nil when memory is not configured
+	Sources   *sources.Recorder
+	Artifacts *artifacts.Store
+	Agents    *agents.Runtime
+	Runs      *runs.Manager
 
 	closers []func()
 }
@@ -79,7 +85,14 @@ func New(ctx context.Context) (*App, error) {
 	if app.Memory != nil {
 		mem = app.Memory
 	}
-	app.Agents = agents.New(cfg, app.Registry, app.Sessions, mem, mcp.Servers(cfg.MCP, app.Log), app.Log)
+	app.Sources = sources.New(runsDB, app.Store)
+	if app.Artifacts, err = artifactStore(ctx, cfg, app.Store, app.Log); err != nil {
+		return nil, err
+	}
+	app.Agents = agents.New(cfg, agents.Deps{
+		Registry: app.Registry, Sessions: app.Sessions, Memory: mem, Servers: mcp.Servers(cfg.MCP, app.Log),
+		Sources: app.Sources, Artifacts: app.Artifacts, Log: app.Log,
+	})
 	app.Runs = runs.New(cfg, runsDB, hitl.NewStore(hitlDB), app.Store, app.Store, app.Sessions, app.Agents, app.Log)
 	if err := app.Agents.Bind(app.Runs); err != nil { // the subagent tool dispatches through the run manager
 		return nil, err
@@ -104,6 +117,20 @@ func (a *App) Close() {
 	for i := len(a.closers) - 1; i >= 0; i-- {
 		a.closers[i]()
 	}
+}
+
+// artifactStore keeps artefact bodies in S3 when S3_ENDPOINT is set, and in
+// OpenSearch otherwise.
+func artifactStore(ctx context.Context, cfg *config.Config, records *opensearch.Client, log zerolog.Logger) (*artifacts.Store, error) {
+	if cfg.S3.Endpoint == "" {
+		log.Info().Msg("S3 not configured; artifact bodies are kept in OpenSearch")
+		return artifacts.New(records, nil), nil
+	}
+	bodies, err := s3.New(ctx, cfg.S3)
+	if err != nil {
+		return nil, err
+	}
+	return artifacts.New(records, bodies), nil
 }
 
 // memoryService builds long-term memory when models.yaml configures it.

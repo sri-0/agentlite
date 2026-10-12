@@ -6,6 +6,7 @@ package agents
 import (
 	"context"
 	"fmt"
+	"maps"
 
 	"github.com/rs/zerolog"
 	adkagent "google.golang.org/adk/v2/agent"
@@ -16,14 +17,16 @@ import (
 	"google.golang.org/adk/v2/session"
 	"google.golang.org/adk/v2/tool"
 
+	"agentlite/internal/artifacts"
 	"agentlite/internal/config"
 	"agentlite/internal/mcp"
 	"agentlite/internal/proxy"
 	"agentlite/internal/runs"
+	"agentlite/internal/sources"
 	"agentlite/internal/stream"
-	"agentlite/internal/tools"
 	"agentlite/internal/tools/builtin"
 	"agentlite/pkg/db/opensearch"
+	"agentlite/pkg/toolx"
 )
 
 // Runtime implements runs.Runtime on adk.
@@ -37,18 +40,36 @@ type Runtime struct {
 	defaultModel string // the model a run uses when the request names none
 	compact      *config.Compaction
 	servers      map[string]*mcp.Server // MCP servers by name
-	harness      map[string]tool.Tool   // always available: subagent, todowrite, …
-	world        map[string]tool.Tool   // switched on through connectors
-	connectors   []config.Connector
-	sets         map[string]tool.Toolset // one per connector
+	sources      *sources.Recorder
+	artifacts    *artifacts.Store
 	log          zerolog.Logger
+
+	connectors []config.Connector
+	harness    map[string]toolx.Tool   // always available: subagent, todowrite, …
+	world      map[string]toolx.Tool   // switched on through connectors
+	sets       map[string]tool.Toolset // one per connector
+	mcpTools   mcpTools                // what mcp.yaml asks of individual MCP tools
+	toolUI     map[string]string       // UI renderer by tool name
+}
+
+// Deps are the services the runtime uses.
+type Deps struct {
+	Registry  *proxy.Registry
+	Sessions  session.Service
+	Memory    Memory                 // nil when memory is not configured
+	Servers   map[string]*mcp.Server // MCP servers by name
+	Sources   *sources.Recorder
+	Artifacts *artifacts.Store
+	Log       zerolog.Logger
 }
 
 // New prepares the runtime; Bind must follow once the run manager exists.
-func New(cfg *config.Config, registry *proxy.Registry, sessions session.Service, mem Memory, servers map[string]*mcp.Server, log zerolog.Logger) *Runtime {
+func New(cfg *config.Config, d Deps) *Runtime {
 	rt := &Runtime{
-		appName: cfg.AppName, defs: cfg.Defs(), registry: registry, sessions: sessions, memory: mem, defaultModel: cfg.Models.DefaultModel,
-		compact: cfg.Models.Compaction, servers: servers, connectors: cfg.Connectors, log: log,
+		appName: cfg.AppName, defs: cfg.Defs(), registry: d.Registry, sessions: d.Sessions, memory: d.Memory,
+		defaultModel: cfg.Models.DefaultModel, compact: cfg.Models.Compaction, servers: d.Servers,
+		sources: d.Sources, artifacts: d.Artifacts, log: d.Log, connectors: cfg.Connectors,
+		mcpTools: newMCPTools(cfg.MCP),
 	}
 	if m := cfg.Models.Memory; m != nil {
 		rt.preload = m.Preload
@@ -63,18 +84,26 @@ type Memory interface {
 	ForThread(threadID string) adkmemory.Service
 }
 
-// Bind builds the function tools (the subagent tool dispatches through d) and
-// checks that every connector names tools or servers that exist.
+// Bind builds the function tools (the subagent tool dispatches through d),
+// one toolset per connector, and the UI renderer of every tool that names one.
 func (rt *Runtime) Bind(d builtin.Dispatcher) error {
 	var err error
-	if rt.harness, err = builtin.All(builtin.Deps{Dispatcher: d, Defs: rt.defs, Log: rt.log}); err != nil {
+	rt.harness, err = builtin.All(builtin.Deps{Dispatcher: d, Defs: rt.defs, Artifacts: rt.artifacts, Log: rt.log})
+	if err != nil {
 		return err
 	}
-	if rt.world, err = tools.World(); err != nil {
+	if err := rt.connectorSets(); err != nil {
 		return err
 	}
-	rt.sets, err = rt.connectorSets()
-	return err
+	rt.toolUI = maps.Clone(rt.mcpTools.ui)
+	for _, set := range []map[string]toolx.Tool{rt.harness, rt.world} {
+		for name, t := range set {
+			if t.UI() != "" {
+				rt.toolUI[name] = t.UI()
+			}
+		}
+	}
+	return nil
 }
 
 // Seed rebuilds a thread's session from its persisted messages.
@@ -87,6 +116,7 @@ func (rt *Runtime) Seed(ctx context.Context, threadID, agentID string, history [
 func (rt *Runtime) Run(ctx context.Context, in runs.Input, sink stream.Sink) (runs.Result, error) {
 	run := in.Run
 	enc := stream.NewEncoder(run.ThreadID, run.ID, run.Model, sink.Emit)
+	enc.ToolUI = rt.toolUI
 	enc.Start(run.TurnID, run.AgentID)
 	fail := func(err error) (runs.Result, error) {
 		enc.Fail(err)
@@ -119,6 +149,7 @@ func (rt *Runtime) Run(ctx context.Context, in runs.Input, sink stream.Sink) (ru
 	}
 
 	ctx = runs.WithRun(stream.WithSink(ctx, sink), run)
+	ctx = toolx.WithRun(ctx, toolx.Thread{ID: run.ThreadID, RootID: run.RootID, RunID: run.ID}, rt.sources)
 	for ev, err := range r.Run(ctx, runs.SessionUser, run.ThreadID, content, adkagent.RunConfig{StreamingMode: adkagent.StreamingModeSSE}) {
 		if err != nil {
 			if ctx.Err() != nil {
@@ -133,6 +164,11 @@ func (rt *Runtime) Run(ctx context.Context, in runs.Input, sink stream.Sink) (ru
 	if ctx.Err() != nil {
 		enc.Cancel()
 		return runs.Result{Status: runs.StatusCancelled, Text: enc.Result()}, nil
+	}
+	// Citations are recorded before the segment's closing event, so a client
+	// that reads the sources when the run ends sees them.
+	if err := rt.sources.Cite(ctx, run.RootID, "message:"+run.TurnID, enc.Shown()); err != nil {
+		rt.log.Warn().Err(err).Str("run", run.ID).Msg("record citations")
 	}
 	if interrupts := enc.Finish(); len(interrupts) > 0 {
 		return runs.Result{Status: runs.StatusAwaitingInput, Text: enc.Result(), Interrupts: interrupts}, nil

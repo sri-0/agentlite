@@ -3,9 +3,9 @@ package builtin
 import (
 	"fmt"
 
-	adkagent "google.golang.org/adk/v2/agent"
 	"google.golang.org/adk/v2/tool"
-	"google.golang.org/adk/v2/tool/functiontool"
+
+	"agentlite/pkg/toolx"
 )
 
 type questionOption struct {
@@ -28,11 +28,11 @@ type questionArgs struct {
 // adk's confirmation, which stops the agent loop even when other calls share
 // the turn; the request carries the questions, and adk calls the tool again
 // with the user's answers as the confirmation's output.
-func question(Deps) (tool.Tool, error) {
-	return functiontool.New(functiontool.Config{
+func question(Deps) (toolx.Tool, error) {
+	return toolx.New(toolx.Spec{
 		Name:        Question,
 		Description: "Ask the user one to four multiple-choice questions when you need a decision only they can make. The answers arrive as the tool result.",
-	}, func(ctx adkagent.Context, a questionArgs) (map[string]any, error) {
+	}, func(ctx toolx.Context, a questionArgs) (map[string]any, error) {
 		if conf := ctx.ToolConfirmation(); conf != nil {
 			payload, _ := conf.Payload.(map[string]any)
 			answers, ok := payload["output"].(map[string]any)

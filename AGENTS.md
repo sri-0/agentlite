@@ -7,15 +7,16 @@ resumable, persisted as the same events, and sub-agents are real threads.
 
 This file is the operating manual. How things work is in `docs/` (start at
 `docs/README.md`): ARCHITECTURE (components, run lifecycle, the socket, storage),
-AGENT-ARCHITECTURE (roster, the assistant, sub-agents, tools, todos), HITL (approvals and
-questions), AG-UI-RENDERING (event → UI mapping), MEMORY. A change to a protocol, config
+AGENT-ARCHITECTURE (roster, the assistant, sub-agents, tools, todos), TOOLS (building
+tools, transports, sources, artefacts, tool UI), HITL (approvals and questions),
+AG-UI-RENDERING (event → UI mapping), MEMORY. A change to a protocol, config
 schema, the roster, the run lifecycle, HITL or storage updates the matching doc in the same
 commit.
 
 ## Quick start
 
 ```bash
-make up                     # Valkey :6379, OpenSearch :9200, Jaeger :16686
+make up                     # Valkey :6379, OpenSearch :9200, MinIO :9000, Jaeger :16686
 cp .env.example .env.local  # PROXY_PROVIDER, provider keys and base URLs
 make run                    # :8000
 make vet
@@ -26,8 +27,8 @@ With `OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318` every run exports a tra
 (UI at :16686, service `agentlite`); adk's `telemetry.New` does the export. `make dev` runs
 its own worker loops on the same queues, so it must run the same code as the server.
 
-There are no tests yet; development verification uses a WebSocket client and `curl`, and
-those scripts stay out of the repository.
+Unit tests cover the reusable packages (`go test ./...`); end-to-end verification uses a
+WebSocket client and `curl`, and those scripts stay out of the repository.
 
 ## Layout
 
@@ -35,8 +36,8 @@ those scripts stay out of the repository.
 cmd/server/            the API: bootstrap → handlers → Echo
 cmd/dev/               adk's launcher (web UI, cli, api) over the same roster and stores
 internal/
-  bootstrap/           wires config, logging, tracing, registry, Valkey, OpenSearch, sessions,
-                       memory, MCP, the agent runtime and the run manager
+  bootstrap/           wires config, logging, tracing, registry, Valkey, OpenSearch, S3,
+                       sessions, memory, sources, artefacts, MCP, the runtime and run manager
   config/              env (go-envconfig) + models.yaml, mcp.yaml, connectors.yaml, agents/*.md
   server/              Echo app: middleware, routes, error → status mapping
   handler/             REST reads and thread admin; the socket upgrade
@@ -44,15 +45,21 @@ internal/
   runs/                the run lifecycle: Manager (start, answer, cancel, follow), worker,
                        finalizer, queues, event log, run records
   agents/              the agent runtime: roster → adk agents, running a segment, connectors,
-                       compaction, session seeding, answers → adk responses
+                       MCP tool hooks, compaction, session seeding, answers → adk responses
   hitl/                interrupt records in Valkey
   stream/              AG-UI conventions, adk → AG-UI encoder, storage coalescing
-  tools/               world tools (calculate, webfetch, write_note); tools/builtin: subagent,
-                       todowrite, question, emit_artifact, report_progress
+  tools/               world tools (calculate, webfetch, write_note, search_records); the
+                       catalog; tools/builtin: subagent, todowrite, question, emit_artifact,
+                       report_progress
+  sources/             numbers and stores the sources tools return
+  artifacts/           artefact records (OpenSearch) and bodies (S3)
   mcp/                 mcp.yaml → adk toolsets
-  proxy/               provider clients (mTLS, headers), model discovery, reverse proxies, embeddings
+  proxy/               provider clients, model discovery, reverse proxies, embeddings
 pkg/
-  db/opensearch/       threads, messages, memories (kNN)
+  toolx/               the tool wrapper every function tool is built with
+  transport/           HTTP clients for providers, toolsets and MCP servers
+  s3/                  S3-compatible object storage (minio-go)
+  db/opensearch/       threads, messages, memories (kNN), sources, artefacts
   db/valkey/           client per logical database
   memory/              adk memory.Service on OpenSearch
   session/valkey/      adk session.Service on Valkey
@@ -86,6 +93,8 @@ document-level security, is `not_found`. ARCHITECTURE.md has the frames.
 | GET/PATCH/DELETE | `/v1/threads/{id}` | thread; `PATCH {title?, connectors?}`; delete removes its family (`409` while a run is active) |
 | GET | `/v1/threads/{id}/messages?before=&limit=` | `{data: [{id, thread_id, role, seq, created_at, text, events}], cursor}` |
 | GET | `/v1/threads/{id}/interrupts` | the paused run's pending interrupts |
+| GET | `/v1/threads/{id}/sources`, `/v1/threads/{id}/sources/{n}` | the conversation's sources by number; one source, what `[source:n]` refers to |
+| GET | `/v1/threads/{id}/artifacts`, `/v1/threads/{id}/artifacts/{artifactId}/content` | the conversation's artefacts, newest first; one artefact's body |
 | POST | `/v1/chat/completions`, `/v1/responses`, `/v1/messages`, `/v1/embeddings` | reverse proxies to the configured provider, bodies untouched |
 
 There is no authentication or identity yet.
@@ -95,7 +104,8 @@ There is no authentication or identity yet.
 Environment (`internal/config/config.go`): `PORT`, `HOST`, `APP_NAME`, `CONFIG_DIR`,
 `LOG_LEVEL`, `LOG_JSON`, `ALLOWED_ORIGINS`, `REDIS_HOST/PORT/USER/PASS`,
 `REDIS_DB_RUNS/SESSIONS/HITL` (default 1/2/3), `OPENSEARCH_URL/USERNAME/PASSWORD`,
-`OTEL_EXPORTER_OTLP_ENDPOINT`, plus what the YAML references (`PROXY_PROVIDER`,
+`S3_ENDPOINT/ACCESS_KEY/SECRET_KEY/BUCKET/REGION/USE_SSL` (no endpoint keeps artefact bodies
+in OpenSearch), `OTEL_EXPORTER_OTLP_ENDPOINT`, plus what the YAML references (`PROXY_PROVIDER`,
 `LITELLM_BASE_URL`, `*_API_KEY`, `OPEN_SLIDE_MCP_URL`, …). `${VAR}` expands in `base_url`,
 headers, MCP endpoints and `proxy.provider`.
 
@@ -103,9 +113,11 @@ headers, MCP endpoints and `proxy.provider`.
   headers, discover, models[], ssl_*`), `default_model`, `compaction`, `memory`, `proxy`.
   Discovered models merge under YAML entries; the first provider in file order that serves
   an id wins; a provider with an empty `base_url` is skipped.
-- `mcp.yaml`: `servers: {name: {endpoint | command, headers, tools, require_confirmation}}`.
+- `mcp.yaml`: `servers: {name: {endpoint | command, headers, timeout, thread_headers, tools,
+  require_confirmation, thread_args, ui, artifacts}}` (TOOLS.md).
   The development server is open-slide-mcp (`~/code/open-slide-mcp`, `make run`, `:8090/mcp`).
-- `connectors.yaml`: `connectors[]` (`id, name, description, icon, tools[] | mcp`).
+- `connectors.yaml`: `connectors[]` (`id, name, description, icon, tools[] | mcp, http`);
+  `http: {headers, timeout, thread_headers}` configures the connector's own HTTP client.
 - `agents/*.md`: frontmatter `id, name, description, kind, mode, tools, subagents,
   max_output_tokens` and the instruction (AGENT-ARCHITECTURE.md).
 
@@ -119,6 +131,11 @@ headers, MCP endpoints and `proxy.provider`.
 - The worker and finalizer talk to each other and to `runs.Manager` only through Valkey, so
   they can move to separate processes.
 - A run is executed at most once; tools have side effects.
+- Every function tool is built with `toolx.New`; a test fails if anything else imports adk's
+  `functiontool`. A tool that returns citable items records each with `ctx.AddSource` and
+  shows the model only the number.
+- Every outbound HTTP client is built with `pkg/transport`, one per provider, connector and
+  MCP server.
 - Agents never name a model; the request's model flows to every step and sub-agent.
 - Errors are logged at `warn`/`error`, never swallowed; sentinel errors map to statuses and
   socket codes in one place each (`server.errorHandler`, `ws.code`).

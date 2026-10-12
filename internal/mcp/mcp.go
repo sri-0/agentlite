@@ -3,7 +3,6 @@ package mcp
 
 import (
 	"context"
-	"net/http"
 	"os/exec"
 	"slices"
 	"strings"
@@ -15,7 +14,7 @@ import (
 	"google.golang.org/adk/v2/tool/mcptoolset"
 
 	"agentlite/internal/config"
-	"agentlite/internal/proxy"
+	"agentlite/pkg/transport"
 )
 
 // Server is one configured MCP server: the adk toolset runs use, and the
@@ -32,7 +31,11 @@ type Server struct {
 func Servers(cfg *config.MCPConfig, log zerolog.Logger) map[string]*Server {
 	out := map[string]*Server{}
 	for name, s := range cfg.Servers {
-		t := transport(s)
+		t, err := mcpTransport(s)
+		if err != nil {
+			log.Error().Err(err).Str("server", name).Msg("mcp server skipped")
+			continue
+		}
 		ts, err := mcptoolset.New(mcptoolset.Config{
 			Transport: t,
 			RequireConfirmationProvider: func(toolName string, _ any) bool {
@@ -94,14 +97,17 @@ func (r resilient) Tools(ctx agent.ReadonlyContext) ([]tool.Tool, error) {
 	return tools, nil
 }
 
-func transport(s config.MCPServer) mcp.Transport {
-	if s.Endpoint != "" {
-		return &mcp.StreamableClientTransport{
-			Endpoint:   s.Endpoint,
-			HTTPClient: &http.Client{Transport: proxy.WithHeaders(http.DefaultTransport, s.Headers)},
-		}
+// mcpTransport reaches the server over streamable HTTP, with a client of its
+// own (pkg/transport), or over stdio.
+func mcpTransport(s config.MCPServer) (mcp.Transport, error) {
+	if s.Endpoint == "" {
+		return commandTransport(s.Command), nil
 	}
-	return commandTransport(s.Command)
+	client, err := transport.New(s.HTTP.Transport())
+	if err != nil {
+		return nil, err
+	}
+	return &mcp.StreamableClientTransport{Endpoint: s.Endpoint, HTTPClient: client}, nil
 }
 
 // commandTransport starts a fresh process on every Connect, so adk's

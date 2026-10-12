@@ -26,12 +26,17 @@ const (
 // them. Steps are kept per author because a parallel agent interleaves its
 // sub-agents' events.
 type Encoder struct {
+	// ToolUI names the UI renderer of the tools that have one; it rides in
+	// their TOOL_CALL_START metadata, so stored history renders the same.
+	ToolUI map[string]string
+
 	threadID, runID, model string
 	emit                   func(Event)
 	startedAt              time.Time
 
 	steps      map[string]*step // open model calls by author
 	result     string           // text of the last completed text block (the answer)
+	shown      strings.Builder  // all text the segment showed
 	calls      map[string]bool  // tool call ids already emitted
 	usage      events.TokenUsage
 	interrupts []types.Interrupt
@@ -128,6 +133,9 @@ func (e *Encoder) Fail(err error) {
 // Result is the text of the last completed text block.
 func (e *Encoder) Result() string { return e.result }
 
+// Shown is all the text the segment showed, from every text block.
+func (e *Encoder) Shown() string { return e.shown.String() }
+
 func (e *Encoder) finish(opts ...events.RunFinishedOption) {
 	ev := events.NewRunFinishedEventWithOptions(e.threadID, e.runID, opts...)
 	ev.GetBaseEvent().Metadata = types.Metadata{MetaDurationMs: time.Since(e.startedAt).Milliseconds()}
@@ -168,6 +176,7 @@ func (e *Encoder) delta(s *step, p *genai.Part) {
 		e.send(events.NewTextMessageStartEvent(s.text, events.WithRole("assistant")))
 	}
 	s.buf.WriteString(p.Text)
+	e.shown.WriteString(p.Text)
 	e.send(events.NewTextMessageContentEvent(s.text, p.Text))
 }
 
@@ -243,7 +252,11 @@ func (e *Encoder) toolCall(fc *genai.FunctionCall) {
 	}
 	e.calls[fc.ID] = true
 	args, _ := json.Marshal(fc.Args)
-	e.send(events.NewToolCallStartEvent(fc.ID, fc.Name))
+	start := events.NewToolCallStartEvent(fc.ID, fc.Name)
+	if ui := e.ToolUI[fc.Name]; ui != "" {
+		start.GetBaseEvent().Metadata = types.Metadata{MetaUI: ui}
+	}
+	e.send(start)
 	e.send(events.NewToolCallArgsEvent(fc.ID, string(args)))
 	e.send(events.NewToolCallEndEvent(fc.ID))
 }

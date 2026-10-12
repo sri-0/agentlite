@@ -5,8 +5,12 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"time"
 
 	"github.com/goccy/go-yaml"
+
+	"agentlite/pkg/toolx"
+	"agentlite/pkg/transport"
 )
 
 // ConnectorsConfig is config/default/connectors.yaml: the tool groups a user
@@ -23,6 +27,28 @@ type Connector struct {
 	Icon        string   `yaml:"icon" json:"icon,omitempty"` // a lucide icon name
 	Tools       []string `yaml:"tools" json:"tools,omitempty"`
 	MCP         string   `yaml:"mcp" json:"mcp,omitempty"`
+	// HTTP configures the client the connector's tools reach their system
+	// with; each connector gets its own.
+	HTTP HTTP `yaml:"http" json:"-"`
+}
+
+// HTTP configures one system's HTTP client (pkg/transport).
+type HTTP struct {
+	Headers map[string]string `yaml:"headers"` // sent on every request; values may use ${ENV}
+	Timeout time.Duration     `yaml:"timeout"` // per request; 0 means none
+	// ThreadHeaders sends X-Thread-ID, X-Root-Thread-ID and X-Run-ID with
+	// each request. Off by default: thread ids are internal, and a tool such
+	// as webfetch talks to the public web.
+	ThreadHeaders bool `yaml:"thread_headers"`
+}
+
+// Transport is the client configuration for pkg/transport.
+func (h HTTP) Transport() transport.Config {
+	cfg := transport.Config{Headers: h.Headers, Timeout: h.Timeout}
+	if h.ThreadHeaders {
+		cfg.ContextHeaders = toolx.Headers
+	}
+	return cfg
 }
 
 // LoadConnectors reads connectors.yaml; a missing file means no connectors.
@@ -51,6 +77,9 @@ func LoadConnectors(dir string, servers map[string]MCPServer) ([]Connector, erro
 			return nil, fmt.Errorf("connectors.yaml: connector %q names unknown mcp server %q", c.ID, c.MCP)
 		}
 		seen[c.ID] = true
+		for k, v := range c.HTTP.Headers {
+			c.HTTP.Headers[k] = os.ExpandEnv(v)
+		}
 	}
 	return cfg.Connectors, nil
 }

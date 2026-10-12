@@ -15,13 +15,30 @@ type MCPConfig struct {
 	Servers map[string]MCPServer `yaml:"servers"`
 }
 
-// MCPServer is reached over streamable HTTP (Endpoint) or stdio (Command).
+// MCPServer is reached over streamable HTTP (Endpoint, with the HTTP
+// settings) or stdio (Command).
 type MCPServer struct {
-	Endpoint            string            `yaml:"endpoint"`
-	Command             []string          `yaml:"command"`
-	Headers             map[string]string `yaml:"headers"`
-	Tools               []string          `yaml:"tools"`                // omitted ⇒ every tool the server offers
-	RequireConfirmation []string          `yaml:"require_confirmation"` // tool names that need approval
+	Endpoint            string   `yaml:"endpoint"`
+	Command             []string `yaml:"command"`
+	HTTP                `yaml:",inline"`
+	Tools               []string `yaml:"tools"`                // omitted ⇒ every tool the server offers
+	RequireConfirmation []string `yaml:"require_confirmation"` // tool names that need approval
+
+	// ThreadArgs names, per tool, the argument the harness fills with the
+	// conversation's root thread id, so the model never has to supply it.
+	ThreadArgs map[string]string `yaml:"thread_args"`
+	// UI names, per tool, the renderer the UI uses for its calls.
+	UI map[string]string `yaml:"ui"`
+	// Artifacts records, per tool, its result as a url artefact.
+	Artifacts map[string]URLArtifact `yaml:"artifacts"`
+}
+
+// URLArtifact names the fields of a tool's structured result that hold a
+// page's id, title and URL.
+type URLArtifact struct {
+	ID    string `yaml:"id"`
+	Title string `yaml:"title"`
+	URL   string `yaml:"url"`
 }
 
 // LoadMCP reads mcp.yaml; a missing file means no servers.

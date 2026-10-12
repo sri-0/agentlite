@@ -3,49 +3,69 @@ package agents
 import (
 	"context"
 	"fmt"
+	"net/http"
 	"slices"
 
-	adkagent "google.golang.org/adk/v2/agent"
 	"google.golang.org/adk/v2/tool"
 
 	"agentlite/internal/config"
 	"agentlite/internal/runs"
+	"agentlite/internal/tools"
+	"agentlite/pkg/toolx"
+	"agentlite/pkg/transport"
 )
 
-// toolset is a connector as adk sees it: a named set of tools handed to the
-// agent as one unit, so switching a connector off removes all of them.
-type toolset struct {
-	name  string
-	tools []tool.Tool
-}
-
-func (t toolset) Name() string                                        { return t.name }
-func (t toolset) Tools(adkagent.ReadonlyContext) ([]tool.Tool, error) { return t.tools, nil }
-
-// connectorSets builds one toolset per connector: the world tools it names,
-// or the MCP server it points at.
-func (rt *Runtime) connectorSets() (map[string]tool.Toolset, error) {
-	sets := make(map[string]tool.Toolset, len(rt.connectors))
+// connectorSets builds one toolset per connector: the MCP server it points
+// at, or the world tools it names, built with an HTTP client of the
+// connector's own. A world tool an agent lists by name is the instance of the
+// first connector that names it, or one on a plain client if none does.
+func (rt *Runtime) connectorSets() error {
+	rt.world, rt.sets = map[string]toolx.Tool{}, map[string]tool.Toolset{}
 	for _, c := range rt.connectors {
 		if c.MCP != "" {
 			srv, ok := rt.servers[c.MCP]
 			if !ok {
-				return nil, fmt.Errorf("connector %q: mcp server %q is not configured", c.ID, c.MCP)
+				return fmt.Errorf("connector %q: mcp server %q is not configured", c.ID, c.MCP)
 			}
-			sets[c.ID] = srv.Toolset
+			rt.sets[c.ID] = srv.Toolset
 			continue
 		}
-		ts := toolset{name: c.ID}
-		for _, name := range c.Tools {
-			t, ok := rt.world[name]
-			if !ok {
-				return nil, fmt.Errorf("connector %q: unknown tool %q", c.ID, name)
-			}
-			ts.tools = append(ts.tools, t)
+		client, err := transport.New(c.HTTP.Transport())
+		if err != nil {
+			return fmt.Errorf("connector %q: %w", c.ID, err)
 		}
-		sets[c.ID] = ts
+		built := make([]toolx.Tool, 0, len(c.Tools))
+		for _, name := range c.Tools {
+			t, err := buildTool(name, client)
+			if err != nil {
+				return fmt.Errorf("connector %q: %w", c.ID, err)
+			}
+			built = append(built, t)
+			if _, ok := rt.world[name]; !ok {
+				rt.world[name] = t
+			}
+		}
+		rt.sets[c.ID] = toolx.Toolset(c.ID, built)
 	}
-	return sets, nil
+	for name := range tools.Catalog {
+		if _, ok := rt.world[name]; ok {
+			continue
+		}
+		t, err := buildTool(name, http.DefaultClient)
+		if err != nil {
+			return err
+		}
+		rt.world[name] = t
+	}
+	return nil
+}
+
+func buildTool(name string, client *http.Client) (toolx.Tool, error) {
+	build, ok := tools.Catalog[name]
+	if !ok {
+		return toolx.Tool{}, fmt.Errorf("unknown tool %q", name)
+	}
+	return build(client)
 }
 
 // enabled returns the toolsets of the run's connectors, in connectors.yaml

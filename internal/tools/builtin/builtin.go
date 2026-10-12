@@ -9,10 +9,11 @@ import (
 	"iter"
 
 	"github.com/rs/zerolog"
-	"google.golang.org/adk/v2/tool"
 
+	"agentlite/internal/artifacts"
 	"agentlite/internal/config"
 	"agentlite/internal/runs"
+	"agentlite/pkg/toolx"
 )
 
 // Tool names other packages key on.
@@ -33,13 +34,14 @@ type Dispatcher interface {
 type Deps struct {
 	Dispatcher Dispatcher
 	Defs       map[string]config.AgentDef
+	Artifacts  *artifacts.Store
 	Log        zerolog.Logger
 }
 
 // All builds every builtin tool, keyed by name.
-func All(d Deps) (map[string]tool.Tool, error) {
-	builders := []func(Deps) (tool.Tool, error){subagent, todoWrite, question, reportProgress, emitArtifact}
-	out := make(map[string]tool.Tool, len(builders))
+func All(d Deps) (map[string]toolx.Tool, error) {
+	builders := []func(Deps) (toolx.Tool, error){subagent, todoWrite, question, reportProgress, emitArtifact}
+	out := make(map[string]toolx.Tool, len(builders))
 	for _, build := range builders {
 		t, err := build(d)
 		if err != nil {

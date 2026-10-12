@@ -5,10 +5,9 @@ import (
 	"go/constant"
 	"go/token"
 	"go/types"
+	"net/http"
 
-	adkagent "google.golang.org/adk/v2/agent"
-	"google.golang.org/adk/v2/tool"
-	"google.golang.org/adk/v2/tool/functiontool"
+	"agentlite/pkg/toolx"
 )
 
 type calculateArgs struct {
@@ -17,11 +16,11 @@ type calculateArgs struct {
 
 // calculate evaluates a constant arithmetic expression with Go's constant
 // evaluator, so there is no parser to maintain and nothing can be executed.
-func calculate() (tool.Tool, error) {
-	return functiontool.New(functiontool.Config{
+func calculate(*http.Client) (toolx.Tool, error) {
+	return toolx.New(toolx.Spec{
 		Name:        "calculate",
 		Description: "Evaluate an arithmetic expression exactly.",
-	}, func(_ adkagent.Context, a calculateArgs) (map[string]any, error) {
+	}, func(_ toolx.Context, a calculateArgs) (map[string]any, error) {
 		tv, err := types.Eval(token.NewFileSet(), nil, token.NoPos, a.Expression)
 		if err != nil {
 			return nil, fmt.Errorf("invalid expression: %w", err)

@@ -1,5 +1,6 @@
-// Package opensearch persists threads and messages. Messages are stored as
-// coalesced AG-UI events plus the extracted text; nothing is converted.
+// Package opensearch persists threads, messages, sources and artefacts.
+// Messages are stored as coalesced AG-UI events plus the extracted text;
+// nothing is converted.
 package opensearch
 
 import (
@@ -88,7 +89,12 @@ var indices = map[string]string{
 		"id":{"type":"keyword"},"thread_id":{"type":"keyword"},"root_id":{"type":"keyword"},"role":{"type":"keyword"},
 		"seq":{"type":"long"},"created_at":{"type":"date"},"text":{"type":"text"},
 		"events":{"type":"object","enabled":false}}}}`,
+	IndexSources:   sourcesMapping,
+	IndexArtifacts: artifactsMapping,
 }
+
+// listCap bounds the lists of one conversation's sources and artefacts.
+const listCap = 1000
 
 func (c *Client) ensureIndex(ctx context.Context, name, mapping string) error {
 	_, err := c.api.Indices.Create(ctx, opensearchapi.IndicesCreateReq{Index: name, BodyReader: strings.NewReader(mapping)})
@@ -171,25 +177,32 @@ const threadsCap = 200
 
 // Thread fetches one thread by id.
 func (c *Client) Thread(ctx context.Context, id string) (*Thread, error) {
-	resp, err := c.api.Document.Get(ctx, opensearchapi.GetReq{Index: IndexThreads, ID: id})
+	return get[Thread](ctx, c, IndexThreads, id)
+}
+
+// get fetches one document by id; ErrNotFound when there is none.
+func get[T any](ctx context.Context, c *Client, index, id string) (*T, error) {
+	resp, err := c.api.Document.Get(ctx, opensearchapi.GetReq{Index: index, ID: id})
 	if err != nil {
 		if errStatus(err) == 404 {
 			return nil, ErrNotFound
 		}
-		return nil, fmt.Errorf("get thread: %w", err)
+		return nil, fmt.Errorf("get %s/%s: %w", index, id, err)
 	}
-	var t Thread
-	if err := json.Unmarshal(resp.Source, &t); err != nil {
+	var out T
+	if err := json.Unmarshal(resp.Source, &out); err != nil {
 		return nil, err
 	}
-	return &t, nil
+	return &out, nil
 }
 
-// DeleteThread removes a root thread, its sub-agent threads and all their
-// messages and memories.
+// DeleteThread removes a root thread, its sub-agent threads and everything
+// recorded for them: messages, memories, sources and artefact records.
 func (c *Client) DeleteThread(ctx context.Context, id string) error {
 	refresh := &opensearchapi.DeleteByQueryParams{Refresh: "true"}
-	for index, field := range map[string]string{IndexThreads: "root_id", IndexMessages: "root_id", IndexMemories: "thread_id"} {
+	for index, field := range map[string]string{
+		IndexThreads: "root_id", IndexMessages: "root_id", IndexMemories: "thread_id", IndexSources: "root_id", IndexArtifacts: "root_id",
+	} {
 		q := fmt.Sprintf(`{"query":{"term":{%q:%q}}}`, field, id)
 		_, err := c.api.DeleteByQuery(ctx, &opensearchapi.DeleteByQueryReq{Indices: []string{index}, BodyReader: strings.NewReader(q), Params: refresh})
 		if err != nil && errStatus(err) != 404 { // the memories index exists only when memory is on

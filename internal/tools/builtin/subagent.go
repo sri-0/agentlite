@@ -12,12 +12,10 @@ import (
 	"github.com/ag-ui-protocol/ag-ui/sdks/community/go/pkg/core/events"
 	"github.com/ag-ui-protocol/ag-ui/sdks/community/go/pkg/core/types"
 	"github.com/google/uuid"
-	adkagent "google.golang.org/adk/v2/agent"
-	"google.golang.org/adk/v2/tool"
-	"google.golang.org/adk/v2/tool/functiontool"
 
 	"agentlite/internal/runs"
 	"agentlite/internal/stream"
+	"agentlite/pkg/toolx"
 )
 
 const (
@@ -58,11 +56,11 @@ type progressLine struct {
 // status, a bounded progress log, and, while the child is paused, the
 // requests it is waiting on, which the user answers on the child's thread.
 // The call itself just waits for the child to finish, as opencode's does.
-func subagent(d Deps) (tool.Tool, error) {
-	return functiontool.New(functiontool.Config{
+func subagent(d Deps) (toolx.Tool, error) {
+	return toolx.New(toolx.Spec{
 		Name:        Subagent,
 		Description: "Delegate a self-contained task to a sub-agent and get its result. Several subagent calls in one turn run in parallel.",
-	}, func(ctx adkagent.Context, a subagentArgs) (map[string]any, error) {
+	}, func(ctx toolx.Context, a subagentArgs) (map[string]any, error) {
 		parent := d.Defs[ctx.AgentName()]
 		if !slices.Contains(parent.Subagents, a.SubagentType) {
 			return nil, fmt.Errorf("unknown subagent_type %q; choose one of %v", a.SubagentType, parent.Subagents)

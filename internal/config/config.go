@@ -9,6 +9,8 @@ import (
 	"strconv"
 
 	"github.com/sethvargo/go-envconfig"
+
+	"agentlite/pkg/s3"
 )
 
 // Env holds everything read from environment variables.
@@ -23,6 +25,7 @@ type Env struct {
 
 	Redis      Redis      `env:", prefix=REDIS_"`
 	OpenSearch OpenSearch `env:", prefix=OPENSEARCH_"`
+	S3         s3.Config  `env:", prefix=S3_"` // artefact bodies; no S3_ENDPOINT keeps them in OpenSearch
 }
 
 // Redis is the Valkey connection; the REDIS_ names are kept from agentic.

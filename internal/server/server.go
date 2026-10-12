@@ -17,6 +17,7 @@ import (
 	"agentlite/internal/handler"
 	"agentlite/internal/runs"
 	"agentlite/pkg/db/opensearch"
+	"agentlite/pkg/s3"
 )
 
 // New wires middleware and routes.
@@ -53,6 +54,10 @@ func New(cfg *config.Config, h *handler.Handler, log zerolog.Logger) (*echo.Echo
 	e.DELETE("/v1/threads/:id", h.DeleteThread)
 	e.GET("/v1/threads/:id/messages", h.Messages)
 	e.GET("/v1/threads/:id/interrupts", h.Interrupts)
+	e.GET("/v1/threads/:id/sources", h.ThreadSources)
+	e.GET("/v1/threads/:id/sources/:n", h.ThreadSource)
+	e.GET("/v1/threads/:id/artifacts", h.ThreadArtifacts)
+	e.GET("/v1/threads/:id/artifacts/:artifactId/content", h.ArtifactContent)
 	e.POST("/v1/agent/chat", h.StartThread)
 	e.GET("/v1/agent/chat", h.Chat)
 	return e, h.RegisterProxies(e)
@@ -84,6 +89,7 @@ func errorHandler(next echo.HTTPErrorHandler) echo.HTTPErrorHandler {
 			{runs.ErrInvalid, http.StatusBadRequest},
 			{runs.ErrNotFound, http.StatusNotFound},
 			{opensearch.ErrNotFound, http.StatusNotFound},
+			{s3.ErrNotFound, http.StatusNotFound},
 			{runs.ErrBusy, http.StatusConflict},
 		} {
 			if errors.Is(err, m.err) {

@@ -2,10 +2,9 @@ package tools
 
 import (
 	"log/slog"
+	"net/http"
 
-	adkagent "google.golang.org/adk/v2/agent"
-	"google.golang.org/adk/v2/tool"
-	"google.golang.org/adk/v2/tool/functiontool"
+	"agentlite/pkg/toolx"
 )
 
 type writeNoteArgs struct {
@@ -15,12 +14,12 @@ type writeNoteArgs struct {
 
 // writeNote is the approval demo: adk pauses the run until the user approves,
 // and the user's justification arrives in the confirmation payload.
-func writeNote() (tool.Tool, error) {
-	return functiontool.New(functiontool.Config{
+func writeNote(*http.Client) (toolx.Tool, error) {
+	return toolx.New(toolx.Spec{
 		Name:                "write_note",
 		Description:         "Save a note for the user. Requires the user's approval.",
 		RequireConfirmation: true,
-	}, func(ctx adkagent.Context, a writeNoteArgs) (map[string]any, error) {
+	}, func(ctx toolx.Context, a writeNoteArgs) (map[string]any, error) {
 		justification := ""
 		if c := ctx.ToolConfirmation(); c != nil {
 			if p, ok := c.Payload.(map[string]any); ok {

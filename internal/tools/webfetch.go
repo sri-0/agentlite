@@ -10,9 +10,8 @@ import (
 	"time"
 
 	"golang.org/x/net/html"
-	adkagent "google.golang.org/adk/v2/agent"
-	"google.golang.org/adk/v2/tool"
-	"google.golang.org/adk/v2/tool/functiontool"
+
+	"agentlite/pkg/toolx"
 )
 
 const (
@@ -26,21 +25,21 @@ type webFetchArgs struct {
 }
 
 // webFetch fetches a page and returns its visible text, capped so a page can
-// never flood the context or the log.
-func webFetch() (tool.Tool, error) {
-	client := &http.Client{
-		Timeout: webFetchTimeout,
-		CheckRedirect: func(req *http.Request, _ []*http.Request) error {
-			return publicHost(req.Context(), req.URL.Hostname())
-		},
+// never flood the context or the log. The page is recorded as a source.
+func webFetch(client *http.Client) (toolx.Tool, error) {
+	c := *client // the connector's client, with a redirect check of its own
+	c.CheckRedirect = func(req *http.Request, _ []*http.Request) error {
+		return publicHost(req.Context(), req.URL.Hostname())
 	}
-	return functiontool.New(functiontool.Config{
+	return toolx.New(toolx.Spec{
 		Name:        "webfetch",
-		Description: "Fetch a web page and return its readable text (truncated to 32 KiB).",
-	}, func(ctx adkagent.Context, a webFetchArgs) (map[string]any, error) {
+		Description: "Fetch a web page and return its readable text (truncated to 32 KiB) and its source number.",
+	}, func(tc toolx.Context, a webFetchArgs) (map[string]any, error) {
 		if !strings.HasPrefix(a.URL, "http://") && !strings.HasPrefix(a.URL, "https://") {
 			return nil, fmt.Errorf("url must start with http:// or https://")
 		}
+		ctx, cancel := context.WithTimeout(tc, webFetchTimeout)
+		defer cancel()
 		req, err := http.NewRequestWithContext(ctx, http.MethodGet, a.URL, nil)
 		if err != nil {
 			return nil, err
@@ -49,7 +48,7 @@ func webFetch() (tool.Tool, error) {
 			return nil, err
 		}
 		req.Header.Set("User-Agent", "agentlite/1.0")
-		resp, err := client.Do(req)
+		resp, err := c.Do(req)
 		if err != nil {
 			return nil, err
 		}
@@ -61,37 +60,54 @@ func webFetch() (tool.Tool, error) {
 		if err != nil {
 			return nil, err
 		}
-		text := body
+		title, text := "", string(body)
 		if strings.Contains(resp.Header.Get("Content-Type"), "html") {
-			text = []byte(visibleText(body))
+			title, text = readable(body)
 		}
 		truncated := len(text) > webFetchText
 		if truncated {
 			text = text[:webFetchText]
 		}
-		return map[string]any{"url": a.URL, "text": string(text), "truncated": truncated}, nil
+		page := resp.Request.URL.String() // after redirects
+		n, err := tc.AddSource(toolx.Source{System: "web", URL: page, Title: title})
+		if err != nil {
+			return nil, err
+		}
+		return map[string]any{"source": n, "url": page, "title": title, "text": text, "truncated": truncated}, nil
 	})
 }
 
-// visibleText extracts text nodes outside script and style elements.
-func visibleText(page []byte) string {
+// readable returns a page's title and its visible text: the text nodes
+// outside script and style elements.
+func readable(page []byte) (title, text string) {
 	z := html.NewTokenizer(strings.NewReader(string(page)))
 	var b strings.Builder
-	skip := 0
+	skip, inTitle := 0, false
 	for {
 		switch z.Next() {
 		case html.ErrorToken:
-			return strings.Join(strings.Fields(b.String()), " ")
+			return strings.TrimSpace(title), strings.Join(strings.Fields(b.String()), " ")
 		case html.StartTagToken:
-			if name, _ := z.TagName(); string(name) == "script" || string(name) == "style" {
+			switch name, _ := z.TagName(); string(name) {
+			case "script", "style":
 				skip++
+			case "title":
+				inTitle = true
 			}
 		case html.EndTagToken:
-			if name, _ := z.TagName(); (string(name) == "script" || string(name) == "style") && skip > 0 {
-				skip--
+			switch name, _ := z.TagName(); string(name) {
+			case "script", "style":
+				if skip > 0 {
+					skip--
+				}
+			case "title":
+				inTitle = false
 			}
 		case html.TextToken:
-			if skip == 0 {
+			switch {
+			case inTitle:
+				title += string(z.Text())
+			case skip == 0:
 				b.Write(z.Text())
 				b.WriteByte(' ')
 			}
