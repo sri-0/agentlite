@@ -35,7 +35,7 @@ func (rt *Runtime) compaction(ctx context.Context, modelID string, watch *compac
 	if cfg.TokenThreshold == 0 && cfg.CompactionInterval == 0 {
 		return nil, nil
 	}
-	llm, _, err := rt.model(ctx, modelID)
+	llm, err := rt.llm(ctx, t)
 	if err != nil {
 		return nil, err
 	}
@@ -55,8 +55,9 @@ func (rt *Runtime) compaction(ctx context.Context, modelID string, watch *compac
 // telling the runner's caller (it does not yield the event it records), so
 // the run wraps the two things a compaction passes through: the summarizer,
 // which starts it and may fail or decline it, and the session service, which
-// receives the summary record. adk compacts on the goroutine that iterates
-// the run, between the events it yields.
+// receives the summary record. adk compacts between the events it yields: a
+// node waits until the run's consumer has handled each event before it goes
+// on, so nothing of a compaction overlaps the handling of an event.
 type compactionWatch struct {
 	sink stream.Sink
 

@@ -22,10 +22,12 @@ const maxPassThroughBody = 32 << 20
 // names no known provider or model is refused, never sent elsewhere.
 func (r *Registry) Passthrough(w http.ResponseWriter, req *http.Request) {
 	body, err := io.ReadAll(http.MaxBytesReader(w, req.Body, maxPassThroughBody))
-	if tooLarge := new(http.MaxBytesError); errors.As(err, &tooLarge) {
+	var tooLarge *http.MaxBytesError
+	switch {
+	case errors.As(err, &tooLarge):
 		writeError(w, http.StatusRequestEntityTooLarge, "request body too large")
 		return
-	} else if err != nil {
+	case err != nil:
 		writeError(w, http.StatusBadRequest, "could not read the request body")
 		return
 	}

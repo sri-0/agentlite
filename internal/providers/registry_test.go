@@ -57,7 +57,7 @@ func TestResolve(t *testing.T) {
 
 	// card < discovery < models.yaml, field by field
 	m, _ := r.Resolve("a/openai/m1")
-	if m.Model.Name != "Listed" || m.Model.ContextLength != 300 || m.Model.Pricing.Input != 1 || m.Model.Notes != "Notes." {
+	if got := m.Model; got.Name != "Listed" || got.ContextLength != 300 || got.Pricing.Input != 1 || got.Notes != "Notes." {
 		t.Errorf("merged model = %+v", m.Model)
 	}
 }

@@ -48,9 +48,17 @@ func LoadCards(dir string) (cards Cards, bad error) {
 			cards[strings.ToLower(key)] = card
 		}
 	}
-	for _, card := range loaded { // a full id or alias wins over a last segment
-		if base := strings.ToLower(path.Base(card.ID)); cards[base].ID == "" {
-			cards[base] = card
+	// A last segment finds a card only when no id or alias is that segment
+	// and one card alone ends with it: which vendor's card a bare name means
+	// is otherwise a guess.
+	bases := map[string][]Model{}
+	for _, card := range loaded {
+		base := strings.ToLower(path.Base(card.ID))
+		bases[base] = append(bases[base], card)
+	}
+	for base, same := range bases {
+		if _, taken := cards[base]; !taken && len(same) == 1 {
+			cards[base] = same[0]
 		}
 	}
 	return cards, errors.Join(errs...)

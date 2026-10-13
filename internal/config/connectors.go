@@ -81,10 +81,10 @@ func LoadConnectors(dir string) (ConnectorsConfig, error) {
 		return cfg, nil
 	}
 	if err != nil {
-		return cfg, fmt.Errorf("connectors.yaml: %w", err)
+		return ConnectorsConfig{}, fmt.Errorf("connectors.yaml: %w", err)
 	}
 	if err := yaml.Unmarshal(raw, &cfg); err != nil {
-		return cfg, fmt.Errorf("connectors.yaml: %w", err)
+		return ConnectorsConfig{}, fmt.Errorf("connectors.yaml: %w", err)
 	}
 	if cfg.UserAgent == "" {
 		cfg.UserAgent = defaultUserAgent
@@ -101,7 +101,7 @@ func LoadConnectors(dir string) (ConnectorsConfig, error) {
 		}
 		expandEnv(c.HTTP.Headers)
 		if err := c.check(seen, claimed); err != nil {
-			return cfg, fmt.Errorf("connectors.yaml: connector %q: %w", c.ID, err)
+			return ConnectorsConfig{}, fmt.Errorf("connectors.yaml: connector %q: %w", c.ID, err)
 		}
 	}
 	return cfg, nil

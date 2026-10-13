@@ -238,14 +238,19 @@ func (rt *Runtime) model(ctx context.Context, modelID string) (model.LLM, *model
 	if err != nil {
 		return nil, nil, err
 	}
+	llm, err := rt.llm(ctx, t)
+	return llm, &t.Model, err
+}
+
+// llm is the adk model for a resolved target.
+func (rt *Runtime) llm(ctx context.Context, t providers.Target) (model.LLM, error) {
 	api := openaimodel.APIChatCompletions
 	if t.API == "responses" {
 		api = openaimodel.APIResponses
 	}
-	llm, err := openaimodel.NewModel(ctx, t.Model.UpstreamID, &openaimodel.ClientConfig{
+	return openaimodel.NewModel(ctx, t.Model.UpstreamID, &openaimodel.ClientConfig{
 		BaseURL: t.BaseURL.String(), HTTPClient: t.Client.HTTP, API: api, Options: t.Client.Credentials(),
 	})
-	return llm, &t.Model, err
 }
 
 // CheckModel reports whether a model id resolves; runs.Start refuses a run

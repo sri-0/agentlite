@@ -87,9 +87,9 @@ func (c *TLS) config() (*tls.Config, error) {
 }
 
 // headers sets the configured headers on a copy of each request; a
-// RoundTripper must not change the caller's request. A redirect to another
-// host gets none of them: they carry credentials, which net/http itself
-// strips from a redirect it follows to another domain.
+// RoundTripper must not change the caller's request. A redirect that has left
+// the first request's host, at any hop, gets none of them: they carry
+// credentials, which net/http itself strips from such a redirect.
 type headers struct {
 	base        http.RoundTripper
 	static      map[string]string
@@ -97,7 +97,7 @@ type headers struct {
 }
 
 func (h *headers) RoundTrip(r *http.Request) (*http.Response, error) {
-	if r.Response != nil && r.URL.Host != r.Response.Request.URL.Host {
+	if leftHost(r) {
 		return h.base.RoundTrip(r)
 	}
 	r = r.Clone(r.Context())
@@ -110,4 +110,15 @@ func (h *headers) RoundTrip(r *http.Request) (*http.Response, error) {
 		}
 	}
 	return h.base.RoundTrip(r)
+}
+
+// leftHost reports whether r is a redirect whose chain has been on another
+// host than its own.
+func leftHost(r *http.Request) bool {
+	for prev := r.Response; prev != nil; prev = prev.Request.Response {
+		if prev.Request.URL.Host != r.URL.Host {
+			return true
+		}
+	}
+	return false
 }

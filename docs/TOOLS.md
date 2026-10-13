@@ -108,8 +108,8 @@ http:
   tls: {...}                       # as above, plus insecure_skip_verify: true (development only)
 ```
 
-Headers (static and forwarded) are never sent to another host a system redirects to:
-they carry credentials, which net/http strips from such a redirect itself.
+Headers (static and forwarded) are never sent on a redirect that has been on another host
+at any hop: they carry credentials, which net/http strips from such a redirect itself.
 
 `forward` sends, on every request made for a tool call: the user's `Authorization`
 header, `X-Thread-ID`, `X-Root-Thread-ID`, `X-Run-ID`, and for toolx tools `X-Agent-ID`

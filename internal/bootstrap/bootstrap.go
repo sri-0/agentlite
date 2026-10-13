@@ -6,6 +6,8 @@ package bootstrap
 
 import (
 	"context"
+	"errors"
+	"fmt"
 
 	"github.com/rs/zerolog"
 	valkeygo "github.com/valkey-io/valkey-go"
@@ -58,6 +60,15 @@ func New(ctx context.Context) (*App, error) {
 
 	if app.Registry, err = providers.NewRegistry(cfg.Models, cfg.ModelCardsDir, app.Log); err != nil {
 		return nil, err
+	}
+	// A model the server falls back to must name a provider this environment
+	// has (one without a base_url is skipped), or every run without a model,
+	// or every memory, would be refused. The model itself may still come
+	// from discovery.
+	for _, id := range cfg.Models.Fallbacks() {
+		if _, err := app.Registry.Resolve(id); errors.Is(err, providers.ErrUnknownProvider) {
+			return nil, fmt.Errorf("models.yaml: %w", err)
+		}
 	}
 	app.Registry.Start(ctx)
 	// One client per logical database: runs, sessions and interrupts are kept apart.
@@ -124,7 +135,9 @@ func (a *App) Close() {
 
 // artifactStore keeps artifact bodies in S3 when S3_ENDPOINT is set, and in
 // OpenSearch otherwise.
-func artifactStore(ctx context.Context, cfg *config.Config, records *opensearch.Client, recorder *sources.Recorder, log zerolog.Logger) (*artifacts.Store, error) {
+func artifactStore(
+	ctx context.Context, cfg *config.Config, records *opensearch.Client, recorder *sources.Recorder, log zerolog.Logger,
+) (*artifacts.Store, error) {
 	var bodies *s3.Client
 	if cfg.S3.Endpoint == "" {
 		log.Info().Msg("S3 not configured; artifact bodies are kept in OpenSearch")
@@ -138,7 +151,9 @@ func artifactStore(ctx context.Context, cfg *config.Config, records *opensearch.
 }
 
 // memoryService builds long-term memory when models.yaml configures it.
-func memoryService(ctx context.Context, cfg *config.Config, registry *providers.Registry, store *opensearch.Client, log zerolog.Logger) (*memory.Service, error) {
+func memoryService(
+	ctx context.Context, cfg *config.Config, registry *providers.Registry, store *opensearch.Client, log zerolog.Logger,
+) (*memory.Service, error) {
 	m := cfg.Models.Memory
 	if m == nil {
 		return nil, nil

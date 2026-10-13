@@ -34,8 +34,9 @@ func (r *Recorder) Add(ctx context.Context, from citations.Origin, s citations.S
 	if identity == "" {
 		identity = s.URL
 	}
+	keyed := identity != ""
 	var id string
-	if identity != "" {
+	if keyed {
 		id = opensearch.SourceKeyID(from.RootID, s.System+"\x00"+identity)
 		if n, err := r.numberOf(ctx, id); !errors.Is(err, opensearch.ErrNotFound) {
 			return n, err
@@ -45,7 +46,6 @@ func (r *Recorder) Add(ctx context.Context, from citations.Origin, s citations.S
 	if err != nil {
 		return 0, err
 	}
-	keyed := id != ""
 	if !keyed {
 		id = opensearch.SourceNumberID(from.RootID, n)
 	}

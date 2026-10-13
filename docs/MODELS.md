@@ -41,8 +41,9 @@ Each provider's list is built per model from three layers, lowest precedence
 first, merged field by field with `dario.cat/mergo` (`modelcatalog.Merge`):
 
 1. **its model card** (below), matched by upstream id or alias, or else by last
-   segment (a provider's `gpt-4.1-mini` or `azure/gpt-4.1-mini` finds the card
-   `openai/gpt-4.1-mini`; an exact id or alias always wins);
+   segment when one card alone ends with it (a provider's `gpt-4.1-mini` or
+   `azure/gpt-4.1-mini` finds the card `openai/gpt-4.1-mini`; an exact id or alias
+   always wins, and a segment two cards share finds neither: use `aliases`);
 2. **what the provider reports** (discovery: OpenAI `/models`, which OpenRouter and
    vLLM extend, or LiteLLM `/model/info`), refreshed on `discover.refresh`;
 3. **its `models.yaml` entry**, declared by upstream id.
@@ -56,7 +57,8 @@ server's real context window); `models.yaml` has the last word.
 shared by every provider). Per model:
 
 - `base_url`: send this model's requests to another absolute http(s) URL (with
-  `${ENV}` expansion; checked at start).
+  `${ENV}` expansion; checked at start, and a variable that is unset is an error
+  rather than a quiet fall back to the provider's URL).
   The provider's API key and client certificate go with them, so use it only
   within the same trust domain; a model with other credentials is its own
   provider.
@@ -83,12 +85,15 @@ Every call to a provider carries that provider's credentials and nothing else: i
 fills every client from `OPENAI_*` variables (a key, an admin key, an organisation, a
 project); `providers.Client.Credentials` sets or clears each of them on agent model
 calls and embeddings, so a provider with no key sends no `Authorization` rather than
-`OPENAI_API_KEY`. `OPENAI_CUSTOM_HEADERS` cannot be cleared that way and must not be
-set. The pass-through replaces the client's `Authorization` with the provider's.
+`OPENAI_API_KEY`. `OPENAI_CUSTOM_HEADERS` cannot be cleared that way, so the server
+refuses to start with it set. The pass-through replaces the client's `Authorization`
+with the provider's.
 
 The development provider `openrouter` takes its base URL from `OPENROUTER_BASE_URL`;
 unset (production) it is skipped like any provider without a base URL, so a model id
-naming it is refused instead of reaching openrouter.ai.
+naming it is refused instead of reaching openrouter.ai. `default_model` and
+`memory.embedding_model` must name a provider the environment has: the server
+refuses to start otherwise, rather than refusing every run that names no model.
 
 ## Model cards
 

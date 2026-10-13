@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
 	"sync"
 	"time"
@@ -61,6 +62,9 @@ type Target struct {
 // NewRegistry builds a client per provider and the model lists from
 // models.yaml and the model cards; Start adds what discovery finds.
 func NewRegistry(cfg *config.ModelsConfig, cardsDir string, log zerolog.Logger) (*Registry, error) {
+	if _, ok := os.LookupEnv("OPENAI_CUSTOM_HEADERS"); ok {
+		return nil, errors.New("OPENAI_CUSTOM_HEADERS is set: openai-go would send its headers to every provider")
+	}
 	r := &Registry{cardsDir: cardsDir, log: log}
 	for _, p := range cfg.Providers {
 		if p.BaseURL == "" {

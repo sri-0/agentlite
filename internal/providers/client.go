@@ -53,7 +53,7 @@ func newClient(p config.Provider) (*Client, error) {
 // OPENAI_* variables (a key, an admin key, an organisation, a project), and
 // none of them may reach a provider: each is set or cleared here. A provider
 // with no key sends no Authorization. (OPENAI_CUSTOM_HEADERS cannot be
-// cleared this way; it must not be set.)
+// cleared this way; NewRegistry refuses to start with it set.)
 func (c *Client) Credentials() []option.RequestOption {
 	return []option.RequestOption{
 		option.WithAPIKey(c.APIKey), option.WithAdminAPIKey(""),

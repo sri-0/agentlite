@@ -62,6 +62,16 @@ func (c *Compaction) check() error {
 	return nil
 }
 
+// Fallbacks are the models the server uses when a request names none: the
+// default model and memory's embedding model.
+func (c *ModelsConfig) Fallbacks() []string {
+	out := []string{c.DefaultModel}
+	if c.Memory != nil {
+		out = append(out, c.Memory.EmbeddingModel)
+	}
+	return out
+}
+
 // MemoryConfig enables long-term memory: which model embeds entries and the
 // vector size it produces.
 type MemoryConfig struct {
@@ -129,7 +139,14 @@ func LoadModels(dir string) (*ModelsConfig, error) {
 			p.Name = p.ID
 		}
 		for j := range p.Models {
-			p.Models[j].BaseURL = os.ExpandEnv(p.Models[j].BaseURL) // checked by the providers registry
+			m := &p.Models[j]
+			// Checked by the providers registry; one whose variable is unset
+			// must not quietly become the provider's own URL.
+			if raw := m.BaseURL; raw != "" {
+				if m.BaseURL = os.ExpandEnv(raw); m.BaseURL == "" {
+					return nil, fmt.Errorf("models.yaml: model %s/%s: base_url %s is empty in this environment", p.ID, m.ID, raw)
+				}
+			}
 		}
 	}
 	// Strict routing starts here: a model id must name a provider.

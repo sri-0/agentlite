@@ -34,7 +34,9 @@ func TestClientCertificate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	legacy, err := x509.EncryptPEMBlock(rand.Reader, "RSA PRIVATE KEY", x509.MarshalPKCS1PrivateKey(rsaKey), password, x509.PEMCipherAES256) //nolint:staticcheck // the format under test
+	//nolint:staticcheck // the format under test
+	legacy, err := x509.EncryptPEMBlock(rand.Reader, "RSA PRIVATE KEY", x509.MarshalPKCS1PrivateKey(rsaKey), password,
+		x509.PEMCipherAES256)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -93,7 +95,7 @@ func selfSigned(t *testing.T, pub, priv any) []byte {
 
 // TestHeadersStayWithTheirHost: the configured and forwarded headers carry
 // credentials (an API key, the user's token), so a redirect to another host
-// must get none of them.
+// must get none of them, on that hop or any after it.
 func TestHeadersStayWithTheirHost(t *testing.T) {
 	var mu sync.Mutex
 	got := map[string]http.Header{}
@@ -102,11 +104,18 @@ func TestHeadersStayWithTheirHost(t *testing.T) {
 		defer mu.Unlock()
 		got[name] = r.Header.Clone()
 	}
-	other := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { record("other", w, r) }))
+	other := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/first" {
+			record("other, first hop", w, r)
+			http.Redirect(w, r, "/second", http.StatusFound)
+			return
+		}
+		record("other, second hop", w, r)
+	}))
 	defer other.Close()
 	system := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if r.URL.Path == "/away" {
-			http.Redirect(w, r, other.URL, http.StatusFound)
+			http.Redirect(w, r, other.URL+"/first", http.StatusFound)
 			return
 		}
 		record("system", w, r)
@@ -138,7 +147,9 @@ func TestHeadersStayWithTheirHost(t *testing.T) {
 	if h := got["system"]; h.Get("X-Api-Key") != "key" || h.Get("Authorization") != "Bearer user" {
 		t.Errorf("the system got %v", h)
 	}
-	if h := got["other"]; h == nil || h.Get("X-Api-Key") != "" || h.Get("Authorization") != "" {
-		t.Errorf("the redirect's host got %v", h)
+	for _, hop := range []string{"other, first hop", "other, second hop"} {
+		if h := got[hop]; h == nil || h.Get("X-Api-Key") != "" || h.Get("Authorization") != "" {
+			t.Errorf("%s: got %v", hop, h)
+		}
 	}
 }
