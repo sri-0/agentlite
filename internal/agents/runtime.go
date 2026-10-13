@@ -5,6 +5,7 @@ package agents
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"maps"
 
@@ -15,6 +16,7 @@ import (
 	"google.golang.org/adk/v2/model/openaimodel"
 	"google.golang.org/adk/v2/runner"
 	"google.golang.org/adk/v2/session"
+	"google.golang.org/adk/v2/session/compaction"
 	"google.golang.org/adk/v2/tool"
 
 	"agentlite/internal/artifacts"
@@ -131,12 +133,13 @@ func (rt *Runtime) Run(ctx context.Context, in runs.Input, sink stream.Sink) (ru
 	if err != nil {
 		return fail(err)
 	}
-	compact, err := rt.compaction(ctx, run.Model)
+	watch := &compactionWatch{sink: sink}
+	compact, err := rt.compaction(ctx, run.Model, watch)
 	if err != nil {
 		return fail(err)
 	}
 	r, err := runner.New(runner.Config{
-		AppName: rt.appName, Agent: root, SessionService: rt.sessions, MemoryService: rt.memoryFor(run.ThreadID), Compaction: compact, AutoCreateSession: true,
+		AppName: rt.appName, Agent: root, SessionService: watchedSessions{Service: rt.sessions, watch: watch}, MemoryService: rt.memoryFor(run.ThreadID), Compaction: compact, AutoCreateSession: true,
 	})
 	if err != nil {
 		return fail(err)
@@ -156,7 +159,14 @@ func (rt *Runtime) Run(ctx context.Context, in runs.Input, sink stream.Sink) (ru
 		Sources:       rt.sources,
 	})
 	for ev, err := range r.Run(ctx, runs.SessionUser, run.ThreadID, content, adkagent.RunConfig{StreamingMode: adkagent.StreamingModeSSE}) {
+		if errors.Is(err, compaction.ErrCompaction) {
+			// The answer is complete; only the compaction after it failed.
+			watch.fail(err)
+			rt.log.Warn().Err(err).Str("run", run.ID).Msg("compaction failed")
+			continue
+		}
 		if err != nil {
+			watch.close()
 			if ctx.Err() != nil {
 				enc.Cancel()
 				return runs.Result{Status: runs.StatusCancelled, Text: enc.Result()}, nil
@@ -166,6 +176,7 @@ func (rt *Runtime) Run(ctx context.Context, in runs.Input, sink stream.Sink) (ru
 		}
 		enc.Handle(ev)
 	}
+	watch.close()
 	if ctx.Err() != nil {
 		enc.Cancel()
 		return runs.Result{Status: runs.StatusCancelled, Text: enc.Result()}, nil

@@ -23,14 +23,43 @@ type ModelsConfig struct {
 	Compaction   *Compaction   `yaml:"compaction"`    // nil disables context compaction
 }
 
-// Compaction configures adk's session compaction for every run: a summary
-// every Interval user turns, keeping Overlap turns for continuity, and a
-// tail-retention pass when the prompt exceeds TokenThreshold of the model's
-// context window.
+// Compaction configures adk's session compaction for every run. Tail
+// retention is the main strategy: before a model call whose prompt passes
+// TokenThreshold of the model's context window, everything but the newest
+// KeepEvents events is summarised. A sliding window (a summary every Interval
+// user turns, keeping Overlap of them) can run too; it runs after the answer.
 type Compaction struct {
-	Interval       int     `yaml:"interval"`
-	Overlap        int     `yaml:"overlap"`
-	TokenThreshold float64 `yaml:"token_threshold"`
+	TokenThreshold    float64       `yaml:"token_threshold"` // 0 turns tail retention off
+	KeepEvents        int           `yaml:"keep_events"`     // default 20
+	Interval          int           `yaml:"interval"`        // 0 turns the sliding window off
+	Overlap           int           `yaml:"overlap"`
+	SummarizerTimeout time.Duration `yaml:"summarizer_timeout"` // default 60s
+}
+
+// Compaction defaults.
+const (
+	defaultKeepEvents        = 20
+	defaultSummarizerTimeout = 60 * time.Second
+)
+
+func (c *Compaction) check() error {
+	if c.KeepEvents == 0 {
+		c.KeepEvents = defaultKeepEvents
+	}
+	if c.SummarizerTimeout == 0 {
+		c.SummarizerTimeout = defaultSummarizerTimeout
+	}
+	switch {
+	case c.TokenThreshold < 0 || c.TokenThreshold > 1:
+		return fmt.Errorf("token_threshold is a share of the context window, within 0..1")
+	case c.TokenThreshold == 0 && c.Interval == 0:
+		return fmt.Errorf("set token_threshold or interval, or remove the block")
+	case c.Interval < 0 || c.Overlap < 0 || (c.Interval > 0 && c.Overlap >= c.Interval):
+		return fmt.Errorf("interval > overlap >= 0")
+	case c.KeepEvents < 1:
+		return fmt.Errorf("keep_events is at least 1")
+	}
+	return nil
 }
 
 // MemoryConfig enables long-term memory: which model embeds entries and the
@@ -79,8 +108,10 @@ func LoadModels(dir string) (*ModelsConfig, error) {
 	if cfg.DefaultModel == "" {
 		return nil, fmt.Errorf("models.yaml: default_model is required")
 	}
-	if c := cfg.Compaction; c != nil && (c.Interval <= 0 || c.Overlap < 0 || c.Overlap >= c.Interval || c.TokenThreshold < 0 || c.TokenThreshold > 1) {
-		return nil, fmt.Errorf("models.yaml: compaction needs interval > overlap >= 0 and token_threshold within 0..1")
+	if c := cfg.Compaction; c != nil {
+		if err := c.check(); err != nil {
+			return nil, fmt.Errorf("models.yaml: compaction: %w", err)
+		}
 	}
 	seen := map[string]bool{}
 	for i := range cfg.Providers {

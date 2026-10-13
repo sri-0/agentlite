@@ -143,9 +143,23 @@ step's final text.
 
 ## Context and memory
 
-- **Compaction**: one global block in `models.yaml` (`interval`, `overlap`,
-  `token_threshold`) configures adk's session compaction for every run, summarised
-  with the run's own model.
+- **Compaction**: one global `compaction` block in `models.yaml` configures adk's
+  session compaction (`runner.Config.Compaction`) for every run, summarised with
+  the run's own model (`internal/agents/compaction.go`). The main strategy is tail
+  retention: before a model call whose prompt passes `token_threshold` of the
+  model's context window (from `GET /v1/models`; with no known window it is off),
+  adk summarises every event but the newest `keep_events` into one summary event
+  and sends the model that summary plus the tail. The stored AG-UI history is never
+  changed; only the model's view of it shrinks. `interval`/`overlap` add adk's
+  sliding window, which summarises every `interval` user turns after the answer.
+  `summarizer_timeout` (default 60s) bounds each summary. adk does not yield its
+  compaction event to the runner's caller, so the run wraps the summarizer (start,
+  failure, decline) and the session service (the stored summary) and streams the
+  outcome as a `compaction` activity: `running`, then `completed` with the summary
+  and its token usage and duration, `failed` with the error, or `declined` (the
+  summarizer had nothing to summarise; the UI drops it). A failed summary leaves
+  the run going with its full history (adk logs it and carries on); a run that ends
+  mid-summary closes the activity as `failed`.
 - **Session**: each thread's adk session lives in Valkey and is rebuilt from the
   stored AG-UI events if it is missing.
 - **Memory**: see MEMORY.md. User-started runs get `load_memory`; sub-agents work

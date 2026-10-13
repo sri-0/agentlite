@@ -16,9 +16,10 @@ type Event = events.Event
 
 // Activity types carried in ACTIVITY_SNAPSHOT events, reconciled by messageId.
 const (
-	ActivityTaskList = "task_list" // messageId "tasks"
-	ActivityArtifact = "artifact"  // messageId = artifact id
-	ActivityAgent    = "agent"     // messageId = subagentRunId
+	ActivityTaskList   = "task_list"  // messageId "tasks"
+	ActivityArtifact   = "artifact"   // messageId = artifact id
+	ActivityAgent      = "agent"      // messageId = subagentRunId
+	ActivityCompaction = "compaction" // messageId = "compaction:<uuid>"
 )
 
 // Metadata keys: the turn on RUN_STARTED and RUN_FINISHED, a tool's UI

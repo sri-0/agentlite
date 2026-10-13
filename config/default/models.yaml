@@ -57,10 +57,13 @@ providers:
 # this one answers when a request names none.
 default_model: openrouter/openai/gpt-4.1-mini
 
-# Context compaction for every run: a summary every `interval` user turns
-# keeping `overlap` turns verbatim, and a tail-retention pass once the prompt
-# exceeds `token_threshold` of the model's context window. Omit to disable.
-compaction: { interval: 10, overlap: 1, token_threshold: 0.75 }
+# Context compaction for every run (adk's compaction, shown in the UI):
+# before a model call whose prompt passes token_threshold of the model's
+# context window, everything but the newest keep_events events is summarised.
+# `interval`/`overlap` add a sliding window that summarises every `interval`
+# user turns after the answer. summarizer_timeout bounds each summary (60s).
+# Omit the block to disable.
+compaction: { token_threshold: 0.85, keep_events: 20 }
 
 # Long-term memory (docs/MEMORY.md): finished user-started turns are embedded
 # and stored, and the agent can search them with load_memory. `preload: true`

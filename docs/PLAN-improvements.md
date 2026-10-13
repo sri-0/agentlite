@@ -309,8 +309,9 @@ nothing at all; both only append to the session.
   `Actions.Compaction` is appended, emit to the run's stream. A wrapped
   summarizer emits the start. Both compaction kinds go through it.
 - AG-UI has no compaction event, so the event is an `ACTIVITY_SNAPSHOT` of a new
-  type `compaction` (one id per compaction): `running`, then `done` with the
-  summary, the range it covers, and the summarizer's token usage. Activities
+  type `compaction` (one id per compaction): `running`, then `completed` with
+  the summary, the summarizer's token usage and the duration (or `failed`, or
+  `declined` when adk discards the summary). Activities
   are the AG-UI mechanism for UI-only state that persists with the message and
   is never sent back to the model.
 - The UI renders a "Context compacted" divider where it happened, followed by a
