@@ -55,7 +55,6 @@ type OpenSearch struct {
 type Config struct {
 	Env
 	Models     *ModelsConfig
-	MCP        *MCPConfig
 	Connectors []Connector
 	Agents     []AgentDef
 }
@@ -79,10 +78,7 @@ func Load(ctx context.Context) (*Config, error) {
 	if cfg.Models, err = LoadModels(cfg.ConfigDir); err != nil {
 		return nil, err
 	}
-	if cfg.MCP, err = LoadMCP(cfg.ConfigDir); err != nil {
-		return nil, err
-	}
-	if cfg.Connectors, err = LoadConnectors(cfg.ConfigDir, cfg.MCP.Servers); err != nil {
+	if cfg.Connectors, err = LoadConnectors(cfg.ConfigDir); err != nil {
 		return nil, err
 	}
 	if cfg.Agents, err = LoadAgents(cfg.ConfigDir); err != nil {

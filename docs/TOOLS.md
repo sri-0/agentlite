@@ -30,7 +30,7 @@ describe the result.
    group tools would drift.
 4. **Thread information travels in HTTP headers.** The runtime puts the run's
    thread into the context. Toolset and MCP clients that opt in
-   (`thread_headers`) add `X-Thread-ID`, `X-Root-Thread-ID` and `X-Run-ID` to
+   (`http.forward`) add `X-Thread-ID`, `X-Root-Thread-ID` and `X-Run-ID` to
    every request made with that context, so a downstream system can scope,
    audit or authorise by thread.
 5. **Sources are recorded by the harness, not written by the model.** A tool
@@ -46,10 +46,10 @@ describe the result.
    `minio-go` client). Without S3 configured the body stays in the OpenSearch
    document. A `url` artifact has no body: it points at a page to embed.
 7. **A tool can ask for its own UI.** `toolx.Spec.UI` (and `ui:` per MCP tool in
-   `mcp.yaml`) names a renderer. The encoder puts it in the `TOOL_CALL_START`
+   an MCP connector) names a renderer. The encoder puts it in the `TOOL_CALL_START`
    metadata, so stored history renders the same way. The UI keeps a registry of
    renderers by name and falls back to the plain tool line.
-8. **Open-slide is configuration, not code.** `mcp.yaml` says which argument
+8. **Open-slide is configuration, not code.** Its connector says which argument
    carries the thread id (the harness fills it), which tools render as
    `slides`, and that `deck_create` records a `url` artifact from its result.
    The `slides` renderer opens the artifact panel on the deck's preview, and a
@@ -61,50 +61,88 @@ describe the result.
 
 | Field | Meaning |
 |---|---|
-| `Headers` | set on every request, replacing the caller's |
-| `ContextHeaders` | a function from the request's context to more headers |
-| `TLS` | client certificate, key and trusted CAs (PEM files), or skip verification |
+| `Headers` | set on every request, replacing the caller's (the user agent is one) |
+| `ContextHeaders` | a function from the request's context to more headers (`toolx.Headers`) |
+| `TLS` | a client certificate for mutual TLS, its key (encrypted or not) and the key's password, trusted CAs, or skip verification |
 | `Timeout` | per request, body included; zero for streamed model responses |
 | `DisableCompression` | do not ask for gzip; providers set it so streams are not held back |
 
+An encrypted key is read with `github.com/youmark/pkcs8` (PKCS#8, "ENCRYPTED PRIVATE KEY",
+what OpenSSL 3 writes) or the standard library (legacy `Proc-Type: 4,ENCRYPTED` PEM, what
+OpenSSL 1.x and LibreSSL write), then handed to `tls.X509KeyPair`, which checks the key
+belongs to the certificate. An encrypted key without a password, a password for a plain
+key, or a key of another certificate fails at start.
+
 Who builds one:
 
-- **Each LLM provider** (`internal/proxy`, from `models.yaml`: `headers`, `ssl_*`). The
-  same client carries agent model calls (adk's OpenAI model), the pass-through proxies and
-  embeddings.
-- **Each connector of function tools** (`internal/agents/connectors.go`, from the
-  connector's `http:` block). Every tool of the connector gets it.
-- **Each MCP server reached over HTTP** (`internal/mcp`, from the server's `headers` and
-  `thread_headers`). It has no timeout, which would also cut the session's long-lived event
-  stream. A session's standalone event stream carries no thread; each request
-  (initialize, tools/list, tools/call) carries the thread of the run that sent it.
+- **Each LLM provider** (`internal/proxy`, from its `headers` and `tls` in `models.yaml`).
+  The same client carries agent model calls (adk's OpenAI model), the pass-through
+  proxies and embeddings.
+- **Each connector** (`internal/agents/connectors.go` for toolx tools, `internal/mcp` for
+  an MCP server), from the connector's `http:` block. An MCP server's client has no
+  timeout, which would cut the session's long-lived event stream; its sessions are
+  opened outside any run, so the standalone event stream carries no identity, while
+  each request (initialize, tools/list, tools/call) carries that of the run that sent it.
 
-`config.HTTP` is the shared shape of those blocks:
+The TLS block is the same for providers and connectors; each `*_env` names a variable,
+holding a file path except `key_password_env`, which holds the password itself. A
+variable named but not set fails at start, never falls back to plain TLS.
+
+```yaml
+tls:
+  cert_env: LITELLM_TLS_CERT
+  key_env: LITELLM_TLS_KEY
+  key_password_env: LITELLM_TLS_KEY_PASSWORD
+  ca_env: LITELLM_TLS_CA
+```
+
+A connector's `http:` block (`config.HTTP`):
 
 ```yaml
 http:
-  headers: {Authorization: "Bearer ${RECORDS_TOKEN}"}
-  timeout: 30s
-  thread_headers: true   # X-Thread-ID, X-Root-Thread-ID, X-Run-ID on every request
+  headers: {X-Api-Key: "${RECORDS_API_KEY}"}
+  user_agent: records-client/2     # default: connectors.yaml's top-level user_agent
+  timeout: 30s                     # tools only
+  forward: true                    # send who each call is for (below)
+  tls: {...}
 ```
 
-Thread headers are off by default: thread ids are internal, and a tool such as `webfetch`
-talks to the public web.
+`forward` sends, on every request made for a tool call: the user's `Authorization`
+header, `X-Thread-ID`, `X-Root-Thread-ID`, `X-Run-ID`, and for toolx tools `X-Agent-ID`
+and `X-Tool-Name`. It is off by default: a tool such as `webfetch` talks to the public
+web. The user's `Authorization` is taken from the request that created the thread
+(`POST /v1/agent/chat`) and travels with that run's queue entry to the worker (entries
+are deleted once handled); a sub-agent's run inherits it. A forwarded `Authorization`
+replaces a static one from `headers`. Runs started or resumed over the socket carry none
+yet.
 
-## Building a tool (`pkg/toolx`)
+## Connectors and tools (`pkg/toolx`)
+
+A connector (`connectors.yaml`) is one system and one adk toolset, of one of two types:
+
+- `type: tools`: toolx tools from the catalog, by name, each built with the connector;
+- `type: mcp`: one MCP server, configured inline (endpoint or command, a tool filter,
+  approvals, and the hooks below); adk's `mcptoolset`, named after the connector.
+
+Both reach the agent through `llmagent.Config.Toolsets`, which is how adk-go hands an
+agent a group of tools: its docs pass an MCP server's `mcptoolset` there, and adk has no
+ready-made toolset for function tools, so `toolx.Toolset` is the small one. A tool name
+belongs to one connector at most: a run gets every connector by default, and adk
+refuses two tools of one name.
 
 ```go
-func searchRecords(client *http.Client) (toolx.Tool, error) {
+func searchRecords(conn toolx.Connector) (toolx.Tool, error) {
 	return toolx.New(toolx.Spec{
 		Name:        "search_records",
 		Description: "Search the organisation's records. Each hit has a source number to cite.",
 		// RequireConfirmation: true pauses for the user's approval (HITL.md)
 		// UI: "records" names a UI renderer for the calls
 	}, func(tc toolx.Context, a searchRecordsArgs) (map[string]any, error) {
-		// tc is adk's tool context plus tc.Thread {ID, RootID, RunID}.
-		// Requests made with tc carry the thread headers when the connector sends them:
-		//   http.NewRequestWithContext(tc, ...); client.Do(req)
-		n, err := tc.AddSource(toolx.Source{System: "records", Key: row.ID, URL: row.URL, Title: row.Title,
+		// conn: the connector's id, name and HTTP client (conn.HTTP).
+		// tc: adk's tool context plus tc.Thread {ID, RootID, RunID}. Requests made with
+		// tc carry the caller's identity when the connector forwards it:
+		//   req, _ := http.NewRequestWithContext(tc, ...); conn.HTTP.Do(req)
+		n, err := tc.AddSource(toolx.Source{System: conn.ID, Key: row.ID, URL: row.URL, Title: row.Title,
 			Metadata: map[string]any{"marking": row.Marking}})
 		...
 	})
@@ -113,11 +151,9 @@ func searchRecords(client *http.Client) (toolx.Tool, error) {
 
 - The input and output types give the schemas, from `json` and `jsonschema` tags, as with
   adk's `functiontool`.
-- A world tool is a `tools.Builder`, `func(*http.Client) (toolx.Tool, error)`, registered
-  by name in `tools.Catalog`. A connector lists tool names; the runtime builds each tool
-  with the connector's client. A tool belongs to one connector at most (`connectors.yaml`
-  is rejected otherwise: a run gets every connector by default, and adk refuses two tools
-  of one name); one in no connector is built on a plain client for agents that list it.
+- A world tool is a `tools.Builder`, `func(toolx.Connector) (toolx.Tool, error)`,
+  registered by name in `tools.Catalog`; the runtime builds each one with its connector.
+  One in no connector is built on a plain client for agents that list it by name.
 - A harness tool (`internal/tools/builtin`) is built the same way from `builtin.Deps`.
 - Registries and `toolx.Toolset` accept only `toolx.Tool`, and
   `TestOnlyToolxBuildsFunctionTools` fails if any package but `toolx` imports
@@ -205,7 +241,7 @@ start. Deleting the root thread deletes its bodies, then its records.
 ## Tool UI renderers
 
 A tool can name a renderer: `toolx.Spec.UI` for a function tool, `ui: {tool: name}` in
-`mcp.yaml` for an MCP tool. The encoder puts it in `TOOL_CALL_START` as
+an MCP connector for an MCP tool. The encoder puts it in `TOOL_CALL_START` as
 `metadata: {ui: "<name>"}`, so stored history renders the same way. The UI keeps a
 registry of renderers by name (`agentui/components/chat/messages/tools/registry.ts`); a
 call with no renderer, or one waiting for approval, renders as the plain tool line. The
@@ -213,8 +249,8 @@ renderer receives the tool part: name, input, output, state.
 
 ## MCP tool hooks
 
-MCP tools are not built with `toolx`, so `mcp.yaml` says per tool what the harness does,
-through adk's before- and after-tool callbacks (`internal/agents/mcptools.go`):
+MCP tools are not built with `toolx`, so the MCP connector says per tool what the harness
+does, through adk's before- and after-tool callbacks (`internal/agents/mcptools.go`):
 
 | Key | What the harness does |
 |---|---|
@@ -225,13 +261,15 @@ through adk's before- and after-tool callbacks (`internal/agents/mcptools.go`):
 Open-slide uses all three:
 
 ```yaml
-open-slide:
-  endpoint: ${OPEN_SLIDE_MCP_URL}
-  thread_headers: true
-  thread_args: {deck_create: thread_id, deck_list: thread_id, thread_cleanup: thread_id}
-  ui: {deck_create: slides, deck_write: slides, deck_preview_url: slides}
-  artifacts:
-    deck_create: {id: deck_id, title: title, url: preview_url}
+- id: slides
+  type: mcp
+  mcp:
+    endpoint: ${OPEN_SLIDE_MCP_URL}
+    thread_args: {deck_create: thread_id, deck_list: thread_id, thread_cleanup: thread_id}
+    ui: {deck_create: slides, deck_write: slides, deck_preview_url: slides}
+    artifacts:
+      deck_create: {id: deck_id, title: title, url: preview_url}
+  http: {forward: true}
 ```
 
 In the UI the `slides` renderer shows each deck call as one line. When the run creates a

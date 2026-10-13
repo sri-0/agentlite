@@ -26,8 +26,8 @@ type webFetchArgs struct {
 
 // webFetch fetches a page and returns its visible text, capped so a page can
 // never flood the context or the log. The page is recorded as a source.
-func webFetch(client *http.Client) (toolx.Tool, error) {
-	c := *client // the connector's client, with a redirect check of its own
+func webFetch(conn toolx.Connector) (toolx.Tool, error) {
+	c := *conn.HTTP // the connector's client, with a redirect check of its own
 	c.CheckRedirect = func(req *http.Request, _ []*http.Request) error {
 		return publicHost(req.Context(), req.URL.Hostname())
 	}
@@ -47,7 +47,6 @@ func webFetch(client *http.Client) (toolx.Tool, error) {
 		if err := publicHost(ctx, req.URL.Hostname()); err != nil {
 			return nil, err
 		}
-		req.Header.Set("User-Agent", "agentlite/1.0")
 		resp, err := c.Do(req)
 		if err != nil {
 			return nil, err
@@ -69,7 +68,7 @@ func webFetch(client *http.Client) (toolx.Tool, error) {
 			text = text[:webFetchText]
 		}
 		page := resp.Request.URL.String() // after redirects
-		n, err := tc.AddSource(toolx.Source{System: "web", URL: page, Title: title})
+		n, err := tc.AddSource(toolx.Source{System: conn.ID, URL: page, Title: title})
 		if err != nil {
 			return nil, err
 		}

@@ -62,7 +62,7 @@ func (m *Manager) execute(ctx context.Context, fields map[string]string) error {
 	go m.watchControl(runCtx, run, cancel)
 	go m.keepLease(runCtx, run.ThreadID)
 
-	in := Input{Run: run, Message: fields["message"]}
+	in := Input{Run: run, Message: fields["message"], Authorization: fields["authorization"]}
 	if raw := fields["resume"]; raw != "" {
 		if err := json.Unmarshal([]byte(raw), &in.Resume); err != nil {
 			return fmt.Errorf("resume payload: %w", err)

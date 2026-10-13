@@ -3,7 +3,6 @@ package tools
 import (
 	_ "embed"
 	"encoding/json"
-	"net/http"
 	"slices"
 	"strings"
 
@@ -45,7 +44,7 @@ const recordsMax = 5
 // searchRecords is the sources demo, like write_note is the approval demo: it
 // searches the sample records and records every hit as a source, with the
 // row's own identifiers and markings as the source's metadata.
-func searchRecords(*http.Client) (toolx.Tool, error) {
+func searchRecords(conn toolx.Connector) (toolx.Tool, error) {
 	var records []record
 	if err := json.Unmarshal(recordsJSON, &records); err != nil {
 		return toolx.Tool{}, err
@@ -57,7 +56,7 @@ func searchRecords(*http.Client) (toolx.Tool, error) {
 		hits := []recordHit{}
 		for _, r := range rank(records, a.Query) {
 			n, err := tc.AddSource(toolx.Source{
-				System: "records", Key: r.ID, URL: "https://records.example.org/r/" + r.ID, Title: r.Title,
+				System: conn.ID, Key: r.ID, URL: "https://records.example.org/r/" + r.ID, Title: r.Title,
 				Metadata: map[string]any{"record_id": r.ID, "marking": r.Marking, "control_set": r.ControlSet, "owner": r.Owner, "updated": r.Updated},
 			})
 			if err != nil {

@@ -1,6 +1,11 @@
 # Upstream providers. Secrets and environment-specific URLs come from the
 # environment: ${VAR} is expanded in base_url and header values; *_env fields
-# name the variable that holds the value (or, for TLS, the file path).
+# name the variable that holds the value. Mutual TLS, per provider:
+#   tls:
+#     cert_env: LITELLM_TLS_CERT                  # path to the client certificate (PEM)
+#     key_env: LITELLM_TLS_KEY                    # path to its key (PEM, encrypted or not)
+#     key_password_env: LITELLM_TLS_KEY_PASSWORD  # the password itself
+#     ca_env: LITELLM_TLS_CA                      # path to the trusted CA bundle
 # api: chat_completions (default) or responses. Reasoning deltas only stream in
 # responses mode; use it on gateways that serve /v1/responses (LiteLLM does).
 providers:

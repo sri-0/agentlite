@@ -8,6 +8,7 @@ package toolx
 
 import (
 	"fmt"
+	"net/http"
 
 	"google.golang.org/adk/v2/agent"
 	"google.golang.org/adk/v2/tool"
@@ -56,6 +57,14 @@ func (t Tool) UI() string { return t.ui }
 
 // ADK is the tool as adk runs it.
 func (t Tool) ADK() tool.Tool { return t.adk }
+
+// Connector is the system a tool belongs to, as connectors.yaml describes it:
+// its id, its name, and the HTTP client every tool of the system shares.
+type Connector struct {
+	ID   string
+	Name string
+	HTTP *http.Client
+}
 
 // Toolset groups tools under one name for adk, so switching the group off
 // removes all of them.

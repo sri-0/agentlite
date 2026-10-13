@@ -109,8 +109,14 @@ func (q *queue) handle(ctx context.Context, x valkey.XRangeEntry, handler func(c
 		q.log.Error().Err(err).Str("queue", q.key).Str("entry", x.ID).Msg("handler failed; entry stays pending")
 		return
 	}
-	if err := q.db.Do(ctx, q.db.B().Xack().Key(q.key).Group(q.group).Id(x.ID).Build()).Error(); err != nil {
-		q.log.Error().Err(err).Str("queue", q.key).Str("entry", x.ID).Msg("ack")
+	// Each queue has one consumer group, so a handled entry can go: the
+	// stream stays small and an entry's fields (a user's token) do not linger.
+	ack := q.db.B().Xack().Key(q.key).Group(q.group).Id(x.ID).Build()
+	del := q.db.B().Xdel().Key(q.key).Id(x.ID).Build()
+	for _, res := range q.db.DoMulti(ctx, ack, del) {
+		if err := res.Error(); err != nil {
+			q.log.Error().Err(err).Str("queue", q.key).Str("entry", x.ID).Msg("ack")
+		}
 	}
 }
 

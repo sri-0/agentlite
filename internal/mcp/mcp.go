@@ -1,4 +1,4 @@
-// Package mcp turns config/default/mcp.yaml into adk toolsets.
+// Package mcp turns the mcp connectors of connectors.yaml into adk toolsets.
 package mcp
 
 import (
@@ -22,38 +22,49 @@ import (
 // transport a short-lived session can be opened on to describe it.
 type Server struct {
 	Toolset   tool.Toolset
-	config    config.MCPServer
+	config    *config.MCP
 	transport mcp.Transport
 }
 
-// Servers builds one server per entry. adk connects lazily, so each toolset is
-// wrapped to report a server that cannot list its tools as a warning rather
-// than failing every run that would use it.
-func Servers(cfg *config.MCPConfig, log zerolog.Logger) map[string]*Server {
+// Servers builds one server per mcp connector, keyed by connector id. adk
+// connects lazily, so each toolset is wrapped to report a server that cannot
+// list its tools as a warning rather than failing every run that would use
+// it. A server that cannot be set up is logged and left out.
+func Servers(connectors []config.Connector, log zerolog.Logger) map[string]*Server {
 	out := map[string]*Server{}
-	for name, s := range cfg.Servers {
-		t, err := mcpTransport(s)
-		if err != nil {
-			log.Error().Err(err).Str("server", name).Msg("mcp server skipped")
+	for _, c := range connectors {
+		if c.Type != config.ConnectorMCP {
 			continue
 		}
-		ts, err := mcptoolset.New(mcptoolset.Config{
-			Transport: t,
-			RequireConfirmationProvider: func(toolName string, _ any) bool {
-				return slices.Contains(s.RequireConfirmation, toolName)
-			},
-		})
+		srv, err := newServer(c, log)
 		if err != nil {
-			log.Error().Err(err).Str("server", name).Msg("mcp server skipped")
+			log.Error().Err(err).Str("connector", c.ID).Msg("mcp server skipped")
 			continue
 		}
-		if len(s.Tools) > 0 {
-			ts = tool.FilterToolset(ts, tool.AllowedToolsPredicate(s.Tools))
-		}
-		out[name] = &Server{Toolset: resilient{Toolset: ts, server: name, log: log}, config: s, transport: t}
-		log.Info().Str("server", name).Msg("mcp server configured")
+		out[c.ID] = srv
+		log.Info().Str("connector", c.ID).Msg("mcp server configured")
 	}
 	return out
+}
+
+func newServer(c config.Connector, log zerolog.Logger) (*Server, error) {
+	t, err := mcpTransport(c)
+	if err != nil {
+		return nil, err
+	}
+	ts, err := mcptoolset.New(mcptoolset.Config{
+		Transport: t,
+		RequireConfirmationProvider: func(toolName string, _ any) bool {
+			return slices.Contains(c.MCP.RequireConfirmation, toolName)
+		},
+	})
+	if err != nil {
+		return nil, err
+	}
+	if len(c.MCP.Tools) > 0 {
+		ts = tool.FilterToolset(ts, tool.AllowedToolsPredicate(c.MCP.Tools))
+	}
+	return &Server{Toolset: resilient{Toolset: ts, name: c.ID, log: log}, config: c.MCP, transport: t}, nil
 }
 
 // URL is how the server is reached: its endpoint, or the command that starts it.
@@ -82,33 +93,40 @@ func (s *Server) Tools(ctx context.Context) ([]*mcp.Tool, error) {
 	return slices.DeleteFunc(res.Tools, func(t *mcp.Tool) bool { return !slices.Contains(s.config.Tools, t.Name) }), nil
 }
 
-// resilient turns a failed tool listing into an empty one.
+// resilient turns a failed tool listing into an empty one, and names the
+// toolset after its connector (adk's MCP toolsets are all "mcp_tool_set").
 type resilient struct {
 	tool.Toolset
-	server string
-	log    zerolog.Logger
+	name string
+	log  zerolog.Logger
 }
+
+func (r resilient) Name() string { return r.name }
 
 func (r resilient) Tools(ctx agent.ReadonlyContext) ([]tool.Tool, error) {
 	tools, err := r.Toolset.Tools(ctx)
 	if err != nil {
-		r.log.Warn().Err(err).Str("server", r.server).Msg("mcp tools unavailable")
+		r.log.Warn().Err(err).Str("connector", r.name).Msg("mcp tools unavailable")
 		return nil, nil
 	}
 	return tools, nil
 }
 
 // mcpTransport reaches the server over streamable HTTP, with a client of its
-// own (pkg/transport), or over stdio.
-func mcpTransport(s config.MCPServer) (mcp.Transport, error) {
-	if s.Endpoint == "" {
-		return commandTransport(s.Command), nil
+// own (pkg/transport, from the connector's http block), or over stdio.
+func mcpTransport(c config.Connector) (mcp.Transport, error) {
+	if c.MCP.Endpoint == "" {
+		return commandTransport(c.MCP.Command), nil
 	}
-	client, err := transport.New(s.HTTP().Transport())
+	cfg, err := c.HTTP.Transport()
 	if err != nil {
 		return nil, err
 	}
-	return outsideRun{&mcp.StreamableClientTransport{Endpoint: s.Endpoint, HTTPClient: client}}, nil
+	client, err := transport.New(cfg)
+	if err != nil {
+		return nil, err
+	}
+	return outsideRun{&mcp.StreamableClientTransport{Endpoint: c.MCP.Endpoint, HTTPClient: client}}, nil
 }
 
 // outsideRun connects without the thread of the run that happened to need
@@ -118,7 +136,7 @@ func mcpTransport(s config.MCPServer) (mcp.Transport, error) {
 type outsideRun struct{ mcp.Transport }
 
 func (t outsideRun) Connect(ctx context.Context) (mcp.Connection, error) {
-	return t.Transport.Connect(toolx.WithRun(ctx, toolx.Thread{}, nil))
+	return t.Transport.Connect(toolx.WithRun(ctx, toolx.Run{}))
 }
 
 // commandTransport starts a fresh process on every Connect, so adk's

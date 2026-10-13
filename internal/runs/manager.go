@@ -44,6 +44,9 @@ type Input struct {
 	Run     *Run
 	Message string
 	Resume  []types.ResumeEntry
+	// Authorization is the user's Authorization header from the request that
+	// queued the segment; connectors that forward identity send it on.
+	Authorization string
 }
 
 // Sink persists threads and messages (OpenSearch now, a producer later).

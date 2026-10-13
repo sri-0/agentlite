@@ -1,16 +1,36 @@
-# Connectors are the tool groups a user can switch on for a thread: a set of
-# function tools, or one MCP server named in mcp.yaml. A thread with no
-# choice has every connector on; the choice is remembered on the thread and
+# Connectors are the systems a user can switch on for a thread. A thread with
+# no choice has every connector on; the choice is remembered on the thread and
 # inherited by its sub-agents. Agents that list their own `tools:` ignore it.
 # Harness tools (subagent, todowrite, emit_artifact, question,
 # report_progress) are always available. `icon` is a lucide icon name.
 #
-# A connector of function tools is one system: its tools share one HTTP
-# client (pkg/transport), configured by an optional `http:` block:
+# A connector is one adk toolset, of one of two types:
+#   type: tools   toolx tools from the catalog (internal/tools), by name
+#   type: mcp     one MCP server:
+#     mcp:
+#       endpoint: https://…        # streamable HTTP, or command: [binary, args…] for stdio
+#       tools: [...]               # optional filter of the server's tools
+#       require_confirmation: [...]
+#       thread_args: {tool: arg}   # the harness fills arg with the root thread id
+#       ui: {tool: renderer}       # the UI renderer for the tool's calls
+#       artifacts: {tool: {id: field, title: field, url: field}}   # result → url artifact
+#
+# Each connector reaches its system with an HTTP client of its own:
 #   http:
-#     headers: {Authorization: "Bearer ${RECORDS_TOKEN}"}
-#     timeout: 30s
-#     thread_headers: true   # send X-Thread-ID, X-Root-Thread-ID, X-Run-ID
+#     headers: {X-Api-Key: "${RECORDS_API_KEY}"}
+#     user_agent: records-client/2      # default: user_agent below
+#     timeout: 30s                      # tools only
+#     forward: true     # send who a call is for: the user's Authorization,
+#                       # X-Thread-ID, X-Root-Thread-ID, X-Run-ID, and for
+#                       # toolx tools X-Agent-ID and X-Tool-Name
+#     tls:              # mutual TLS; each *_env names a variable
+#       cert_env: RECORDS_TLS_CERT      # path to the client certificate (PEM)
+#       key_env: RECORDS_TLS_KEY        # path to its key (PEM, encrypted or not)
+#       key_password_env: RECORDS_TLS_KEY_PASSWORD   # the password itself
+#       ca_env: RECORDS_TLS_CA          # path to the trusted CA bundle
+# A tool belongs to one connector at most.
+user_agent: agentlite/1.0
+
 connectors:
   - id: web
     name: Web
@@ -36,4 +56,12 @@ connectors:
     name: Slides
     description: Create and edit slide decks (open-slide).
     icon: presentation
-    mcp: open-slide
+    type: mcp
+    mcp:
+      endpoint: ${OPEN_SLIDE_MCP_URL}
+      thread_args: {deck_create: thread_id, deck_list: thread_id, thread_cleanup: thread_id}
+      ui: {deck_create: slides, deck_write: slides, deck_preview_url: slides}
+      artifacts:
+        deck_create: {id: deck_id, title: title, url: preview_url}
+    http:
+      forward: true

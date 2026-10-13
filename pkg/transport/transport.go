@@ -32,11 +32,15 @@ type Config struct {
 	DisableCompression bool
 }
 
-// TLS adds a client certificate and trusted authorities, from PEM files, or
-// turns verification off.
+// TLS adds a client certificate for mutual TLS and the authorities to trust,
+// from PEM files, or turns verification off.
 type TLS struct {
-	CertFile, KeyFile  string // client certificate, for mutual TLS
-	CAFile             string // trusted certificate authorities
+	CertFile string // the client certificate; intermediates may follow it
+	KeyFile  string // its private key, encrypted or not
+	// KeyPassword unlocks an encrypted key: PKCS#8 ("ENCRYPTED PRIVATE KEY",
+	// what OpenSSL 3 writes) or legacy PEM encryption (OpenSSL 1.x, LibreSSL).
+	KeyPassword        []byte
+	CAFile             string // trusted certificate authorities; replaces the system's
 	InsecureSkipVerify bool
 }
 
@@ -62,7 +66,7 @@ func New(cfg Config) (*http.Client, error) {
 func (c *TLS) config() (*tls.Config, error) {
 	cfg := &tls.Config{MinVersion: tls.VersionTLS12, InsecureSkipVerify: c.InsecureSkipVerify}
 	if c.CertFile != "" {
-		cert, err := tls.LoadX509KeyPair(c.CertFile, c.KeyFile)
+		cert, err := clientCertificate(c.CertFile, c.KeyFile, c.KeyPassword)
 		if err != nil {
 			return nil, fmt.Errorf("client certificate: %w", err)
 		}

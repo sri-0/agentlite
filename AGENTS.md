@@ -38,7 +38,7 @@ cmd/dev/               adk's launcher (web UI, cli, api) over the same roster an
 internal/
   bootstrap/           wires config, logging, tracing, registry, Valkey, OpenSearch, S3,
                        sessions, memory, sources, artifacts, MCP, the runtime and run manager
-  config/              env (go-envconfig) + models.yaml, mcp.yaml, connectors.yaml, agents/*.md
+  config/              env (go-envconfig) + models.yaml, connectors.yaml, agents/*.md
   server/              Echo app: middleware, routes, error → status mapping
   handler/             REST reads and thread admin; the socket upgrade
   ws/                  the agent chat socket: frames, requests, subscriptions
@@ -53,7 +53,7 @@ internal/
                        report_progress
   sources/             numbers and stores the sources tools return
   artifacts/           artifact records (OpenSearch) and bodies (S3)
-  mcp/                 mcp.yaml → adk toolsets
+  mcp/                 mcp connectors → adk toolsets
   proxy/               provider clients, model discovery, reverse proxies, embeddings
 pkg/
   toolx/               the tool wrapper every function tool is built with
@@ -64,7 +64,7 @@ pkg/
   memory/              adk memory.Service on OpenSearch
   session/valkey/      adk session.Service on Valkey
   logging/             zerolog + slog bridge
-config/default/        models.yaml, mcp.yaml, connectors.yaml, agents/*.md (the roster)
+config/default/        models.yaml, connectors.yaml, agents/*.md (the roster)
 docs/                  the in-depth documentation
 ```
 
@@ -110,15 +110,14 @@ in OpenSearch), `OTEL_EXPORTER_OTLP_ENDPOINT`, plus what the YAML references (`P
 headers, MCP endpoints and `proxy.provider`.
 
 - `models.yaml`: `providers[]` (`id, base_url, api_key_env, api: chat_completions|responses,
-  headers, discover, models[], ssl_*`), `default_model`, `compaction`, `memory`, `proxy`.
+  headers, discover, models[], tls`), `default_model`, `compaction`, `memory`, `proxy`.
   Discovered models merge under YAML entries; the first provider in file order that serves
   an id wins; a provider with an empty `base_url` is skipped.
-- `mcp.yaml`: `servers: {name: {endpoint | command, headers, thread_headers, tools,
-  require_confirmation, thread_args, ui, artifacts}}` (TOOLS.md).
-  The development server is open-slide-mcp (`~/code/open-slide-mcp`, `make run`, `:8090/mcp`).
-- `connectors.yaml`: `connectors[]` (`id, name, description, icon, tools[] | mcp, http`);
-  `http: {headers, timeout, thread_headers}` configures the connector's own HTTP client. A
-  tool belongs to one connector at most.
+- `connectors.yaml`: `user_agent` and `connectors[]` (`id, name, description, icon, type:
+  tools | mcp, tools[], mcp: {endpoint | command, tools, require_confirmation, thread_args,
+  ui, artifacts}, http: {headers, user_agent, timeout, forward, tls}`). A tool belongs to
+  one connector at most. The development MCP server is open-slide-mcp
+  (`~/code/open-slide-mcp`, `make run`, `:8090/mcp`).
 - `agents/*.md`: frontmatter `id, name, description, kind, mode, tools, subagents,
   max_output_tokens` and the instruction (AGENT-ARCHITECTURE.md).
 

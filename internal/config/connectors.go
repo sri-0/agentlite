@@ -2,64 +2,77 @@ package config
 
 import (
 	"fmt"
+	"maps"
 	"os"
 	"path/filepath"
 	"slices"
-	"time"
 
 	"github.com/goccy/go-yaml"
-
-	"agentlite/pkg/toolx"
-	"agentlite/pkg/transport"
 )
 
-// ConnectorsConfig is config/default/connectors.yaml: the tool groups a user
-// can switch on for a thread. Harness tools are always available.
+// ConnectorsConfig is config/default/connectors.yaml: the systems a user can
+// switch on for a thread. Harness tools are always available.
 type ConnectorsConfig struct {
+	// UserAgent is sent by every connector whose http block sets none.
+	UserAgent  string      `yaml:"user_agent"`
 	Connectors []Connector `yaml:"connectors"`
 }
 
-// Connector is a set of function tools, or one MCP server from mcp.yaml.
+// Connector types.
+const (
+	ConnectorTools = "tools" // a set of toolx tools
+	ConnectorMCP   = "mcp"   // one MCP server
+)
+
+// Connector is one system: a set of toolx tools, or one MCP server. Either
+// way the agent gets it as one adk toolset.
 type Connector struct {
-	ID          string   `yaml:"id" json:"id"`
-	Name        string   `yaml:"name" json:"name"`
-	Description string   `yaml:"description" json:"description,omitempty"`
-	Icon        string   `yaml:"icon" json:"icon,omitempty"` // a lucide icon name
-	Tools       []string `yaml:"tools" json:"tools,omitempty"`
-	MCP         string   `yaml:"mcp" json:"mcp,omitempty"`
-	// HTTP configures the client the connector's tools reach their system
-	// with; each connector gets its own.
-	HTTP HTTP `yaml:"http" json:"-"`
+	ID          string   `yaml:"id"`
+	Name        string   `yaml:"name"`
+	Description string   `yaml:"description"`
+	Icon        string   `yaml:"icon"` // a lucide icon name
+	Type        string   `yaml:"type"` // tools (the default) or mcp
+	Tools       []string `yaml:"tools"`
+	MCP         *MCP     `yaml:"mcp"`
+	HTTP        HTTP     `yaml:"http"`
 }
 
-// HTTP configures one system's HTTP client (pkg/transport).
-type HTTP struct {
-	Headers map[string]string `yaml:"headers"` // sent on every request; values may use ${ENV}
-	Timeout time.Duration     `yaml:"timeout"` // per request; 0 means none
-	// ThreadHeaders sends X-Thread-ID, X-Root-Thread-ID and X-Run-ID with
-	// each request. Off by default: thread ids are internal, and a tool such
-	// as webfetch talks to the public web.
-	ThreadHeaders bool `yaml:"thread_headers"`
+// MCP is an MCP server, reached over streamable HTTP (Endpoint, with the
+// connector's http block) or stdio (Command).
+type MCP struct {
+	Endpoint            string   `yaml:"endpoint"`
+	Command             []string `yaml:"command"`
+	Tools               []string `yaml:"tools"`                // omitted ⇒ every tool the server offers
+	RequireConfirmation []string `yaml:"require_confirmation"` // tool names that need approval
+
+	// ThreadArgs names, per tool, the argument the harness fills with the
+	// conversation's root thread id, so the model never has to supply it.
+	ThreadArgs map[string]string `yaml:"thread_args"`
+	// UI names, per tool, the renderer the UI uses for its calls.
+	UI map[string]string `yaml:"ui"`
+	// Artifacts records, per tool, its result as a url artifact.
+	Artifacts map[string]URLArtifact `yaml:"artifacts"`
 }
 
-func (h HTTP) configured() bool { return len(h.Headers) > 0 || h.Timeout != 0 || h.ThreadHeaders }
-
-func hasServer(servers map[string]MCPServer, name string) bool {
-	_, ok := servers[name]
-	return ok
+// URLArtifact names the fields of a tool's structured result that hold a
+// page's id, title and URL.
+type URLArtifact struct {
+	ID    string `yaml:"id"`
+	Title string `yaml:"title"`
+	URL   string `yaml:"url"`
 }
 
-// Transport is the client configuration for pkg/transport.
-func (h HTTP) Transport() transport.Config {
-	cfg := transport.Config{Headers: h.Headers, Timeout: h.Timeout}
-	if h.ThreadHeaders {
-		cfg.ContextHeaders = toolx.Headers
-	}
-	return cfg
+// hooked lists the tools the server's hook maps name.
+func (m *MCP) hooked() []string {
+	out := slices.Collect(maps.Keys(m.ThreadArgs))
+	out = slices.AppendSeq(out, maps.Keys(m.UI))
+	return slices.AppendSeq(out, maps.Keys(m.Artifacts))
 }
+
+const defaultUserAgent = "agentlite/1.0"
 
 // LoadConnectors reads connectors.yaml; a missing file means no connectors.
-func LoadConnectors(dir string, servers map[string]MCPServer) ([]Connector, error) {
+func LoadConnectors(dir string) ([]Connector, error) {
 	raw, err := os.ReadFile(filepath.Join(dir, "connectors.yaml"))
 	if os.IsNotExist(err) {
 		return nil, nil
@@ -71,39 +84,68 @@ func LoadConnectors(dir string, servers map[string]MCPServer) ([]Connector, erro
 	if err := yaml.Unmarshal(raw, &cfg); err != nil {
 		return nil, fmt.Errorf("connectors.yaml: %w", err)
 	}
+	if cfg.UserAgent == "" {
+		cfg.UserAgent = defaultUserAgent
+	}
 	seen := map[string]bool{}
-	listedBy := map[string]string{} // tool → the connector that lists it
-	for _, c := range cfg.Connectors {
-		switch {
-		case c.ID == "":
-			return nil, fmt.Errorf("connectors.yaml: a connector has no id")
-		case seen[c.ID]:
-			return nil, fmt.Errorf("connectors.yaml: duplicate connector %q", c.ID)
-		case (len(c.Tools) == 0) == (c.MCP == ""):
-			return nil, fmt.Errorf("connectors.yaml: connector %q needs tools or an mcp server, not both", c.ID)
-		case c.MCP != "" && !hasServer(servers, c.MCP):
-			return nil, fmt.Errorf("connectors.yaml: connector %q names unknown mcp server %q", c.ID, c.MCP)
-		case c.MCP != "" && c.HTTP.configured():
-			return nil, fmt.Errorf("connectors.yaml: connector %q: set an mcp server's http settings in mcp.yaml", c.ID)
+	claimed := map[string]string{} // tool → the connector that lists it or hooks it
+	for i := range cfg.Connectors {
+		c := &cfg.Connectors[i]
+		if c.Type == "" {
+			c.Type = ConnectorTools
 		}
-		// A run gets every connector by default, and adk refuses two tools of one name.
-		for _, tool := range c.Tools {
-			if other, ok := listedBy[tool]; ok {
-				return nil, fmt.Errorf("connectors.yaml: tool %q is in connectors %q and %q", tool, other, c.ID)
-			}
-			listedBy[tool] = c.ID
+		if err := c.check(seen, claimed); err != nil {
+			return nil, fmt.Errorf("connectors.yaml: connector %q: %w", c.ID, err)
 		}
-		seen[c.ID] = true
+		if c.HTTP.UserAgent == "" {
+			c.HTTP.UserAgent = cfg.UserAgent
+		}
 		expandEnv(c.HTTP.Headers)
+		if c.MCP != nil {
+			c.MCP.Endpoint = os.ExpandEnv(c.MCP.Endpoint)
+		}
 	}
 	return cfg.Connectors, nil
 }
 
-// expandEnv replaces ${VAR} in header values.
-func expandEnv(headers map[string]string) {
-	for k, v := range headers {
-		headers[k] = os.ExpandEnv(v)
+// check validates one connector. A tool name may belong to one connector
+// only: a run gets every connector by default, adk refuses two tools of one
+// name, and the MCP hooks apply by tool name.
+func (c *Connector) check(seen map[string]bool, claimed map[string]string) error {
+	switch {
+	case c.ID == "":
+		return fmt.Errorf("no id")
+	case seen[c.ID]:
+		return fmt.Errorf("duplicate id")
 	}
+	seen[c.ID] = true
+	var names []string
+	switch c.Type {
+	case ConnectorTools:
+		if len(c.Tools) == 0 || c.MCP != nil {
+			return fmt.Errorf("a tools connector lists tools and has no mcp block")
+		}
+		names = c.Tools
+	case ConnectorMCP:
+		switch {
+		case c.MCP == nil || len(c.Tools) > 0:
+			return fmt.Errorf("an mcp connector has an mcp block and no tools list (filter with mcp.tools)")
+		case (c.MCP.Endpoint == "") == (len(c.MCP.Command) == 0):
+			return fmt.Errorf("mcp needs an endpoint or a command")
+		case c.HTTP.Timeout != 0:
+			return fmt.Errorf("an mcp connector takes no timeout: it would cut the session's event stream")
+		}
+		names = c.MCP.hooked()
+	default:
+		return fmt.Errorf("type must be %s or %s", ConnectorTools, ConnectorMCP)
+	}
+	for _, tool := range names {
+		if other, ok := claimed[tool]; ok && other != c.ID {
+			return fmt.Errorf("tool %q is also in connector %q", tool, other)
+		}
+		claimed[tool] = c.ID
+	}
+	return nil
 }
 
 // CheckConnectors rejects ids that are not configured.

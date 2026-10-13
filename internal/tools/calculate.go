@@ -5,7 +5,6 @@ import (
 	"go/constant"
 	"go/token"
 	"go/types"
-	"net/http"
 
 	"agentlite/pkg/toolx"
 )
@@ -16,7 +15,7 @@ type calculateArgs struct {
 
 // calculate evaluates a constant arithmetic expression with Go's constant
 // evaluator, so there is no parser to maintain and nothing can be executed.
-func calculate(*http.Client) (toolx.Tool, error) {
+func calculate(toolx.Connector) (toolx.Tool, error) {
 	return toolx.New(toolx.Spec{
 		Name:        "calculate",
 		Description: "Evaluate an arithmetic expression exactly.",

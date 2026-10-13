@@ -30,6 +30,7 @@ func (h *Handler) StartThread(c *echo.Context) error {
 	if err != nil {
 		return err
 	}
+	in.Authorization = c.Request().Header.Get("Authorization")
 	run, err := h.Runs.Start(c.Request().Context(), in)
 	if err != nil {
 		return err

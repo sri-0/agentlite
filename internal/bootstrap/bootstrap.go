@@ -90,7 +90,7 @@ func New(ctx context.Context) (*App, error) {
 		return nil, err
 	}
 	app.Agents = agents.New(cfg, agents.Deps{
-		Registry: app.Registry, Sessions: app.Sessions, Memory: mem, Servers: mcp.Servers(cfg.MCP, app.Log),
+		Registry: app.Registry, Sessions: app.Sessions, Memory: mem, Servers: mcp.Servers(cfg.Connectors, app.Log),
 		Sources: app.Sources, Artifacts: app.Artifacts, Log: app.Log,
 	})
 	app.Runs = runs.New(cfg, runsDB, hitl.NewStore(hitlDB), app.Store, app.Store, app.Sessions, app.Agents, app.Log)

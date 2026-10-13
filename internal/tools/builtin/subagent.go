@@ -73,6 +73,7 @@ func subagent(d Deps) (toolx.Tool, error) {
 		run, err := d.Dispatcher.Start(ctx, runs.StartInput{
 			ThreadID: childThread, ParentID: ctx.SessionID(), AgentID: a.SubagentType, Model: parentRun.Model,
 			Connectors: parentRun.Connectors, MessageID: uuid.NewString(), Text: a.Prompt,
+			Authorization: toolx.RunFrom(ctx).Authorization, // the child acts for the same user
 		})
 		if err != nil {
 			return nil, fmt.Errorf("start %s: %w", a.SubagentType, err)

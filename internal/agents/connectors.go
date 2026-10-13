@@ -14,22 +14,22 @@ import (
 	"agentlite/pkg/transport"
 )
 
-// connectorSets builds one toolset per connector: the MCP server it points
-// at, or the world tools it names, built with an HTTP client of the
-// connector's own. Tools no connector names are built on a plain client, for
-// agents that list them by name.
+// connectorSets builds one toolset per connector: its MCP server, or its
+// toolx tools built with an HTTP client of the connector's own. Tools no
+// connector names are built on a plain client, for agents that list them by
+// name.
 func (rt *Runtime) connectorSets() error {
 	rt.world, rt.sets = map[string]toolx.Tool{}, map[string]tool.Toolset{}
 	for _, c := range rt.connectors {
-		if c.MCP != "" {
-			srv, ok := rt.servers[c.MCP]
+		if c.Type == config.ConnectorMCP {
+			srv, ok := rt.servers[c.ID]
 			if !ok {
-				return fmt.Errorf("connector %q: mcp server %q is not configured", c.ID, c.MCP)
+				return fmt.Errorf("connector %q: its mcp server could not be set up (see the log)", c.ID)
 			}
 			rt.sets[c.ID] = srv.Toolset
 			continue
 		}
-		built, err := rt.buildTools(c.Tools, c.HTTP.Transport())
+		built, err := rt.buildTools(c.ID, c.Name, c.Tools, c.HTTP)
 		if err != nil {
 			return fmt.Errorf("connector %q: %w", c.ID, err)
 		}
@@ -41,28 +41,33 @@ func (rt *Runtime) connectorSets() error {
 			unlisted = append(unlisted, name)
 		}
 	}
-	_, err := rt.buildTools(unlisted, transport.Config{})
+	_, err := rt.buildTools("", "", unlisted, config.HTTP{})
 	return err
 }
 
-// buildTools builds the named world tools on one new client and records them
-// in rt.world.
-func (rt *Runtime) buildTools(names []string, cfg transport.Config) ([]toolx.Tool, error) {
+// buildTools builds the named tools for one connector, on one new client,
+// and records them in rt.world.
+func (rt *Runtime) buildTools(id, name string, names []string, http config.HTTP) ([]toolx.Tool, error) {
+	cfg, err := http.Transport()
+	if err != nil {
+		return nil, err
+	}
 	client, err := transport.New(cfg)
 	if err != nil {
 		return nil, err
 	}
+	conn := toolx.Connector{ID: id, Name: name, HTTP: client}
 	built := make([]toolx.Tool, 0, len(names))
-	for _, name := range names {
-		build, ok := tools.Catalog[name]
+	for _, n := range names {
+		build, ok := tools.Catalog[n]
 		if !ok {
-			return nil, fmt.Errorf("unknown tool %q", name)
+			return nil, fmt.Errorf("unknown tool %q", n)
 		}
-		t, err := build(client)
+		t, err := build(conn)
 		if err != nil {
 			return nil, err
 		}
-		rt.world[name] = t
+		rt.world[n] = t
 		built = append(built, t)
 	}
 	return built, nil
@@ -79,12 +84,6 @@ func (rt *Runtime) enabled(choice *[]string) []tool.Toolset {
 	}
 	return out
 }
-
-// Connector types.
-const (
-	ConnectorTools = "tools" // a set of function tools
-	ConnectorMCP   = "mcp"   // one MCP server
-)
 
 // ConnectorInfo describes a connector to clients.
 type ConnectorInfo struct {
@@ -123,10 +122,15 @@ func (rt *Runtime) Connector(ctx context.Context, id string) (*ConnectorInfo, er
 	}
 	c := rt.connectors[i]
 	info := rt.describe(c)
-	if c.MCP == "" {
+	if c.Type != config.ConnectorMCP {
 		return &info, nil
 	}
-	tools, err := rt.servers[c.MCP].Tools(ctx)
+	srv, ok := rt.servers[c.ID]
+	if !ok {
+		info.Status, info.Error = "unreachable", "the mcp server could not be set up"
+		return &info, nil
+	}
+	tools, err := srv.Tools(ctx)
 	if err != nil {
 		info.Status, info.Error = "unreachable", err.Error()
 		return &info, nil
@@ -139,9 +143,11 @@ func (rt *Runtime) Connector(ctx context.Context, id string) (*ConnectorInfo, er
 }
 
 func (rt *Runtime) describe(c config.Connector) ConnectorInfo {
-	info := ConnectorInfo{ID: c.ID, Name: c.Name, Description: c.Description, Icon: c.Icon, Type: ConnectorTools}
-	if c.MCP != "" {
-		info.Type, info.URL = ConnectorMCP, rt.servers[c.MCP].URL()
+	info := ConnectorInfo{ID: c.ID, Name: c.Name, Description: c.Description, Icon: c.Icon, Type: c.Type}
+	if c.Type == config.ConnectorMCP {
+		if srv, ok := rt.servers[c.ID]; ok {
+			info.URL = srv.URL()
+		}
 		return info
 	}
 	for _, name := range c.Tools {

@@ -2,7 +2,6 @@ package tools
 
 import (
 	"log/slog"
-	"net/http"
 
 	"agentlite/pkg/toolx"
 )
@@ -14,7 +13,7 @@ type writeNoteArgs struct {
 
 // writeNote is the approval demo: adk pauses the run until the user approves,
 // and the user's justification arrives in the confirmation payload.
-func writeNote(*http.Client) (toolx.Tool, error) {
+func writeNote(toolx.Connector) (toolx.Tool, error) {
 	return toolx.New(toolx.Spec{
 		Name:                "write_note",
 		Description:         "Save a note for the user. Requires the user's approval.",

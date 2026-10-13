@@ -17,6 +17,7 @@ require (
 	github.com/samber/slog-zerolog/v2 v2.7.3
 	github.com/sethvargo/go-envconfig v1.4.3
 	github.com/valkey-io/valkey-go v1.0.78
+	github.com/youmark/pkcs8 v0.0.0-20240726163527-a2c0da244d78
 	go.opentelemetry.io/otel v1.46.0
 	go.opentelemetry.io/otel/sdk v1.46.0
 	go.opentelemetry.io/otel/trace v1.46.0

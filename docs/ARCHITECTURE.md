@@ -191,7 +191,8 @@ Environment (`internal/config/config.go`): `PORT`, `HOST`, `APP_NAME`,
 (`PROXY_PROVIDER`, provider base URLs and keys, `OPEN_SLIDE_MCP_URL`).
 
 Files in `CONFIG_DIR`: `models.yaml` (providers, discovery, `default_model`,
-`compaction`, `memory`, `proxy`), `mcp.yaml`, `connectors.yaml`, `agents/*.md`.
+`compaction`, `memory`, `proxy`), `connectors.yaml` (toolx tools and MCP servers),
+`agents/*.md`.
 
 ## Observability
 

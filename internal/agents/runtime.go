@@ -39,7 +39,7 @@ type Runtime struct {
 	preload      bool   // search memory before every model call, not only on request
 	defaultModel string // the model a run uses when the request names none
 	compact      *config.Compaction
-	servers      map[string]*mcp.Server // MCP servers by name
+	servers      map[string]*mcp.Server // MCP servers by connector id
 	sources      *sources.Recorder
 	artifacts    *artifacts.Store
 	log          zerolog.Logger
@@ -48,7 +48,7 @@ type Runtime struct {
 	harness    map[string]toolx.Tool   // always available: subagent, todowrite, …
 	world      map[string]toolx.Tool   // switched on through connectors
 	sets       map[string]tool.Toolset // one per connector
-	mcpTools   mcpTools                // what mcp.yaml asks of individual MCP tools
+	mcpTools   mcpTools                // what the mcp connectors ask of individual MCP tools
 	toolUI     map[string]string       // UI renderer by tool name
 }
 
@@ -57,7 +57,7 @@ type Deps struct {
 	Registry  *proxy.Registry
 	Sessions  session.Service
 	Memory    Memory                 // nil when memory is not configured
-	Servers   map[string]*mcp.Server // MCP servers by name
+	Servers   map[string]*mcp.Server // MCP servers by connector id
 	Sources   *sources.Recorder
 	Artifacts *artifacts.Store
 	Log       zerolog.Logger
@@ -69,7 +69,7 @@ func New(cfg *config.Config, d Deps) *Runtime {
 		appName: cfg.AppName, defs: cfg.Defs(), registry: d.Registry, sessions: d.Sessions, memory: d.Memory,
 		defaultModel: cfg.Models.DefaultModel, compact: cfg.Models.Compaction, servers: d.Servers,
 		sources: d.Sources, artifacts: d.Artifacts, log: d.Log, connectors: cfg.Connectors,
-		mcpTools: newMCPTools(cfg.MCP),
+		mcpTools: newMCPTools(cfg.Connectors),
 	}
 	if m := cfg.Models.Memory; m != nil {
 		rt.preload = m.Preload
@@ -149,7 +149,11 @@ func (rt *Runtime) Run(ctx context.Context, in runs.Input, sink stream.Sink) (ru
 	}
 
 	ctx = runs.WithRun(stream.WithSink(ctx, sink), run)
-	ctx = toolx.WithRun(ctx, toolx.Thread{ID: run.ThreadID, RootID: run.RootID, RunID: run.ID}, rt.sources)
+	ctx = toolx.WithRun(ctx, toolx.Run{
+		Thread:        toolx.Thread{ID: run.ThreadID, RootID: run.RootID, RunID: run.ID},
+		Authorization: in.Authorization,
+		Sources:       rt.sources,
+	})
 	for ev, err := range r.Run(ctx, runs.SessionUser, run.ThreadID, content, adkagent.RunConfig{StreamingMode: adkagent.StreamingModeSSE}) {
 		if err != nil {
 			if ctx.Err() != nil {

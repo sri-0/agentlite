@@ -30,7 +30,7 @@ func NewClient(p config.Provider) (*Client, error) {
 	if err != nil || base.Host == "" {
 		return nil, fmt.Errorf("provider %s: invalid base_url %q", p.ID, p.BaseURL)
 	}
-	tls, err := tlsFiles(p)
+	tls, err := p.TLS.Resolve()
 	if err != nil {
 		return nil, fmt.Errorf("provider %s: %w", p.ID, err)
 	}
@@ -47,22 +47,4 @@ func (c *Client) Authorization() string {
 		return ""
 	}
 	return "Bearer " + c.APIKey
-}
-
-// tlsFiles reads the provider's TLS settings: models.yaml names environment
-// variables that hold the file paths. A variable named but not set is an
-// error, never a silent fall back to plain TLS. Nil when none are named.
-func tlsFiles(p config.Provider) (*transport.TLS, error) {
-	if p.SSLClientCertEnv == "" && p.SSLClientKeyEnv == "" && p.SSLTrustStoreEnv == "" && !p.SSLInsecureSkipVerify {
-		return nil, nil
-	}
-	for _, env := range []string{p.SSLClientCertEnv, p.SSLClientKeyEnv, p.SSLTrustStoreEnv} {
-		if env != "" && os.Getenv(env) == "" {
-			return nil, fmt.Errorf("%s is not set", env)
-		}
-	}
-	return &transport.TLS{
-		CertFile: os.Getenv(p.SSLClientCertEnv), KeyFile: os.Getenv(p.SSLClientKeyEnv),
-		CAFile: os.Getenv(p.SSLTrustStoreEnv), InsecureSkipVerify: p.SSLInsecureSkipVerify,
-	}, nil
 }

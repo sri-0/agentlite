@@ -26,6 +26,9 @@ type StartInput struct {
 	Connectors *[]string // replaces the thread's choice when set
 	MessageID  string
 	Text       string
+	// Authorization is the user's Authorization header, forwarded to the
+	// systems the run's tools call (connectors with http.forward).
+	Authorization string
 }
 
 const (
@@ -106,7 +109,11 @@ func (m *Manager) prepare(ctx context.Context, in StartInput, run *Run) error {
 	if err := m.store.save(ctx, run); err != nil {
 		return err
 	}
-	return m.enqueue(ctx, run, map[string]string{"message": in.Text})
+	fields := map[string]string{"message": in.Text}
+	if in.Authorization != "" {
+		fields["authorization"] = in.Authorization // removed from Valkey with the entry once handled
+	}
+	return m.enqueue(ctx, run, fields)
 }
 
 // claimThread takes ownership of the thread for the new run. It returns the

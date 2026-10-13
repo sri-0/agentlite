@@ -3,15 +3,11 @@
 // in the builtin subpackage.
 package tools
 
-import (
-	"net/http"
+import "agentlite/pkg/toolx"
 
-	"agentlite/pkg/toolx"
-)
-
-// Builder makes a tool for one connector; client is that connector's HTTP
-// client (pkg/transport), shared by every tool of the connector.
-type Builder func(client *http.Client) (toolx.Tool, error)
+// Builder makes a tool for one connector: the system it belongs to, with the
+// HTTP client every tool of that system shares.
+type Builder func(c toolx.Connector) (toolx.Tool, error)
 
 // Catalog is every world tool by name. connectors.yaml groups them into
 // connectors, and an agent may list them by name.

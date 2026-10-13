@@ -50,11 +50,7 @@ type Provider struct {
 	Headers   map[string]string `yaml:"headers"`
 	Discover  *Discover         `yaml:"discover"`
 	Models    []Model           `yaml:"models"`
-
-	SSLClientCertEnv      string `yaml:"ssl_client_cert_env"`
-	SSLClientKeyEnv       string `yaml:"ssl_client_key_env"`
-	SSLTrustStoreEnv      string `yaml:"ssl_trust_store_env"`
-	SSLInsecureSkipVerify bool   `yaml:"ssl_insecure_skip_verify"`
+	TLS       *TLS              `yaml:"tls"` // mutual TLS and trusted authorities, from env-named files
 }
 
 // Discover fetches the provider's model list and merges the YAML models over it.
@@ -114,9 +110,7 @@ func LoadModels(dir string) (*ModelsConfig, error) {
 	for i := range cfg.Providers {
 		p := &cfg.Providers[i]
 		p.BaseURL = os.ExpandEnv(p.BaseURL)
-		for k, v := range p.Headers {
-			p.Headers[k] = os.ExpandEnv(v)
-		}
+		expandEnv(p.Headers)
 		if p.Name == "" {
 			p.Name = p.ID
 		}

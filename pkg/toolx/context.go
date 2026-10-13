@@ -8,15 +8,24 @@ import (
 )
 
 // Context is what a tool's function receives: adk's tool context (the call
-// id, confirmations) plus the thread the call belongs to. Pass it as the
-// context of the tool's HTTP requests: a client built with Headers as its
-// context headers (thread_headers in agentlite's config) sends the thread.
+// id, confirmations) plus the run the call belongs to. Pass it as the context
+// of the tool's HTTP requests: a connector that forwards identity sends the
+// user's Authorization header, the thread and run, and this agent and tool.
 type Context struct {
 	agent.Context
 	Thread Thread
 
-	tool    string
-	sources Sources
+	tool string
+	run  Run
+}
+
+// Run is what the harness knows about the run a tool call belongs to.
+type Run struct {
+	Thread Thread
+	// Authorization is the user's Authorization header, when the request
+	// that started the run carried one.
+	Authorization string
+	Sources       Sources // nil outside a run: nothing is recorded
 }
 
 // Thread identifies the run a tool call belongs to.
@@ -33,53 +42,76 @@ type Call struct {
 	ID     string // the call id the model gave it
 }
 
-// Thread headers, sent by clients that use Headers (see Context).
+// Identity headers, sent by clients built with Headers (see Context).
 const (
 	HeaderThread     = "X-Thread-ID"
 	HeaderRootThread = "X-Root-Thread-ID"
 	HeaderRun        = "X-Run-ID"
+	HeaderAgent      = "X-Agent-ID"
+	HeaderTool       = "X-Tool-Name"
 )
 
-type runKey struct{}
+type (
+	runKey  struct{}
+	callKey struct{}
+)
 
-type run struct {
-	thread  Thread
-	sources Sources
+// caller is the agent and tool of one call, as requests made with its
+// Context see them.
+type caller struct{ agent, tool string }
+
+// WithRun returns ctx carrying the run every tool called under it belongs to.
+// The runtime calls it once per run.
+func WithRun(ctx context.Context, r Run) context.Context {
+	return context.WithValue(ctx, runKey{}, r)
 }
 
-// WithRun returns ctx carrying the run's thread and the recorder its tools'
-// sources go to. The runtime calls it once per run; sources may be nil.
-func WithRun(ctx context.Context, t Thread, sources Sources) context.Context {
-	return context.WithValue(ctx, runKey{}, run{thread: t, sources: sources})
+// RunFrom returns the run ctx belongs to; zero outside a run.
+func RunFrom(ctx context.Context) Run {
+	r, _ := ctx.Value(runKey{}).(Run)
+	return r
 }
 
-// ThreadFrom returns the thread of the run ctx belongs to; zero outside a run.
-func ThreadFrom(ctx context.Context) Thread {
-	r, _ := ctx.Value(runKey{}).(run)
-	return r.thread
-}
-
-// Headers returns the thread headers for ctx, or nil outside a run. It fits
-// transport.Config.ContextHeaders.
+// Headers returns the identity headers for a request made with ctx: the
+// user's Authorization and the thread and run, and, from a tool's Context,
+// the agent and tool. It fits transport.Config.ContextHeaders.
 func Headers(ctx context.Context) http.Header {
-	t := ThreadFrom(ctx)
-	if t.ID == "" {
-		return nil
+	h := http.Header{}
+	if r := RunFrom(ctx); r.Thread.ID != "" {
+		h.Set(HeaderThread, r.Thread.ID)
+		h.Set(HeaderRootThread, r.Thread.RootID)
+		h.Set(HeaderRun, r.Thread.RunID)
+		if r.Authorization != "" {
+			h.Set("Authorization", r.Authorization)
+		}
 	}
-	return http.Header{HeaderThread: {t.ID}, HeaderRootThread: {t.RootID}, HeaderRun: {t.RunID}}
+	if c, ok := ctx.Value(callKey{}).(caller); ok {
+		h.Set(HeaderAgent, c.agent)
+		h.Set(HeaderTool, c.tool)
+	}
+	return h
 }
 
 func newContext(ctx agent.Context, tool string) Context {
-	r, _ := ctx.Value(runKey{}).(run)
-	return Context{Context: ctx, Thread: r.thread, tool: tool, sources: r.sources}
+	r := RunFrom(ctx)
+	return Context{Context: ctx, Thread: r.Thread, tool: tool, run: r}
+}
+
+// Value answers for the call itself, so requests made with the Context carry
+// its agent and tool; everything else is adk's context.
+func (c Context) Value(key any) any {
+	if key == (callKey{}) {
+		return caller{agent: c.AgentName(), tool: c.tool}
+	}
+	return c.Context.Value(key)
 }
 
 // AddSource records an item the tool returned as a source and returns its
 // number. Put the number on the item the model sees; the model cites it as
 // [source:N]. Outside a run nothing is recorded and the number is 0.
 func (c Context) AddSource(s Source) (int, error) {
-	if c.sources == nil {
+	if c.run.Sources == nil {
 		return 0, nil
 	}
-	return c.sources.Add(c, Call{Thread: c.Thread, Tool: c.tool, ID: c.FunctionCallID()}, s)
+	return c.run.Sources.Add(c, Call{Thread: c.Thread, Tool: c.tool, ID: c.FunctionCallID()}, s)
 }

@@ -52,7 +52,7 @@ compaction summarizer, and by every sub-agent the run starts.
   (`internal/agents/connectors.go`). Switching one off removes all its tools. A
   connector of world tools is one system: its tools share one HTTP client, configured by
   its `http:` block.
-- **MCP** (`config/default/mcp.yaml`): servers become adk `mcptoolset`s; a server
+- **MCP**: a connector of type `mcp` is one MCP server, an adk `mcptoolset`; a server
   that cannot list its tools costs a warning, not the run.
 
 What an agent gets:
