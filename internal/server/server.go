@@ -57,10 +57,12 @@ func New(cfg *config.Config, h *handler.Handler, log zerolog.Logger) (*echo.Echo
 	e.GET("/v1/threads/:id/sources", h.ThreadSources)
 	e.GET("/v1/threads/:id/sources/:n", h.ThreadSource)
 	e.GET("/v1/threads/:id/artifacts", h.ThreadArtifacts)
+	e.GET("/v1/artifacts", h.RecentArtifacts)
 	e.GET("/v1/threads/:id/artifacts/:artifactId/content", h.ArtifactContent)
 	e.POST("/v1/agent/chat", h.StartThread)
 	e.GET("/v1/agent/chat", h.Chat)
-	return e, h.RegisterProxies(e)
+	h.RegisterProxies(e)
+	return e, nil
 }
 
 // Run serves until ctx is cancelled, then shuts down gracefully.

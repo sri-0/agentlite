@@ -2,6 +2,7 @@ package opensearch
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"time"
 
@@ -56,6 +57,20 @@ func (c *Client) SaveArtifact(ctx context.Context, a *Artifact) error {
 // Artifact fetches one artifact of a conversation, body included when inline.
 func (c *Client) Artifact(ctx context.Context, rootID, id string) (*Artifact, error) {
 	return get[Artifact](ctx, c, IndexArtifacts, artifactID(rootID, id))
+}
+
+// RecentArtifacts lists artifacts across every conversation, newest first,
+// without bodies: up to limit, updated before the given time (zero: now).
+func (c *Client) RecentArtifacts(ctx context.Context, before time.Time, limit int) ([]Artifact, error) {
+	q := map[string]any{"size": limit, "sort": []any{map[string]any{"updated_at": "desc"}}, "_source": map[string]any{"excludes": []string{"content"}}}
+	if !before.IsZero() {
+		q["query"] = map[string]any{"range": map[string]any{"updated_at": map[string]any{"lt": before}}}
+	}
+	body, err := json.Marshal(q)
+	if err != nil {
+		return nil, err
+	}
+	return search[Artifact](ctx, c, IndexArtifacts, string(body))
 }
 
 // Artifacts lists a conversation's artifacts, newest first, without bodies.

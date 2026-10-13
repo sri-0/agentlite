@@ -6,11 +6,12 @@ import (
 	"github.com/labstack/echo/v5"
 
 	"agentlite/internal/config"
+	"agentlite/pkg/modelcatalog"
 )
 
 type modelItem struct {
 	Object string `json:"object"`
-	config.Model
+	modelcatalog.Model
 }
 
 // Models serves the merged model list from every provider.

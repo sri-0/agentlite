@@ -61,6 +61,9 @@ func (m *Manager) Start(ctx context.Context, in StartInput) (*Run, error) {
 	if in.Model == "" {
 		in.Model = m.model
 	}
+	if err := m.runtime.CheckModel(in.Model); err != nil {
+		return nil, fmt.Errorf("%w: %v", ErrInvalid, err)
+	}
 	if in.MessageID == "" {
 		in.MessageID = uuid.NewString()
 	}

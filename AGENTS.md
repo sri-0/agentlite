@@ -8,7 +8,8 @@ resumable, persisted as the same events, and sub-agents are real threads.
 This file is the operating manual. How things work is in `docs/` (start at
 `docs/README.md`): ARCHITECTURE (components, run lifecycle, the socket, storage),
 AGENT-ARCHITECTURE (roster, the assistant, sub-agents, tools, todos), TOOLS (building
-tools, transports, sources, artifacts, tool UI), HITL (approvals and questions),
+tools, connectors, transports, sources, artifacts, tool UI), MODELS (model ids, strict
+routing, overrides, model cards, the pass-through), HITL (approvals and questions),
 AG-UI-RENDERING (event → UI mapping), MEMORY. A change to a protocol, config
 schema, the roster, the run lifecycle, HITL or storage updates the matching doc in the same
 commit.
@@ -17,7 +18,7 @@ commit.
 
 ```bash
 make up                     # Valkey :6379, OpenSearch :9200, MinIO :9000, Jaeger :16686
-cp .env.example .env.local  # PROXY_PROVIDER, provider keys and base URLs
+cp .env.example .env.local  # provider keys and base URLs, MODEL_CARDS_DIR
 make run                    # :8000
 make vet
 make dev web                # adk's launcher (web UI; also cli, api) over the same agents
@@ -54,9 +55,12 @@ internal/
   sources/             numbers and stores the sources tools return
   artifacts/           artifact records (OpenSearch) and bodies (S3)
   mcp/                 mcp connectors → adk toolsets
-  proxy/               provider clients, model discovery, reverse proxies, embeddings
+  providers/           provider clients, model resolution and discovery, the pass-through
+                       proxy, embeddings
 pkg/
   toolx/               the tool wrapper every function tool is built with
+  citations/           the source contract: Source, Origin, Recorder, [source:N]
+  modelcatalog/        the Model type, provider list parsers, model cards, the merge
   transport/           HTTP clients for providers, toolsets and MCP servers
   s3/                  S3-compatible object storage (minio-go)
   db/opensearch/       threads, messages, memories (kNN), sources, artifacts
@@ -95,7 +99,8 @@ document-level security, is `not_found`. ARCHITECTURE.md has the frames.
 | GET | `/v1/threads/{id}/interrupts` | the paused run's pending interrupts |
 | GET | `/v1/threads/{id}/sources`, `/v1/threads/{id}/sources/{n}` | the conversation's sources by number; one source, what `[source:n]` refers to |
 | GET | `/v1/threads/{id}/artifacts`, `/v1/threads/{id}/artifacts/{artifactId}/content` | the conversation's artifacts, newest first; one artifact's body |
-| POST | `/v1/chat/completions`, `/v1/responses`, `/v1/messages`, `/v1/embeddings` | reverse proxies to the configured provider, bodies untouched |
+| GET | `/v1/artifacts?before=&limit=` | artifacts across every conversation, newest first, with thread titles |
+| POST | `/v1/chat/completions`, `/v1/responses`, `/v1/messages`, `/v1/embeddings` | pass-through to the provider the body's `model` names, with the model rewritten to the provider's own id |
 
 There is no authentication or identity yet.
 
@@ -105,14 +110,16 @@ Environment (`internal/config/config.go`): `PORT`, `HOST`, `APP_NAME`, `CONFIG_D
 `LOG_LEVEL`, `LOG_JSON`, `ALLOWED_ORIGINS`, `REDIS_HOST/PORT/USER/PASS`,
 `REDIS_DB_RUNS/SESSIONS/HITL` (default 1/2/3), `OPENSEARCH_URL/USERNAME/PASSWORD`,
 `S3_ENDPOINT/ACCESS_KEY/SECRET_KEY/BUCKET/REGION/USE_SSL` (no endpoint keeps artifact bodies
-in OpenSearch), `OTEL_EXPORTER_OTLP_ENDPOINT`, plus what the YAML references (`PROXY_PROVIDER`,
+in OpenSearch), `MODEL_CARDS_DIR` (a checkout of the model cards), `OTEL_EXPORTER_OTLP_ENDPOINT`,
+plus what the YAML references (
 `LITELLM_BASE_URL`, `*_API_KEY`, `OPEN_SLIDE_MCP_URL`, …). `${VAR}` expands in `base_url`,
-headers, MCP endpoints and `proxy.provider`.
+headers and MCP endpoints.
 
 - `models.yaml`: `providers[]` (`id, base_url, api_key_env, api: chat_completions|responses,
-  headers, discover, models[], tls`), `default_model`, `compaction`, `memory`, `proxy`.
-  Discovered models merge under YAML entries; the first provider in file order that serves
-  an id wins; a provider with an empty `base_url` is skipped.
+  headers, discover, models[], tls`), `default_model`, `compaction`, `memory`. A model id is
+  `<provider>/<model>` and routes only to that provider (MODELS.md); models are declared by
+  the provider's own id and override, field by field, discovery and the model cards, with
+  an optional per-model `base_url` and `api`. A provider with an empty `base_url` is skipped.
 - `connectors.yaml`: `user_agent` and `connectors[]` (`id, name, description, icon, type:
   tools | mcp, tools[], mcp: {endpoint | command, tools, require_confirmation, thread_args,
   ui, artifacts}, http: {headers, user_agent, timeout, forward, tls}`). A tool belongs to

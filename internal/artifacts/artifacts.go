@@ -15,7 +15,6 @@ import (
 	"time"
 
 	"github.com/rs/zerolog"
-	"github.com/valkey-io/valkey-go"
 
 	"agentlite/internal/sources"
 	"agentlite/pkg/db/opensearch"
@@ -29,7 +28,6 @@ const KindURL = "url"
 var contentTypes = map[string]string{
 	"markdown": "text/markdown; charset=utf-8",
 	"code":     "text/plain; charset=utf-8",
-	"html":     "text/html; charset=utf-8",
 	"json":     "application/json",
 	"csv":      "text/csv; charset=utf-8",
 }
@@ -42,28 +40,15 @@ func ContentType(kind string) string { return contentTypes[kind] }
 
 // Store keeps artifacts.
 type Store struct {
-	records  *opensearch.Client
-	bodies   *s3.Client    // nil keeps bodies in the records
-	versions valkey.Client // version counters, one hash per conversation
-	sources  *sources.Recorder
-	log      zerolog.Logger
+	records *opensearch.Client
+	bodies  *s3.Client // nil keeps bodies in the records
+	sources *sources.Recorder
+	log     zerolog.Logger
 }
 
 // New returns a store; bodies may be nil.
-func New(records *opensearch.Client, bodies *s3.Client, versions valkey.Client, sources *sources.Recorder, log zerolog.Logger) *Store {
-	return &Store{records: records, bodies: bodies, versions: versions, sources: sources, log: log}
-}
-
-func versionsKey(rootID string) string { return "thread:" + rootID + ":artifacts" }
-
-// nextVersion adds by to the artifact's version counter and returns the new
-// value; HINCRBY makes concurrent saves get distinct versions.
-func (s *Store) nextVersion(ctx context.Context, rootID, id string, by int) (int, error) {
-	v, err := s.versions.Do(ctx, s.versions.B().Hincrby().Key(versionsKey(rootID)).Field(id).Increment(int64(by)).Build()).AsInt64()
-	if err != nil {
-		return 0, fmt.Errorf("number artifact version: %w", err)
-	}
-	return int(v), nil
+func New(records *opensearch.Client, bodies *s3.Client, sources *sources.Recorder, log zerolog.Logger) *Store {
+	return &Store{records: records, bodies: bodies, sources: sources, log: log}
 }
 
 // validID is what an artifact id may be: it is part of a document id, an S3
@@ -71,9 +56,10 @@ func (s *Store) nextVersion(ctx context.Context, rootID, id string, by int) (int
 var validID = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$`)
 
 // Save stores a new version of an artifact, keeping its creation time, and
-// records the sources its body cites. Versions are numbered atomically, each
-// body has its own key, and the record only moves forward, so two saves of
-// one artifact at once both keep their versions and the later one is served.
+// records the sources its body cites. Versions are numbered atomically (the
+// conversation's counters document), each body has its own key, and the
+// record only moves forward, so two saves of one artifact at once both keep
+// their versions and the later one is served.
 func (s *Store) Save(ctx context.Context, a *opensearch.Artifact, body string) error {
 	switch {
 	case !validID.MatchString(a.ID):
@@ -83,25 +69,19 @@ func (s *Store) Save(ctx context.Context, a *opensearch.Artifact, body string) e
 	case a.Kind != KindURL && contentTypes[a.Kind] == "":
 		return fmt.Errorf("unknown artifact kind %q; use one of %v", a.Kind, Kinds())
 	}
-	version, err := s.nextVersion(ctx, a.RootID, a.ID, 1)
+	version, err := s.records.NextArtifactVersion(ctx, a.RootID, a.ID)
 	if err != nil {
 		return err
 	}
 	now := time.Now()
-	a.CreatedAt, a.UpdatedAt = now, now
+	a.Version, a.CreatedAt, a.UpdatedAt = version, now, now
 	prev, err := s.records.Artifact(ctx, a.RootID, a.ID)
 	switch {
 	case err == nil:
 		a.CreatedAt = prev.CreatedAt
-		if version <= prev.Version { // Valkey lost the count: move it past the stored version
-			if version, err = s.nextVersion(ctx, a.RootID, a.ID, prev.Version+1-version); err != nil {
-				return err
-			}
-		}
 	case !errors.Is(err, opensearch.ErrNotFound):
 		return err
 	}
-	a.Version = version
 	if a.Kind != KindURL {
 		a.Size = len(body)
 		if s.bodies != nil {
@@ -153,15 +133,13 @@ func (s *Store) Body(ctx context.Context, a *opensearch.Artifact) (io.ReadCloser
 	return nil, opensearch.ErrNotFound
 }
 
-// Delete removes a conversation's bodies and version counters; the records
-// are deleted with the thread's documents.
+// Delete removes a conversation's bodies; the records and counters are
+// deleted with the thread's documents.
 func (s *Store) Delete(ctx context.Context, rootID string) error {
-	if s.bodies != nil {
-		if err := s.bodies.DeletePrefix(ctx, "artifacts/"+rootID+"/"); err != nil {
-			return err
-		}
+	if s.bodies == nil {
+		return nil
 	}
-	return s.versions.Do(ctx, s.versions.B().Del().Key(versionsKey(rootID)).Build()).Error()
+	return s.bodies.DeletePrefix(ctx, "artifacts/"+rootID+"/")
 }
 
 // key is where a version's body lives in S3.

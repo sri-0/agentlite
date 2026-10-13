@@ -6,7 +6,6 @@ package bootstrap
 
 import (
 	"context"
-	"fmt"
 
 	"github.com/rs/zerolog"
 	valkeygo "github.com/valkey-io/valkey-go"
@@ -17,7 +16,7 @@ import (
 	"agentlite/internal/config"
 	"agentlite/internal/hitl"
 	"agentlite/internal/mcp"
-	"agentlite/internal/proxy"
+	"agentlite/internal/providers"
 	"agentlite/internal/runs"
 	"agentlite/internal/sources"
 	"agentlite/pkg/db/opensearch"
@@ -32,7 +31,7 @@ import (
 type App struct {
 	Config    *config.Config
 	Log       zerolog.Logger
-	Registry  *proxy.Registry
+	Registry  *providers.Registry
 	Store     *opensearch.Client
 	Sessions  session.Service
 	Memory    *memory.Service // nil when memory is not configured
@@ -57,7 +56,7 @@ func New(ctx context.Context) (*App, error) {
 	}
 	app.closers = append(app.closers, stopTracing)
 
-	if app.Registry, err = proxy.NewRegistry(cfg.Models, app.Log); err != nil {
+	if app.Registry, err = providers.NewRegistry(cfg.Models, cfg.ModelCardsDir, app.Log); err != nil {
 		return nil, err
 	}
 	app.Registry.Start(ctx)
@@ -85,8 +84,8 @@ func New(ctx context.Context) (*App, error) {
 	if app.Memory != nil {
 		mem = app.Memory
 	}
-	app.Sources = sources.New(runsDB, app.Store)
-	if app.Artifacts, err = artifactStore(ctx, cfg, app.Store, runsDB, app.Sources, app.Log); err != nil {
+	app.Sources = sources.New(app.Store)
+	if app.Artifacts, err = artifactStore(ctx, cfg, app.Store, app.Sources, app.Log); err != nil {
 		return nil, err
 	}
 	app.Agents = agents.New(cfg, agents.Deps{
@@ -121,7 +120,7 @@ func (a *App) Close() {
 
 // artifactStore keeps artifact bodies in S3 when S3_ENDPOINT is set, and in
 // OpenSearch otherwise.
-func artifactStore(ctx context.Context, cfg *config.Config, records *opensearch.Client, versions valkeygo.Client, recorder *sources.Recorder, log zerolog.Logger) (*artifacts.Store, error) {
+func artifactStore(ctx context.Context, cfg *config.Config, records *opensearch.Client, recorder *sources.Recorder, log zerolog.Logger) (*artifacts.Store, error) {
 	var bodies *s3.Client
 	if cfg.S3.Endpoint == "" {
 		log.Info().Msg("S3 not configured; artifact bodies are kept in OpenSearch")
@@ -131,18 +130,14 @@ func artifactStore(ctx context.Context, cfg *config.Config, records *opensearch.
 			return nil, err
 		}
 	}
-	return artifacts.New(records, bodies, versions, recorder, log), nil
+	return artifacts.New(records, bodies, recorder, log), nil
 }
 
 // memoryService builds long-term memory when models.yaml configures it.
-func memoryService(ctx context.Context, cfg *config.Config, registry *proxy.Registry, store *opensearch.Client, log zerolog.Logger) (*memory.Service, error) {
+func memoryService(ctx context.Context, cfg *config.Config, registry *providers.Registry, store *opensearch.Client, log zerolog.Logger) (*memory.Service, error) {
 	m := cfg.Models.Memory
 	if m == nil {
 		return nil, nil
 	}
-	client, _, err := registry.Model(m.EmbeddingModel)
-	if err != nil {
-		return nil, fmt.Errorf("memory: %w", err)
-	}
-	return memory.New(ctx, store, client, m.EmbeddingModel, m.Dimensions, log)
+	return memory.New(ctx, store, registry.Embedder(m.EmbeddingModel), m.Dimensions, log)
 }

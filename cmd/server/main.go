@@ -37,7 +37,7 @@ func run() error {
 
 	h := &handler.Handler{
 		Config: app.Config, Registry: app.Registry, Runs: app.Runs, Runtime: app.Agents,
-		Store: app.Store, Artifacts: app.Artifacts, Sources: app.Sources, Log: app.Log,
+		Store: app.Store, Artifacts: app.Artifacts, Log: app.Log,
 	}
 	e, err := server.New(app.Config, h, app.Log)
 	if err != nil {

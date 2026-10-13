@@ -23,7 +23,7 @@ Echo server (internal/server, internal/handler, internal/ws)
    │           encoder (internal/stream) turns adk events into AG-UI events
    │           written to the thread's log
    │
-   ├─ pass-through proxies (internal/proxy): /v1/chat/completions, /v1/responses,
+   ├─ pass-through proxy (internal/providers): /v1/chat/completions, /v1/responses,
    │    /v1/messages, /v1/embeddings → the configured provider, bytes untouched
    │
    ├─ Valkey: event logs, runs, queues, leases, adk sessions, interrupt records, source numbers
@@ -41,7 +41,8 @@ implements it, so imports run one way.
 | `internal/runs` | `manager.go` (Manager and the interfaces it needs), `start.go`, `answer.go`, `cancel.go`, `subscribe.go` (subscribe, wait, statuses), `worker.go` (worker loops, executing a segment), `finalizer.go`, `queue.go`, `log.go`, `store.go` (run records, leases), `run.go` |
 | `internal/agents` | `runtime.go` (Runtime, running a segment), `build.go` (roster → adk agents and tools), `connectors.go` (a client and toolset per connector), `mcptools.go` (the MCP tool hooks), `compaction.go`, `seed.go` (rebuild a session), `resume.go` (answers → adk responses) |
 | `internal/sources`, `internal/artifacts` | numbering and storing sources; storing artifacts (TOOLS.md) |
-| `pkg/toolx`, `pkg/transport`, `pkg/s3` | the tool wrapper; HTTP clients; S3 through minio-go |
+| `internal/providers` | provider clients, model resolution, discovery, the pass-through, embeddings (MODELS.md) |
+| `pkg/toolx`, `pkg/citations`, `pkg/transport`, `pkg/s3`, `pkg/modelcatalog` | the tool wrapper; the source contract; HTTP clients; S3 through minio-go; models and model cards |
 
 ## The life of a run
 
@@ -168,12 +169,13 @@ Valkey is split into logical databases, set by environment:
 
 | Env | Default | Holds | Keys |
 |---|---|---|---|
-| `REDIS_DB_RUNS` | 1 | the run lifecycle | `thread:{id}:log` (stream of AG-UI events), `thread:{id}:seq` (message order), `thread:{id}:run` (lease), `run:{id}` (run record, 7 days), `runs:{agentId}` and `runs:done` (queues), `run:{id}:ctl` (cancel, pub/sub), `thread:{root}:sources` and `thread:{root}:sources:seq` (source numbers), `thread:{root}:artifacts` (artifact versions); these last as long as the thread |
+| `REDIS_DB_RUNS` | 1 | the run lifecycle | `thread:{id}:log` (stream of AG-UI events), `thread:{id}:seq` (message order), `thread:{id}:run` (lease), `run:{id}` (run record, 7 days), `runs:{agentId}` and `runs:done` (queues), `run:{id}:ctl` (cancel, pub/sub) |
 | `REDIS_DB_SESSIONS` | 2 | adk sessions: agent state and history | `session:{id}` (metadata), `session:{id}:events`, `session:{id}:state` (30 days), `sessions:{app}` (index for adk's launcher) |
 | `REDIS_DB_HITL` | 3 | interrupts | `hitl:{interruptId}` (record and decision, 7 days), `hitl:thread:{id}:pending` (open), `hitl:thread:{id}:decided` (answered, waiting for the rest) |
 
 OpenSearch indices: `threads`, `messages` (events stored unindexed), `memories`
-(kNN vectors; created only when memory is configured), `sources`, `artifacts`.
+(kNN vectors; created only when memory is configured), `sources`, `artifacts`,
+`counters` (each conversation's source numbers and artifact versions).
 Every write refreshes the index, so a read after a save sees it.
 
 S3 (`S3_ENDPOINT`, MinIO in `docker-compose.yaml`): artifact bodies at
@@ -188,7 +190,7 @@ Environment (`internal/config/config.go`): `PORT`, `HOST`, `APP_NAME`,
 `REDIS_DB_HITL`, `OPENSEARCH_URL`, `OPENSEARCH_USERNAME`, `OPENSEARCH_PASSWORD`,
 `S3_ENDPOINT`, `S3_ACCESS_KEY`, `S3_SECRET_KEY`, `S3_BUCKET`, `S3_REGION`, `S3_USE_SSL`,
 `OTEL_EXPORTER_OTLP_ENDPOINT` (tracing), and whatever the YAML files reference
-(`PROXY_PROVIDER`, provider base URLs and keys, `OPEN_SLIDE_MCP_URL`).
+(provider base URLs and keys, `OPEN_SLIDE_MCP_URL`), and `MODEL_CARDS_DIR`.
 
 Files in `CONFIG_DIR`: `models.yaml` (providers, discovery, `default_model`,
 `compaction`, `memory`, `proxy`), `connectors.yaml` (toolx tools and MCP servers),

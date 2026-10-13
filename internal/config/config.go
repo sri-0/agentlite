@@ -26,6 +26,9 @@ type Env struct {
 	Redis      Redis      `env:", prefix=REDIS_"`
 	OpenSearch OpenSearch `env:", prefix=OPENSEARCH_"`
 	S3         s3.Config  `env:", prefix=S3_"` // artifact bodies; no S3_ENDPOINT keeps them in OpenSearch
+	// ModelCardsDir is a checkout of the model cards (one Markdown file per
+	// model); empty means no cards.
+	ModelCardsDir string `env:"MODEL_CARDS_DIR"`
 }
 
 // Redis is the Valkey connection; the REDIS_ names are kept from agentic.

@@ -6,6 +6,7 @@ import (
 	"slices"
 	"strings"
 
+	"agentlite/pkg/citations"
 	"agentlite/pkg/toolx"
 )
 
@@ -55,7 +56,7 @@ func searchRecords(conn toolx.Connector) (toolx.Tool, error) {
 	}, func(tc toolx.Context, a searchRecordsArgs) (map[string]any, error) {
 		hits := []recordHit{}
 		for _, r := range rank(records, a.Query) {
-			n, err := tc.AddSource(toolx.Source{
+			n, err := tc.AddSource(citations.Source{
 				System: conn.ID, Key: r.ID, URL: "https://records.example.org/r/" + r.ID, Title: r.Title,
 				Metadata: map[string]any{"record_id": r.ID, "marking": r.Marking, "control_set": r.ControlSet, "owner": r.Owner, "updated": r.Updated},
 			})

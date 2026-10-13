@@ -1,7 +1,7 @@
-// Package proxy owns the upstream providers: one HTTP client per provider
-// (pkg/transport), model discovery, and the reverse proxies for the
-// pass-through routes.
-package proxy
+// Package providers owns the upstream LLM providers: an HTTP client per
+// provider (pkg/transport), the models each serves (pkg/modelcatalog), how a
+// model id resolves to its provider, the pass-through proxy and embeddings.
+package providers
 
 import (
 	"fmt"
@@ -10,18 +10,22 @@ import (
 	"os"
 	"strings"
 
+	"github.com/openai/openai-go/v3"
+	"github.com/openai/openai-go/v3/option"
+
 	"agentlite/internal/config"
 	"agentlite/pkg/transport"
 )
 
 // Client is a configured upstream provider. Its HTTP client carries every
-// call to the provider: agent model calls, the pass-through proxies and
+// call to the provider: agent model calls, the pass-through proxy and
 // embeddings.
 type Client struct {
 	Config  config.Provider
 	BaseURL *url.URL
 	APIKey  string
 	HTTP    *http.Client
+	openai  openai.Client // for embeddings
 }
 
 // NewClient builds the provider's client from its configuration.
@@ -38,7 +42,9 @@ func NewClient(p config.Provider) (*Client, error) {
 	if err != nil {
 		return nil, fmt.Errorf("provider %s: %w", p.ID, err)
 	}
-	return &Client{Config: p, BaseURL: base, APIKey: os.Getenv(p.APIKeyEnv), HTTP: httpClient}, nil
+	c := &Client{Config: p, BaseURL: base, APIKey: os.Getenv(p.APIKeyEnv), HTTP: httpClient}
+	c.openai = openai.NewClient(option.WithBaseURL(base.String()), option.WithAPIKey(c.APIKey), option.WithHTTPClient(httpClient))
+	return c, nil
 }
 
 // Authorization returns the header value for the provider, or "".

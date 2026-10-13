@@ -5,6 +5,8 @@ import (
 	"net/http"
 
 	"google.golang.org/adk/v2/agent"
+
+	"agentlite/pkg/citations"
 )
 
 // Context is what a tool's function receives: adk's tool context (the call
@@ -25,7 +27,7 @@ type Run struct {
 	// Authorization is the user's Authorization header, when the request
 	// that started the run carried one.
 	Authorization string
-	Sources       Sources // nil outside a run: nothing is recorded
+	Sources       citations.Recorder // nil outside a run: nothing is recorded
 }
 
 // Thread identifies the run a tool call belongs to.
@@ -33,13 +35,6 @@ type Thread struct {
 	ID     string // the thread the run is on
 	RootID string // the conversation's root thread; ID itself for a user's thread
 	RunID  string
-}
-
-// Call identifies one tool call.
-type Call struct {
-	Thread Thread
-	Tool   string // the tool's name
-	ID     string // the call id the model gave it
 }
 
 // Identity headers, sent by clients built with Headers (see Context).
@@ -109,9 +104,11 @@ func (c Context) Value(key any) any {
 // AddSource records an item the tool returned as a source and returns its
 // number. Put the number on the item the model sees; the model cites it as
 // [source:N]. Outside a run nothing is recorded and the number is 0.
-func (c Context) AddSource(s Source) (int, error) {
+func (c Context) AddSource(s citations.Source) (int, error) {
 	if c.run.Sources == nil {
 		return 0, nil
 	}
-	return c.run.Sources.Add(c, Call{Thread: c.Thread, Tool: c.tool, ID: c.FunctionCallID()}, s)
+	return c.run.Sources.Add(c, citations.Origin{
+		ThreadID: c.Thread.ID, RootID: c.Thread.RootID, RunID: c.Thread.RunID, Tool: c.tool, CallID: c.FunctionCallID(),
+	}, s)
 }

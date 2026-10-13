@@ -11,6 +11,7 @@ import (
 
 	"golang.org/x/net/html"
 
+	"agentlite/pkg/citations"
 	"agentlite/pkg/toolx"
 )
 
@@ -68,7 +69,7 @@ func webFetch(conn toolx.Connector) (toolx.Tool, error) {
 			text = text[:webFetchText]
 		}
 		page := resp.Request.URL.String() // after redirects
-		n, err := tc.AddSource(toolx.Source{System: conn.ID, URL: page, Title: title})
+		n, err := tc.AddSource(citations.Source{System: conn.ID, URL: page, Title: title})
 		if err != nil {
 			return nil, err
 		}

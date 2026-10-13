@@ -14,7 +14,7 @@ import (
 type emitArtifactArgs struct {
 	ID       string `json:"id,omitempty" jsonschema:"reuse an id to publish a new version of an earlier artifact"`
 	Title    string `json:"title" jsonschema:"short title"`
-	Kind     string `json:"kind" jsonschema:"markdown, code, html, json or csv"`
+	Kind     string `json:"kind" jsonschema:"markdown, code, json or csv"`
 	Content  string `json:"content" jsonschema:"the artifact body; cite sources in it as [source:N]"`
 	Language string `json:"language,omitempty" jsonschema:"language for code artifacts"`
 }
@@ -25,7 +25,7 @@ type emitArtifactArgs struct {
 func emitArtifact(d Deps) (toolx.Tool, error) {
 	return toolx.New(toolx.Spec{
 		Name:        stream.ToolEmitArtifact,
-		Description: "Publish a document, code file, HTML page, JSON or CSV as a standalone artifact shown beside the chat.",
+		Description: "Publish a document, code file, JSON or CSV as a standalone artifact shown beside the chat.",
 	}, func(tc toolx.Context, a emitArtifactArgs) (map[string]any, error) {
 		if a.ID == "" {
 			a.ID = uuid.NewString()

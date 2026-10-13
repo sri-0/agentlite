@@ -28,6 +28,8 @@ var (
 // a thread's session when it is missing.
 type Runtime interface {
 	Run(ctx context.Context, in Input, sink stream.Sink) (Result, error)
+	// CheckModel reports whether a model id names a model its provider serves.
+	CheckModel(modelID string) error
 	Seed(ctx context.Context, threadID, agentID string, history []opensearch.Message) error
 }
 

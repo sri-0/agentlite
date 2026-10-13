@@ -15,27 +15,30 @@ import (
 	"google.golang.org/adk/v2/session"
 	"google.golang.org/genai"
 
-	"agentlite/internal/proxy"
 	"agentlite/internal/stream"
 	"agentlite/pkg/db/opensearch"
 )
 
 const searchLimit = 5
 
+// Embedder turns text into a vector with the configured embedding model.
+type Embedder interface {
+	Embed(ctx context.Context, text string) ([]float32, error)
+}
+
 // Service is the OpenSearch-backed memory. Runs use it through ForThread.
 type Service struct {
 	store    *opensearch.Client
-	embedder *proxy.Client
-	model    string
+	embedder Embedder
 	log      zerolog.Logger
 }
 
-// New prepares the index and the embedding client.
-func New(ctx context.Context, store *opensearch.Client, embedder *proxy.Client, model string, dimensions int, log zerolog.Logger) (*Service, error) {
+// New prepares the index for vectors of the embedder's size.
+func New(ctx context.Context, store *opensearch.Client, embedder Embedder, dimensions int, log zerolog.Logger) (*Service, error) {
 	if err := store.EnsureMemoryIndex(ctx, dimensions); err != nil {
 		return nil, err
 	}
-	return &Service{store: store, embedder: embedder, model: model, log: log}, nil
+	return &Service{store: store, embedder: embedder, log: log}, nil
 }
 
 // AddSessionToMemory stores the text turns of the session's latest turn: the
@@ -55,7 +58,7 @@ func (s *Service) AddSessionToMemory(ctx context.Context, sess session.Session) 
 			continue
 		}
 		id := memoryID(sess.ID(), ev.ID)
-		vector, err := s.embedder.Embed(ctx, s.model, text)
+		vector, err := s.embedder.Embed(ctx, text)
 		if err != nil {
 			return fmt.Errorf("embed: %w", err)
 		}
@@ -86,7 +89,7 @@ func (v *threadView) SearchMemory(ctx context.Context, req *memory.SearchRequest
 	ctx, span := otel.Tracer("agentlite").Start(ctx, "memory.search")
 	defer span.End()
 	s := v.Service
-	vector, err := s.embedder.Embed(ctx, s.model, req.Query)
+	vector, err := s.embedder.Embed(ctx, req.Query)
 	if err != nil {
 		s.log.Warn().Err(err).Msg("memory search skipped: embedding failed")
 		return &memory.SearchResponse{}, nil

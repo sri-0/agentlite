@@ -5,7 +5,6 @@ import (
 	"go/token"
 	"io/fs"
 	"path/filepath"
-	"slices"
 	"strconv"
 	"strings"
 	"testing"
@@ -39,12 +38,5 @@ func TestOnlyToolxBuildsFunctionTools(t *testing.T) {
 	})
 	if err != nil {
 		t.Fatal(err)
-	}
-}
-
-func TestCitations(t *testing.T) {
-	got := Citations("A [source:2] and B [source: 10], again [source:2]; not [source:0] or [source:x].")
-	if want := []int{2, 10}; !slices.Equal(got, want) {
-		t.Errorf("Citations = %v, want %v", got, want)
 	}
 }

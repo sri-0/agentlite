@@ -2,11 +2,56 @@ package handler
 
 import (
 	"net/http"
+	"slices"
+	"time"
 
 	"github.com/labstack/echo/v5"
 
 	"agentlite/internal/artifacts"
+	"agentlite/pkg/db/opensearch"
 )
+
+// recentArtifact is an artifact in the cross-conversation list, with the title
+// of the conversation it belongs to.
+type recentArtifact struct {
+	opensearch.Artifact
+	ThreadTitle string `json:"thread_title"`
+}
+
+// RecentArtifacts lists artifacts across every conversation, newest first:
+// ?before=<RFC 3339 time> pages back, ?limit= (default 50, at most 200).
+func (h *Handler) RecentArtifacts(c *echo.Context) error {
+	ctx := c.Request().Context()
+	limit, _ := echo.QueryParamOr[int](c, "limit", defaultPageSize)
+	if limit <= 0 || limit > maxPageSize {
+		limit = defaultPageSize
+	}
+	var before time.Time
+	if v := c.QueryParam("before"); v != "" {
+		t, err := time.Parse(time.RFC3339Nano, v)
+		if err != nil {
+			return echo.NewHTTPError(http.StatusBadRequest, "before must be an RFC 3339 time")
+		}
+		before = t
+	}
+	found, err := h.Store.RecentArtifacts(ctx, before, limit)
+	if err != nil {
+		return err
+	}
+	roots := make([]string, 0, len(found))
+	for _, a := range found {
+		roots = append(roots, a.RootID)
+	}
+	titles, err := h.Store.ThreadTitles(ctx, slices.Compact(slices.Sorted(slices.Values(roots))))
+	if err != nil {
+		return err
+	}
+	items := make([]recentArtifact, 0, len(found))
+	for _, a := range found {
+		items = append(items, recentArtifact{Artifact: a, ThreadTitle: titles[a.RootID]})
+	}
+	return c.JSON(http.StatusOK, newList(items))
+}
 
 // ThreadArtifacts lists the artifacts of a thread's conversation, newest
 // first, without their bodies.

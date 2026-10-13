@@ -20,12 +20,13 @@ import (
 	"agentlite/internal/artifacts"
 	"agentlite/internal/config"
 	"agentlite/internal/mcp"
-	"agentlite/internal/proxy"
+	"agentlite/internal/providers"
 	"agentlite/internal/runs"
 	"agentlite/internal/sources"
 	"agentlite/internal/stream"
 	"agentlite/internal/tools/builtin"
 	"agentlite/pkg/db/opensearch"
+	"agentlite/pkg/modelcatalog"
 	"agentlite/pkg/toolx"
 )
 
@@ -33,7 +34,7 @@ import (
 type Runtime struct {
 	appName      string
 	defs         map[string]config.AgentDef
-	registry     *proxy.Registry
+	registry     *providers.Registry
 	sessions     session.Service
 	memory       Memory // nil when memory is not configured
 	preload      bool   // search memory before every model call, not only on request
@@ -54,7 +55,7 @@ type Runtime struct {
 
 // Deps are the services the runtime uses.
 type Deps struct {
-	Registry  *proxy.Registry
+	Registry  *providers.Registry
 	Sessions  session.Service
 	Memory    Memory                 // nil when memory is not configured
 	Servers   map[string]*mcp.Server // MCP servers by connector id
@@ -213,18 +214,26 @@ func (rt *Runtime) remember(ctx context.Context, threadID string) {
 	}
 }
 
-// model opens the adk model for a model id, on whichever provider serves it.
-func (rt *Runtime) model(ctx context.Context, modelID string) (model.LLM, *config.Model, error) {
-	client, meta, err := rt.registry.Model(modelID)
+// model opens the adk model for a model id on the provider the id names,
+// sending the provider its own id for the model.
+func (rt *Runtime) model(ctx context.Context, modelID string) (model.LLM, *modelcatalog.Model, error) {
+	t, err := rt.registry.Resolve(modelID)
 	if err != nil {
 		return nil, nil, err
 	}
 	api := openaimodel.APIChatCompletions
-	if client.Config.API == "responses" {
+	if t.API == "responses" {
 		api = openaimodel.APIResponses
 	}
-	llm, err := openaimodel.NewModel(ctx, modelID, &openaimodel.ClientConfig{
-		APIKey: client.APIKey, BaseURL: client.BaseURL.String(), HTTPClient: client.HTTP, API: api,
+	llm, err := openaimodel.NewModel(ctx, t.Model.UpstreamID, &openaimodel.ClientConfig{
+		APIKey: t.Client.APIKey, BaseURL: t.BaseURL.String(), HTTPClient: t.Client.HTTP, API: api,
 	})
-	return llm, meta, err
+	return llm, &t.Model, err
+}
+
+// CheckModel reports whether a model id resolves; runs.Start refuses a run
+// on one that does not.
+func (rt *Runtime) CheckModel(modelID string) error {
+	_, err := rt.registry.Resolve(modelID)
+	return err
 }

@@ -107,9 +107,6 @@ func (h *Handler) DeleteThread(c *echo.Context) error {
 	if err := h.Store.DeleteThread(ctx, id); err != nil {
 		return err
 	}
-	if err := h.Sources.Delete(ctx, id); err != nil {
-		return err
-	}
 	return c.NoContent(http.StatusNoContent)
 }
 

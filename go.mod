@@ -3,6 +3,7 @@ module agentlite
 go 1.27.1
 
 require (
+	dario.cat/mergo v1.0.2
 	github.com/ag-ui-protocol/ag-ui/sdks/community/go v0.0.0-20261007133343-903a9ab9a154
 	github.com/coder/websocket v1.8.15
 	github.com/goccy/go-yaml v1.19.2

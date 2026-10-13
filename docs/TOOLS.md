@@ -10,7 +10,7 @@ The decisions below were made before building; the sections after them
 describe the result.
 
 1. **One transport package for every outbound HTTP client** (`pkg/transport`).
-   Today each provider's client is built inside `internal/proxy`. It moves to
+   Each provider's client was built inside `internal/proxy`. It moved to
    `pkg/transport`, which builds an `*http.Client` from a small config: static
    headers, headers taken from the request's context, TLS files, a timeout.
    Every LLM provider gets its own instance, used by agent model calls, the
@@ -75,7 +75,7 @@ key, or a key of another certificate fails at start.
 
 Who builds one:
 
-- **Each LLM provider** (`internal/proxy`, from its `headers` and `tls` in `models.yaml`).
+- **Each LLM provider** (`internal/providers`, from its `headers` and `tls` in `models.yaml`).
   The same client carries agent model calls (adk's OpenAI model), the pass-through
   proxies and embeddings.
 - **Each connector** (`internal/agents/connectors.go` for toolx tools, `internal/mcp` for
@@ -142,7 +142,7 @@ func searchRecords(conn toolx.Connector) (toolx.Tool, error) {
 		// tc: adk's tool context plus tc.Thread {ID, RootID, RunID}. Requests made with
 		// tc carry the caller's identity when the connector forwards it:
 		//   req, _ := http.NewRequestWithContext(tc, ...); conn.HTTP.Do(req)
-		n, err := tc.AddSource(toolx.Source{System: conn.ID, Key: row.ID, URL: row.URL, Title: row.Title,
+		n, err := tc.AddSource(citations.Source{System: conn.ID, Key: row.ID, URL: row.URL, Title: row.Title,
 			Metadata: map[string]any{"marking": row.Marking}})
 		...
 	})
@@ -161,28 +161,32 @@ func searchRecords(conn toolx.Connector) (toolx.Tool, error) {
 
 ## Sources
 
-A source is an item a tool returned that an answer may cite.
+A source is an item a tool returned that an answer may cite. The contract
+(`citations.Source`, `citations.Origin`, `citations.Recorder`, and the
+`[source:N]` format) lives in `pkg/citations`; a tool records sources through
+`tc.AddSource`, because a source must be recorded where the tool reads the data.
 
 ```
 tool ──tc.AddSource(Source{System, Key, URL, Title, Metadata})──► sources.Recorder
-        │                                                          ├─ Valkey: the number
-        │                                                          └─ OpenSearch: the record
+        │                                                          └─ OpenSearch: number + record
         └─ returns the item to the model with "source": N
 model ──"… the cables corroded [source:2]."──► encoder ──► runtime: Cite(message:<turn>)
 UI    ──[source:2] chip ──► GET /v1/threads/{id}/sources/2
 ```
 
 - **Numbers belong to the conversation** (the root thread), so a sub-agent's citations
-  stay valid in its parent's answer. `numberScript` (`internal/sources`) gives an item the
-  number its key already has, or the next one: the same row returned twice keeps its
-  number. The key is `Key`, or the URL when there is none; an item with neither always
-  gets a new number.
-- **A number is never reused.** A record is created, never overwritten. If Valkey ever
-  loses the count, the next record collides with a stored number; the recorder then
-  resumes the count after the highest stored number and numbers the source again.
+  stay valid in its parent's answer. They come from the conversation's counters
+  document (OpenSearch `counters`, incremented by a scripted update, atomic per
+  document).
+- **The same item keeps its number.** An item's identity is its system plus its `Key`,
+  or its URL when there is none; its record's id is derived from that identity, so a
+  second add finds it, and two adds of one new item at the same moment collide on the
+  id: the second takes the first's number and its own is left unused. An item with
+  neither key nor URL always gets a new number.
+- **A record is never replaced** (created with `op_type=create`).
 - **The record is the tool's, not the model's.** The model sees only the number on the
-  item; the system, key, URL, title and metadata (row ids, data markings, control sets)
-  come from the tool's own data, stored as given.
+  item; the system (the tool's connector), key, URL, title and metadata (row ids, data
+  markings, control sets) come from the tool's own data, stored as given.
 - **Citations are recorded.** Before a segment's closing event, the runtime records every
   `[source:N]` its text showed against the turn (`cited_in: ["message:<turn id>"]`), and an
   artifact's body records its own (`artifact:<id>`). A client that reads the sources when
@@ -192,20 +196,19 @@ UI    ──[source:2] chip ──► GET /v1/threads/{id}/sources/2
 - **The model is told how to cite.** Every agent with tools gets a `<citations>` block in
   its instruction (`internal/agents/build.go`).
 
-Storage:
+Storage, all in OpenSearch, so document-level security covers it:
 
-| Where | What |
+| Index | What |
 |---|---|
-| Valkey `REDIS_DB_RUNS`: `thread:{root}:sources` | hash, item key → number |
-| Valkey `REDIS_DB_RUNS`: `thread:{root}:sources:seq` | the last number given |
-| OpenSearch `sources`, id `{root}:{n}` | `root_id, number, thread_id, run_id, tool, tool_call_id, system, key, url, title, metadata (flat_object), retrieved_at, cited_in` |
+| `sources`, id `{root}:k:{hash of identity}` or `{root}:n:{number}` | `id, root_id, number, thread_id, run_id, tool, tool_call_id, system, key, url, title, metadata (flat_object), retrieved_at, cited_in` |
+| `counters`, id `{root}` | `sources` (the last number), `artifacts` (each artifact's last version) |
 
 `GET /v1/threads/{id}/sources` lists them by number; `GET /v1/threads/{id}/sources/{n}`
-returns one. Deleting the root thread deletes the records and the numbering.
+returns one. Deleting the root thread deletes the records and the counters.
 
 `search_records` (connector `records`) is the demonstration: it searches a few sample
 records and records every hit with the row's id, marking and control set as metadata.
-`webfetch` records each page it reads (system `web`, the final URL, the page title).
+`webfetch` records each page it reads (the final URL, the page title).
 
 ## Artifacts
 
@@ -217,22 +220,23 @@ records and records every hit with the row's id, marking and control set as meta
 - the body in S3 at `artifacts/{root}/{artifact id}/{version}` (`stored: s3`), or in the
   record's `content` when `S3_ENDPOINT` is not set (`stored: inline`).
 
-An artifact id is letters, digits, `.`, `_` and `-` (it is part of a document id, an S3
-key and a URL); the model may name one, and gets a UUID otherwise.
+An artifact id is letters, digits, `.`, `_` and `-`, starting with a letter or digit (it
+is part of a document id, an S3 key and a URL); the model may name one, and gets a UUID
+otherwise.
 
-Kinds with a body: `markdown`, `code`, `html`, `json`, `csv`. Kind `url` has no body: it
-points at a page the UI embeds. Publishing the same id again stores a new version under
-its own key. Versions are numbered atomically in Valkey (`thread:{root}:artifacts`, a hash
-of artifact id → last version), and the record is written with OpenSearch external
-versioning, so it only moves forward: two saves of one artifact at once both keep their
-bodies, and the higher version is served. If Valkey loses the count, the next save moves
-it past the stored version. Superseded bodies stay in S3, unread, until the thread is
-deleted. The tool's result, and the `artifact` activity the encoder makes of it,
-is a summary without the body (`artifacts.Summary`): `{id, title, kind, version,
-language?, url?}`. The UI fetches the body from
+Kinds with a body: `markdown`, `code`, `json`, `csv` (there is no HTML kind: model-written
+markup is the one kind not worth its risk). Kind `url` has no body: it points at a page
+the UI embeds. Publishing the same id again stores a new version under its own key.
+Versions come from the conversation's counters document, and the record is written with
+OpenSearch external versioning, so it only moves forward: two saves of one artifact at
+once both keep their bodies, and the higher version is served. Superseded bodies stay in
+S3, unread, until the thread is deleted. The tool's result, and the `artifact` activity
+the encoder makes of it, is a summary without the body (`artifacts.Summary`): `{id,
+title, kind, version, language?, url?}`. The UI fetches the body from
 `GET /v1/threads/{id}/artifacts/{artifactId}/content`, served with the kind's content
-type, with `Content-Security-Policy: sandbox` so a body opened directly never runs as the
-API's origin; `GET /v1/threads/{id}/artifacts` lists the conversation's artifacts.
+type and `Content-Security-Policy: sandbox`; `GET /v1/threads/{id}/artifacts` lists the
+conversation's artifacts, and `GET /v1/artifacts?before=&limit=` lists every
+conversation's, newest first, with each one's thread title.
 
 S3 is any S3-compatible store through `minio-go` (`pkg/s3`); `docker-compose.yaml` runs
 MinIO on `:9000` (console `:9001`, `minioadmin`/`minioadmin`). The bucket is created on
@@ -283,13 +287,14 @@ the thread is opened again; its files stay on the open-slide server.
 | File | Role |
 |---|---|
 | `pkg/transport/transport.go` | the HTTP client builder |
-| `pkg/toolx/toolx.go`, `context.go`, `source.go` | `New`, `Spec`, `Tool`, `Toolset`; `Context`, `Thread`, `WithRun`, `Headers`; `Source`, `Citations` |
+| `pkg/toolx/toolx.go`, `context.go` | `New`, `Spec`, `Tool`, `Connector`, `Toolset`; `Context`, `Run`, `WithRun`, `Headers` |
+| `pkg/citations/citations.go` | `Source`, `Origin`, `Recorder`, `Numbers` |
 | `internal/tools/tools.go` | the catalog of world tools |
 | `internal/agents/connectors.go` | one client and toolset per connector |
 | `internal/agents/mcptools.go` | the MCP tool hooks |
 | `internal/sources/sources.go` | numbering, records, citations |
 | `internal/artifacts/artifacts.go` | records and bodies |
 | `pkg/s3/s3.go` | S3 through minio-go |
-| `pkg/db/opensearch/sources.go`, `artifacts.go` | the `sources` and `artifacts` indices |
+| `pkg/db/opensearch/sources.go`, `artifacts.go`, `counters.go` | the `sources`, `artifacts` and `counters` indices |
 | `internal/handler/sources.go`, `artifacts.go` | the read API |
 | `internal/stream/encode.go` | `ToolUI` → `TOOL_CALL_START` metadata |

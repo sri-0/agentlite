@@ -1,31 +1,25 @@
 package handler
 
 import (
-	"github.com/labstack/echo/v5"
+	"net/http"
 
-	"agentlite/internal/proxy"
+	"github.com/labstack/echo/v5"
 )
 
-// proxyRoutes maps the pass-through paths to their route names.
-var proxyRoutes = map[string]string{
-	"/v1/chat/completions": proxy.RouteChatCompletions,
-	"/v1/responses":        proxy.RouteResponses,
-	"/v1/messages":         proxy.RouteMessages,
-	"/v1/embeddings":       proxy.RouteEmbeddings,
+// passThrough are the upstream endpoints proxied as they are; the provider is
+// the one the body's model names (providers.Registry.Passthrough). Serving a
+// new upstream endpoint is one more line here.
+var passThrough = []string{
+	"/v1/chat/completions",
+	"/v1/responses",
+	"/v1/messages",
+	"/v1/embeddings",
 }
 
-// RegisterProxies mounts every pass-through route on its upstream.
-func (h *Handler) RegisterProxies(e *echo.Echo) error {
-	for path, route := range proxyRoutes {
-		client, err := h.Registry.ProxyFor(route)
-		if err != nil {
-			return err
-		}
-		rp := proxy.NewReverseProxy(client, h.Log)
-		e.POST(path, func(c *echo.Context) error {
-			rp.ServeHTTP(c.Response(), c.Request())
-			return nil
-		})
+// RegisterProxies mounts the pass-through endpoints.
+func (h *Handler) RegisterProxies(e *echo.Echo) {
+	proxy := echo.WrapHandler(http.HandlerFunc(h.Registry.Passthrough))
+	for _, path := range passThrough {
+		e.POST(path, proxy)
 	}
-	return nil
 }

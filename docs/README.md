@@ -8,6 +8,7 @@ in depth.
 |---|---|
 | [ARCHITECTURE.md](ARCHITECTURE.md) | Components, the life of a run, threads, streaming, and where every piece of state lives (Valkey databases and keys, OpenSearch indices). |
 | [AGENT-ARCHITECTURE.md](AGENT-ARCHITECTURE.md) | The roster, the assistant as coordinator, the `subagent` tool and sub-agent threads, todos, connectors, models, the deep-research pipeline. |
+| [MODELS.md](MODELS.md) | Model ids (`<provider>/<model>`), strict routing, how discovery, model cards and `models.yaml` merge, per-model overrides, the pass-through proxy, embeddings. |
 | [TOOLS.md](TOOLS.md) | Building tools with `toolx`, the HTTP transports, sources and citations, artifacts and S3, tool UI renderers, the MCP tool hooks. |
 | [HITL.md](HITL.md) | Approvals and questions: how a run pauses, how the answer resumes it, and how a sub-agent's request reaches the user and its answer reaches the sub-agent. |
 | [AG-UI-RENDERING.md](AG-UI-RENDERING.md) | Every AG-UI event the backend emits, which code emits it, and what the UI's reducer and components make of it. |

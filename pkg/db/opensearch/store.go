@@ -95,6 +95,7 @@ var indices = map[string]string{
 		"events":{"type":"object","enabled":false}}}}`,
 	IndexSources:   sourcesMapping,
 	IndexArtifacts: artifactsMapping,
+	IndexCounters:  countersMapping,
 }
 
 // listCap bounds the lists of one conversation's sources and artifacts.
@@ -193,6 +194,23 @@ func (c *Client) Thread(ctx context.Context, id string) (*Thread, error) {
 	return get[Thread](ctx, c, IndexThreads, id)
 }
 
+// ThreadTitles returns the titles of the given threads, by id.
+func (c *Client) ThreadTitles(ctx context.Context, ids []string) (map[string]string, error) {
+	titles := map[string]string{}
+	if len(ids) == 0 {
+		return titles, nil
+	}
+	q, err := json.Marshal(map[string]any{"size": len(ids), "_source": []string{"id", "title"}, "query": map[string]any{"ids": map[string]any{"values": ids}}})
+	if err != nil {
+		return nil, err
+	}
+	found, err := search[Thread](ctx, c, IndexThreads, string(q))
+	for _, t := range found {
+		titles[t.ID] = t.Title
+	}
+	return titles, err
+}
+
 // get fetches one document by id; ErrNotFound when there is none.
 func get[T any](ctx context.Context, c *Client, index, id string) (*T, error) {
 	resp, err := c.api.Document.Get(ctx, opensearchapi.GetReq{Index: index, ID: id})
@@ -214,7 +232,8 @@ func get[T any](ctx context.Context, c *Client, index, id string) (*T, error) {
 func (c *Client) DeleteThread(ctx context.Context, id string) error {
 	refresh := &opensearchapi.DeleteByQueryParams{Refresh: "true"}
 	for index, field := range map[string]string{
-		IndexThreads: "root_id", IndexMessages: "root_id", IndexMemories: "thread_id", IndexSources: "root_id", IndexArtifacts: "root_id",
+		IndexThreads: "root_id", IndexMessages: "root_id", IndexMemories: "thread_id",
+		IndexSources: "root_id", IndexArtifacts: "root_id", IndexCounters: "root_id",
 	} {
 		q := fmt.Sprintf(`{"query":{"term":{%q:%q}}}`, field, id)
 		_, err := c.api.DeleteByQuery(ctx, &opensearchapi.DeleteByQueryReq{Indices: []string{index}, BodyReader: strings.NewReader(q), Params: refresh})

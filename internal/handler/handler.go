@@ -10,21 +10,19 @@ import (
 	"agentlite/internal/agents"
 	"agentlite/internal/artifacts"
 	"agentlite/internal/config"
-	"agentlite/internal/proxy"
+	"agentlite/internal/providers"
 	"agentlite/internal/runs"
-	"agentlite/internal/sources"
 	"agentlite/pkg/db/opensearch"
 )
 
 // Handler carries the dependencies every route needs.
 type Handler struct {
 	Config    *config.Config
-	Registry  *proxy.Registry
+	Registry  *providers.Registry
 	Runs      *runs.Manager
 	Runtime   *agents.Runtime
 	Store     *opensearch.Client
 	Artifacts *artifacts.Store
-	Sources   *sources.Recorder
 	Log       zerolog.Logger
 }
 
