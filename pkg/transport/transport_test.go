@@ -1,6 +1,7 @@
 package transport
 
 import (
+	"context"
 	"crypto/ecdsa"
 	"crypto/elliptic"
 	"crypto/rand"
@@ -9,8 +10,11 @@ import (
 	"crypto/x509/pkix"
 	"encoding/pem"
 	"math/big"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"sync"
 	"testing"
 	"time"
 
@@ -85,4 +89,56 @@ func selfSigned(t *testing.T, pub, priv any) []byte {
 		t.Fatal(err)
 	}
 	return der
+}
+
+// TestHeadersStayWithTheirHost: the configured and forwarded headers carry
+// credentials (an API key, the user's token), so a redirect to another host
+// must get none of them.
+func TestHeadersStayWithTheirHost(t *testing.T) {
+	var mu sync.Mutex
+	got := map[string]http.Header{}
+	record := func(name string, w http.ResponseWriter, r *http.Request) {
+		mu.Lock()
+		defer mu.Unlock()
+		got[name] = r.Header.Clone()
+	}
+	other := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { record("other", w, r) }))
+	defer other.Close()
+	system := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/away" {
+			http.Redirect(w, r, other.URL, http.StatusFound)
+			return
+		}
+		record("system", w, r)
+	}))
+	defer system.Close()
+
+	type userKey struct{}
+	client, err := New(Config{
+		Headers: map[string]string{"X-Api-Key": "key"},
+		ContextHeaders: func(ctx context.Context) http.Header {
+			return http.Header{"Authorization": {ctx.Value(userKey{}).(string)}}
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.WithValue(context.Background(), userKey{}, "Bearer user")
+	for _, url := range []string{system.URL, system.URL + "/away"} {
+		req, _ := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+		res, err := client.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		res.Body.Close()
+	}
+
+	mu.Lock()
+	defer mu.Unlock()
+	if h := got["system"]; h.Get("X-Api-Key") != "key" || h.Get("Authorization") != "Bearer user" {
+		t.Errorf("the system got %v", h)
+	}
+	if h := got["other"]; h == nil || h.Get("X-Api-Key") != "" || h.Get("Authorization") != "" {
+		t.Errorf("the redirect's host got %v", h)
+	}
 }

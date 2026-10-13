@@ -1,8 +1,8 @@
 package config
 
 import (
+	"errors"
 	"fmt"
-	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -51,13 +51,13 @@ func (c *Compaction) check() error {
 	}
 	switch {
 	case c.TokenThreshold < 0 || c.TokenThreshold > 1:
-		return fmt.Errorf("token_threshold is a share of the context window, within 0..1")
+		return errors.New("token_threshold is a share of the context window, within 0..1")
 	case c.TokenThreshold == 0 && c.Interval == 0:
-		return fmt.Errorf("set token_threshold or interval, or remove the block")
+		return errors.New("set token_threshold or interval, or remove the block")
 	case c.Interval < 0 || c.Overlap < 0 || (c.Interval > 0 && c.Overlap >= c.Interval):
-		return fmt.Errorf("interval > overlap >= 0")
+		return errors.New("interval > overlap >= 0")
 	case c.KeepEvents < 1:
-		return fmt.Errorf("keep_events is at least 1")
+		return errors.New("keep_events is at least 1")
 	}
 	return nil
 }
@@ -106,7 +106,7 @@ func LoadModels(dir string) (*ModelsConfig, error) {
 		return nil, fmt.Errorf("models.yaml: %w", err)
 	}
 	if cfg.DefaultModel == "" {
-		return nil, fmt.Errorf("models.yaml: default_model is required")
+		return nil, errors.New("models.yaml: default_model is required")
 	}
 	if c := cfg.Compaction; c != nil {
 		if err := c.check(); err != nil {
@@ -129,11 +129,7 @@ func LoadModels(dir string) (*ModelsConfig, error) {
 			p.Name = p.ID
 		}
 		for j := range p.Models {
-			m := &p.Models[j]
-			m.BaseURL = os.ExpandEnv(m.BaseURL)
-			if _, err := url.Parse(m.BaseURL); err != nil {
-				return nil, fmt.Errorf("models.yaml: model %s/%s: base_url: %w", p.ID, m.ID, err)
-			}
+			p.Models[j].BaseURL = os.ExpandEnv(p.Models[j].BaseURL) // checked by the providers registry
 		}
 	}
 	// Strict routing starts here: a model id must name a provider.

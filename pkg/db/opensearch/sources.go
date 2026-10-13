@@ -42,16 +42,17 @@ const sourcesMapping = `{"mappings":{"properties":{
 	"system":{"type":"keyword"},"key":{"type":"keyword"},"url":{"type":"keyword"},"title":{"type":"text"},
 	"metadata":{"type":"flat_object"},"retrieved_at":{"type":"date"},"cited_in":{"type":"keyword"}}}}`
 
-// SourceID is a source's document id. An item with an identity (its system
-// and key) has one id per conversation, so recording it twice collides
-// instead of numbering it twice; an item without one is identified by its
-// number.
-func SourceID(rootID, identity string, number int) string {
-	if identity == "" {
-		return fmt.Sprintf("%s:n:%d", rootID, number)
-	}
+// SourceKeyID is the document id of a source with an identity (its system
+// and key or URL): one per conversation, so recording it twice collides
+// instead of numbering it twice.
+func SourceKeyID(rootID, identity string) string {
 	sum := sha256.Sum256([]byte(identity))
 	return rootID + ":k:" + hex.EncodeToString(sum[:16])
+}
+
+// SourceNumberID is the document id of a source without an identity.
+func SourceNumberID(rootID string, number int) string {
+	return fmt.Sprintf("%s:n:%d", rootID, number)
 }
 
 // SaveSource stores a new source. A record is never replaced: when one with
@@ -112,13 +113,17 @@ func (c *Client) Cite(ctx context.Context, rootID, ref string, numbers []int) er
 	if err != nil || len(cited) == 0 {
 		return err
 	}
-	script, err := json.Marshal(map[string]any{"script": map[string]any{"lang": "painless", "source": citeScript, "params": map[string]any{"ref": ref}}})
+	script, err := json.Marshal(map[string]any{
+		"script": map[string]any{"lang": "painless", "source": citeScript, "params": map[string]any{"ref": ref}},
+	})
 	if err != nil {
 		return err
 	}
 	var body bytes.Buffer
 	for _, s := range cited {
-		action, _ := json.Marshal(map[string]any{"update": map[string]any{"_index": IndexSources, "_id": s.ID, "retry_on_conflict": 3}})
+		action, _ := json.Marshal(map[string]any{
+			"update": map[string]any{"_index": IndexSources, "_id": s.ID, "retry_on_conflict": 3},
+		})
 		body.Write(action)
 		body.WriteByte('\n')
 		body.Write(script)

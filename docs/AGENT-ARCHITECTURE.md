@@ -157,9 +157,12 @@ step's final text.
   failure, decline) and the session service (the stored summary) and streams the
   outcome as a `compaction` activity: `running`, then `completed` with the summary
   and its token usage and duration, `failed` with the error, or `declined` (the
-  summarizer had nothing to summarise; the UI drops it). A failed summary leaves
-  the run going with its full history (adk logs it and carries on); a run that ends
-  mid-summary closes the activity as `failed`.
+  summarizer had nothing to summarise, or adk discarded the summary because the
+  session changed while it was written; the UI drops it). adk compacts between the
+  events it yields, so a summary still unstored at the next event was discarded
+  and is closed then. A failed summary leaves the run going with its full history
+  (adk logs it and carries on); a run that ends mid-summary closes the activity as
+  `failed`. adk's later correction of a stored record is not shown again.
 - **Session**: each thread's adk session lives in Valkey and is rebuilt from the
   stored AG-UI events if it is missing.
 - **Memory**: see MEMORY.md. User-started runs get `load_memory`; sub-agents work

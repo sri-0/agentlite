@@ -39,10 +39,7 @@ func run() error {
 		Config: app.Config, Registry: app.Registry, Runs: app.Runs, Runtime: app.Agents,
 		Store: app.Store, Artifacts: app.Artifacts, Log: app.Log,
 	}
-	e, err := server.New(app.Config, h, app.Log)
-	if err != nil {
-		return err
-	}
+	e := server.New(app.Config, h, app.Log)
 	app.Log.Info().Int("port", app.Config.Port).Int("agents", len(app.Config.Agents)).Msg("listening")
 	if err := server.Run(ctx, app.Config, e); err != nil && !errors.Is(err, http.ErrServerClosed) {
 		return err

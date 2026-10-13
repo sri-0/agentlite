@@ -69,17 +69,17 @@ func (s *Store) Save(ctx context.Context, a *opensearch.Artifact, body string) e
 	case a.Kind != KindURL && contentTypes[a.Kind] == "":
 		return fmt.Errorf("unknown artifact kind %q; use one of %v", a.Kind, Kinds())
 	}
-	version, err := s.records.NextArtifactVersion(ctx, a.RootID, a.ID)
-	if err != nil {
-		return err
-	}
 	now := time.Now()
-	a.Version, a.CreatedAt, a.UpdatedAt = version, now, now
+	a.CreatedAt, a.UpdatedAt = now, now
+	floor := 0
 	prev, err := s.records.Artifact(ctx, a.RootID, a.ID)
 	switch {
 	case err == nil:
-		a.CreatedAt = prev.CreatedAt
+		a.CreatedAt, floor = prev.CreatedAt, prev.Version
 	case !errors.Is(err, opensearch.ErrNotFound):
+		return err
+	}
+	if a.Version, err = s.records.NextArtifactVersion(ctx, a.RootID, a.ID, floor); err != nil {
 		return err
 	}
 	if a.Kind != KindURL {

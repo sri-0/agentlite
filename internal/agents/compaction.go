@@ -21,18 +21,13 @@ func (rt *Runtime) compaction(ctx context.Context, modelID string, watch *compac
 	if c == nil {
 		return nil, nil
 	}
-	llm, meta, err := rt.model(ctx, modelID)
+	t, err := rt.registry.Resolve(modelID)
 	if err != nil {
 		return nil, err
 	}
-	summarizer, err := compaction.NewLLMSummarizer(compaction.LLMSummarizerConfig{Model: llm, Timeout: c.SummarizerTimeout})
-	if err != nil {
-		return nil, err
-	}
-	cfg := &compaction.Config{Summarizer: watchedSummarizer{Summarizer: summarizer, watch: watch}}
-	if c.TokenThreshold > 0 && meta.ContextLength > 0 { // the threshold needs a known window
-		cfg.TokenThreshold = int(c.TokenThreshold * float64(meta.ContextLength))
-		cfg.EventRetentionSize = c.KeepEvents
+	cfg := &compaction.Config{}
+	if window := t.Model.ContextLength; c.TokenThreshold > 0 && window > 0 { // the threshold needs a known window
+		cfg.TokenThreshold, cfg.EventRetentionSize = int(c.TokenThreshold*float64(window)), c.KeepEvents
 	}
 	if c.Interval > 0 {
 		cfg.CompactionInterval, cfg.OverlapSize = c.Interval, c.Overlap
@@ -40,15 +35,28 @@ func (rt *Runtime) compaction(ctx context.Context, modelID string, watch *compac
 	if cfg.TokenThreshold == 0 && cfg.CompactionInterval == 0 {
 		return nil, nil
 	}
+	llm, _, err := rt.model(ctx, modelID)
+	if err != nil {
+		return nil, err
+	}
+	summarizer, err := compaction.NewLLMSummarizer(compaction.LLMSummarizerConfig{
+		Model: llm, Timeout: c.SummarizerTimeout,
+	})
+	if err != nil {
+		return nil, err
+	}
+	cfg.Summarizer = watchedSummarizer{Summarizer: summarizer, watch: watch}
 	return cfg, nil
 }
 
 // compactionWatch shows a run's compactions in its stream as a compaction
-// activity: running, then completed with the summary, or failed. adk
-// compacts without telling the runner's caller (it does not yield the event
-// it records), so the run wraps the two things a compaction passes through:
-// the summarizer, which starts it and may fail it, and the session service,
-// which receives the summary record.
+// activity: running, then completed with the summary, failed, or declined
+// (nothing to summarise, or adk discarded the summary). adk compacts without
+// telling the runner's caller (it does not yield the event it records), so
+// the run wraps the two things a compaction passes through: the summarizer,
+// which starts it and may fail or decline it, and the session service, which
+// receives the summary record. adk compacts on the goroutine that iterates
+// the run, between the events it yields.
 type compactionWatch struct {
 	sink stream.Sink
 
@@ -83,8 +91,9 @@ func (w *compactionWatch) summarized() {
 	w.written = true
 }
 
-// end closes the compaction in progress with its outcome; with none in
-// progress it is reported as one that just happened.
+// end closes the compaction in progress with its outcome. A record stored
+// with none in progress is adk correcting one already reported, and is not
+// shown again.
 func (w *compactionWatch) end(a compactionActivity) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
@@ -95,8 +104,16 @@ func (w *compactionWatch) end(a compactionActivity) {
 func (w *compactionWatch) fail(err error) {
 	w.mu.Lock()
 	defer w.mu.Unlock()
-	if w.id != "" {
-		w.finish(compactionActivity{Status: "failed", Error: err.Error()})
+	w.finish(compactionActivity{Status: "failed", Error: err.Error()})
+}
+
+// next is called for every event the run yields. A summary still open then
+// was discarded: a stored one has been reported by the time adk yields.
+func (w *compactionWatch) next() {
+	w.mu.Lock()
+	defer w.mu.Unlock()
+	if w.written {
+		w.finish(compactionActivity{Status: "declined"})
 	}
 }
 
@@ -110,22 +127,20 @@ func (w *compactionWatch) close() {
 // settle closes a compaction left open: adk discarded its written summary
 // (the session changed while it was written), or the run ended first.
 func (w *compactionWatch) settle() {
-	switch {
-	case w.id == "":
-	case w.written:
+	if w.written {
 		w.finish(compactionActivity{Status: "declined"})
-	default:
+	} else {
 		w.finish(compactionActivity{Status: "failed", Error: "the run ended before compaction finished"})
 	}
 }
 
 func (w *compactionWatch) finish(a compactionActivity) {
 	if w.id == "" {
-		w.id, w.started = "compaction:"+uuid.NewString(), time.Now()
+		return
 	}
 	a.DurationMs = time.Since(w.started).Milliseconds()
 	w.emit(a)
-	w.id = ""
+	w.id, w.written = "", false
 }
 
 func (w *compactionWatch) emit(a compactionActivity) {
@@ -139,7 +154,9 @@ type watchedSummarizer struct {
 	watch *compactionWatch
 }
 
-func (s watchedSummarizer) SummarizeEvents(ctx context.Context, events []*session.Event) (compaction.SummarizeResult, error) {
+func (s watchedSummarizer) SummarizeEvents(
+	ctx context.Context, events []*session.Event,
+) (compaction.SummarizeResult, error) {
 	s.watch.start()
 	res, err := s.Summarizer.SummarizeEvents(ctx, events)
 	switch {

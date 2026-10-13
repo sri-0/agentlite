@@ -1,9 +1,10 @@
 package handler
 
 import (
+	"encoding/base64"
+	"encoding/json"
 	"net/http"
 	"slices"
-	"time"
 
 	"github.com/labstack/echo/v5"
 
@@ -18,23 +19,26 @@ type recentArtifact struct {
 	ThreadTitle string `json:"thread_title"`
 }
 
-// RecentArtifacts lists artifacts across every conversation, newest first:
-// ?before=<RFC 3339 time> pages back, ?limit= (default 50, at most 200).
+// RecentArtifacts lists artifacts across every conversation, newest first,
+// ?limit= at a time (default 50, at most 200). A full page carries next, an
+// opaque cursor: ?after=<next> fetches the following page.
 func (h *Handler) RecentArtifacts(c *echo.Context) error {
 	ctx := c.Request().Context()
 	limit, _ := echo.QueryParamOr[int](c, "limit", defaultPageSize)
 	if limit <= 0 || limit > maxPageSize {
 		limit = defaultPageSize
 	}
-	var before time.Time
-	if v := c.QueryParam("before"); v != "" {
-		t, err := time.Parse(time.RFC3339Nano, v)
-		if err != nil {
-			return echo.NewHTTPError(http.StatusBadRequest, "before must be an RFC 3339 time")
+	var after *opensearch.ArtifactKey
+	if v := c.QueryParam("after"); v != "" {
+		raw, err := base64.RawURLEncoding.DecodeString(v)
+		if err == nil {
+			err = json.Unmarshal(raw, &after)
 		}
-		before = t
+		if err != nil {
+			return echo.NewHTTPError(http.StatusBadRequest, "after must be a next cursor from this list")
+		}
 	}
-	found, err := h.Store.RecentArtifacts(ctx, before, limit)
+	found, err := h.Store.RecentArtifacts(ctx, after, limit)
 	if err != nil {
 		return err
 	}
@@ -50,7 +54,18 @@ func (h *Handler) RecentArtifacts(c *echo.Context) error {
 	for _, a := range found {
 		items = append(items, recentArtifact{Artifact: a, ThreadTitle: titles[a.RootID]})
 	}
-	return c.JSON(http.StatusOK, newList(items))
+	page := artifactsPage{list: newList(items)}
+	if len(found) == limit {
+		key, _ := json.Marshal(found[len(found)-1].Key())
+		page.Next = base64.RawURLEncoding.EncodeToString(key)
+	}
+	return c.JSON(http.StatusOK, page)
+}
+
+// artifactsPage is one page of RecentArtifacts.
+type artifactsPage struct {
+	list[recentArtifact]
+	Next string `json:"next,omitempty"`
 }
 
 // ThreadArtifacts lists the artifacts of a thread's conversation, newest
@@ -84,7 +99,9 @@ func (h *Handler) ArtifactContent(c *echo.Context) error {
 		return err
 	}
 	defer body.Close()
-	// A body is model-written: opened directly, an HTML one must not run as this origin.
+	// A body is model-written and markdown may carry markup: opened directly
+	// in a browser (or an old html record), nothing in it may run as this
+	// origin or be sniffed into HTML.
 	c.Response().Header().Set("Content-Security-Policy", "sandbox")
 	c.Response().Header().Set("X-Content-Type-Options", "nosniff")
 	return c.Stream(http.StatusOK, artifacts.ContentType(a.Kind), body)

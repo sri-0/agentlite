@@ -4,7 +4,6 @@ import (
 	"crypto/tls"
 	"crypto/x509"
 	"encoding/pem"
-	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -13,8 +12,9 @@ import (
 )
 
 // clientCertificate pairs a certificate with its private key, decrypting the
-// key when it is encrypted. The key is handed to the standard library
-// re-encoded, so tls.X509KeyPair still checks that the two belong together.
+// key when it is encrypted. The decrypted key is handed to the standard
+// library, which parses any key format and checks that the two belong
+// together.
 func clientCertificate(certFile, keyFile string, password []byte) (tls.Certificate, error) {
 	certPEM, err := os.ReadFile(certFile)
 	if err != nil {
@@ -28,7 +28,8 @@ func clientCertificate(certFile, keyFile string, password []byte) (tls.Certifica
 	if block == nil {
 		return tls.Certificate{}, fmt.Errorf("%s: no private key", keyFile)
 	}
-	encrypted := block.Type == "ENCRYPTED PRIVATE KEY" || x509.IsEncryptedPEMBlock(block) //nolint:staticcheck // legacy keys are still issued
+	//nolint:staticcheck // legacy encrypted keys are still issued
+	encrypted := block.Type == "ENCRYPTED PRIVATE KEY" || x509.IsEncryptedPEMBlock(block)
 	switch {
 	case encrypted && len(password) == 0:
 		return tls.Certificate{}, fmt.Errorf("%s: the key is encrypted and no password is configured", keyFile)
@@ -37,13 +38,9 @@ func clientCertificate(certFile, keyFile string, password []byte) (tls.Certifica
 	case !encrypted:
 		return tls.X509KeyPair(certPEM, keyPEM)
 	}
-	key, err := decrypt(block, password)
+	der, err := decrypt(block, password)
 	if err != nil {
 		return tls.Certificate{}, fmt.Errorf("%s: %w", keyFile, err)
-	}
-	der, err := x509.MarshalPKCS8PrivateKey(key)
-	if err != nil {
-		return tls.Certificate{}, err
 	}
 	return tls.X509KeyPair(certPEM, pem.EncodeToMemory(&pem.Block{Type: "PRIVATE KEY", Bytes: der}))
 }
@@ -59,22 +56,18 @@ func privateKeyBlock(data []byte) *pem.Block {
 	}
 }
 
-func decrypt(block *pem.Block, password []byte) (any, error) {
-	if block.Type == "ENCRYPTED PRIVATE KEY" {
-		return pkcs8.ParsePKCS8PrivateKey(block.Bytes, password)
+// decrypt returns the key's DER: PKCS#8 from an encrypted PKCS#8 block, or
+// what legacy PEM encryption wrapped (PKCS#1 or SEC 1).
+func decrypt(block *pem.Block, password []byte) ([]byte, error) {
+	if block.Type != "ENCRYPTED PRIVATE KEY" {
+		// Legacy PEM encryption: deprecated for its padding oracle, which
+		// needs an attacker to probe decryption online; a key file read at
+		// start offers none.
+		return x509.DecryptPEMBlock(block, password) //nolint:staticcheck // see above
 	}
-	// Legacy PEM encryption: deprecated for its padding oracle, which needs
-	// an attacker to probe decryption online; a key file read at start
-	// offers none.
-	der, err := x509.DecryptPEMBlock(block, password) //nolint:staticcheck // see above
+	key, err := pkcs8.ParsePKCS8PrivateKey(block.Bytes, password)
 	if err != nil {
 		return nil, err
 	}
-	if key, err := x509.ParsePKCS1PrivateKey(der); err == nil {
-		return key, nil
-	}
-	if key, err := x509.ParseECPrivateKey(der); err == nil {
-		return key, nil
-	}
-	return nil, errors.New("unsupported private key type")
+	return x509.MarshalPKCS8PrivateKey(key)
 }

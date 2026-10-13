@@ -48,6 +48,7 @@ type Runtime struct {
 	log          zerolog.Logger
 
 	connectors []config.Connector
+	userAgent  string                  // for tools no connector names
 	harness    map[string]toolx.Tool   // always available: subagent, todowrite, …
 	world      map[string]toolx.Tool   // switched on through connectors
 	sets       map[string]tool.Toolset // one per connector
@@ -71,7 +72,7 @@ func New(cfg *config.Config, d Deps) *Runtime {
 	rt := &Runtime{
 		appName: cfg.AppName, defs: cfg.Defs(), registry: d.Registry, sessions: d.Sessions, memory: d.Memory,
 		defaultModel: cfg.Models.DefaultModel, compact: cfg.Models.Compaction, servers: d.Servers,
-		sources: d.Sources, artifacts: d.Artifacts, log: d.Log, connectors: cfg.Connectors,
+		sources: d.Sources, artifacts: d.Artifacts, log: d.Log, connectors: cfg.Connectors, userAgent: cfg.UserAgent,
 		mcpTools: newMCPTools(cfg.Connectors),
 	}
 	if m := cfg.Models.Memory; m != nil {
@@ -139,7 +140,10 @@ func (rt *Runtime) Run(ctx context.Context, in runs.Input, sink stream.Sink) (ru
 		return fail(err)
 	}
 	r, err := runner.New(runner.Config{
-		AppName: rt.appName, Agent: root, SessionService: watchedSessions{Service: rt.sessions, watch: watch}, MemoryService: rt.memoryFor(run.ThreadID), Compaction: compact, AutoCreateSession: true,
+		AppName: rt.appName, Agent: root, AutoCreateSession: true,
+		SessionService: watchedSessions{Service: rt.sessions, watch: watch},
+		MemoryService:  rt.memoryFor(run.ThreadID),
+		Compaction:     compact,
 	})
 	if err != nil {
 		return fail(err)
@@ -158,13 +162,15 @@ func (rt *Runtime) Run(ctx context.Context, in runs.Input, sink stream.Sink) (ru
 		Authorization: in.Authorization,
 		Sources:       rt.sources,
 	})
-	for ev, err := range r.Run(ctx, runs.SessionUser, run.ThreadID, content, adkagent.RunConfig{StreamingMode: adkagent.StreamingModeSSE}) {
+	sse := adkagent.RunConfig{StreamingMode: adkagent.StreamingModeSSE}
+	for ev, err := range r.Run(ctx, runs.SessionUser, run.ThreadID, content, sse) {
 		if errors.Is(err, compaction.ErrCompaction) {
 			// The answer is complete; only the compaction after it failed.
 			watch.fail(err)
 			rt.log.Warn().Err(err).Str("run", run.ID).Msg("compaction failed")
 			continue
 		}
+		watch.next()
 		if err != nil {
 			watch.close()
 			if ctx.Err() != nil {
@@ -237,7 +243,7 @@ func (rt *Runtime) model(ctx context.Context, modelID string) (model.LLM, *model
 		api = openaimodel.APIResponses
 	}
 	llm, err := openaimodel.NewModel(ctx, t.Model.UpstreamID, &openaimodel.ClientConfig{
-		APIKey: t.Client.APIKey, BaseURL: t.BaseURL.String(), HTTPClient: t.Client.HTTP, API: api,
+		BaseURL: t.BaseURL.String(), HTTPClient: t.Client.HTTP, API: api, Options: t.Client.Credentials(),
 	})
 	return llm, &t.Model, err
 }

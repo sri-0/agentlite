@@ -3,6 +3,7 @@ package mcp
 
 import (
 	"context"
+	"fmt"
 	"os/exec"
 	"slices"
 	"strings"
@@ -29,8 +30,9 @@ type Server struct {
 // Servers builds one server per mcp connector, keyed by connector id. adk
 // connects lazily, so each toolset is wrapped to report a server that cannot
 // list its tools as a warning rather than failing every run that would use
-// it. A server that cannot be set up is logged and left out.
-func Servers(connectors []config.Connector, log zerolog.Logger) map[string]*Server {
+// it. Setting one up touches no network, so an error is the configuration's
+// (a TLS file, say) and fails the start.
+func Servers(connectors []config.Connector, log zerolog.Logger) (map[string]*Server, error) {
 	out := map[string]*Server{}
 	for _, c := range connectors {
 		if c.Type != config.ConnectorMCP {
@@ -38,13 +40,11 @@ func Servers(connectors []config.Connector, log zerolog.Logger) map[string]*Serv
 		}
 		srv, err := newServer(c, log)
 		if err != nil {
-			log.Error().Err(err).Str("connector", c.ID).Msg("mcp server skipped")
-			continue
+			return nil, fmt.Errorf("connector %q: %w", c.ID, err)
 		}
 		out[c.ID] = srv
-		log.Info().Str("connector", c.ID).Msg("mcp server configured")
 	}
-	return out
+	return out, nil
 }
 
 func newServer(c config.Connector, log zerolog.Logger) (*Server, error) {

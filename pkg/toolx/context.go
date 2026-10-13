@@ -17,8 +17,8 @@ type Context struct {
 	agent.Context
 	Thread Thread
 
-	tool string
-	run  Run
+	tool    string
+	sources citations.Recorder
 }
 
 // Run is what the harness knows about the run a tool call belongs to.
@@ -89,7 +89,7 @@ func Headers(ctx context.Context) http.Header {
 
 func newContext(ctx agent.Context, tool string) Context {
 	r := RunFrom(ctx)
-	return Context{Context: ctx, Thread: r.Thread, tool: tool, run: r}
+	return Context{Context: ctx, Thread: r.Thread, tool: tool, sources: r.Sources}
 }
 
 // Value answers for the call itself, so requests made with the Context carry
@@ -105,10 +105,10 @@ func (c Context) Value(key any) any {
 // number. Put the number on the item the model sees; the model cites it as
 // [source:N]. Outside a run nothing is recorded and the number is 0.
 func (c Context) AddSource(s citations.Source) (int, error) {
-	if c.run.Sources == nil {
+	if c.sources == nil {
 		return 0, nil
 	}
-	return c.run.Sources.Add(c, citations.Origin{
+	return c.sources.Add(c, citations.Origin{
 		ThreadID: c.Thread.ID, RootID: c.Thread.RootID, RunID: c.Thread.RunID, Tool: c.tool, CallID: c.FunctionCallID(),
 	}, s)
 }

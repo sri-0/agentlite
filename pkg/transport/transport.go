@@ -87,7 +87,9 @@ func (c *TLS) config() (*tls.Config, error) {
 }
 
 // headers sets the configured headers on a copy of each request; a
-// RoundTripper must not change the caller's request.
+// RoundTripper must not change the caller's request. A redirect to another
+// host gets none of them: they carry credentials, which net/http itself
+// strips from a redirect it follows to another domain.
 type headers struct {
 	base        http.RoundTripper
 	static      map[string]string
@@ -95,6 +97,9 @@ type headers struct {
 }
 
 func (h *headers) RoundTrip(r *http.Request) (*http.Response, error) {
+	if r.Response != nil && r.URL.Host != r.Response.Request.URL.Host {
+		return h.base.RoundTrip(r)
+	}
 	r = r.Clone(r.Context())
 	for k, v := range h.static {
 		r.Header.Set(k, v)

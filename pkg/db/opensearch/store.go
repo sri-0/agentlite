@@ -200,7 +200,10 @@ func (c *Client) ThreadTitles(ctx context.Context, ids []string) (map[string]str
 	if len(ids) == 0 {
 		return titles, nil
 	}
-	q, err := json.Marshal(map[string]any{"size": len(ids), "_source": []string{"id", "title"}, "query": map[string]any{"ids": map[string]any{"values": ids}}})
+	q, err := json.Marshal(map[string]any{
+		"size": len(ids), "_source": []string{"id", "title"},
+		"query": map[string]any{"ids": map[string]any{"values": ids}},
+	})
 	if err != nil {
 		return nil, err
 	}

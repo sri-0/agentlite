@@ -1,11 +1,13 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"maps"
 	"os"
 	"path/filepath"
 	"slices"
+	"strings"
 
 	"github.com/goccy/go-yaml"
 )
@@ -72,17 +74,17 @@ func (m *MCP) hooked() []string {
 const defaultUserAgent = "agentlite/1.0"
 
 // LoadConnectors reads connectors.yaml; a missing file means no connectors.
-func LoadConnectors(dir string) ([]Connector, error) {
+func LoadConnectors(dir string) (ConnectorsConfig, error) {
+	cfg := ConnectorsConfig{UserAgent: defaultUserAgent}
 	raw, err := os.ReadFile(filepath.Join(dir, "connectors.yaml"))
 	if os.IsNotExist(err) {
-		return nil, nil
+		return cfg, nil
 	}
 	if err != nil {
-		return nil, fmt.Errorf("connectors.yaml: %w", err)
+		return cfg, fmt.Errorf("connectors.yaml: %w", err)
 	}
-	var cfg ConnectorsConfig
 	if err := yaml.Unmarshal(raw, &cfg); err != nil {
-		return nil, fmt.Errorf("connectors.yaml: %w", err)
+		return cfg, fmt.Errorf("connectors.yaml: %w", err)
 	}
 	if cfg.UserAgent == "" {
 		cfg.UserAgent = defaultUserAgent
@@ -94,18 +96,15 @@ func LoadConnectors(dir string) ([]Connector, error) {
 		if c.Type == "" {
 			c.Type = ConnectorTools
 		}
-		if err := c.check(seen, claimed); err != nil {
-			return nil, fmt.Errorf("connectors.yaml: connector %q: %w", c.ID, err)
-		}
 		if c.HTTP.UserAgent == "" {
 			c.HTTP.UserAgent = cfg.UserAgent
 		}
 		expandEnv(c.HTTP.Headers)
-		if c.MCP != nil {
-			c.MCP.Endpoint = os.ExpandEnv(c.MCP.Endpoint)
+		if err := c.check(seen, claimed); err != nil {
+			return cfg, fmt.Errorf("connectors.yaml: connector %q: %w", c.ID, err)
 		}
 	}
-	return cfg.Connectors, nil
+	return cfg, nil
 }
 
 // check validates one connector. A tool name may belong to one connector
@@ -114,27 +113,36 @@ func LoadConnectors(dir string) ([]Connector, error) {
 func (c *Connector) check(seen map[string]bool, claimed map[string]string) error {
 	switch {
 	case c.ID == "":
-		return fmt.Errorf("no id")
+		return errors.New("no id")
 	case seen[c.ID]:
-		return fmt.Errorf("duplicate id")
+		return errors.New("duplicate id")
+	case c.HTTP.Forward && hasAuthorization(c.HTTP.Headers):
+		// Calls with no user (a turn started on the socket, a resumed run)
+		// would go out as the static identity: one thread, two identities.
+		return errors.New("http.forward sends the user's Authorization; drop the static Authorization header")
 	}
 	seen[c.ID] = true
 	var names []string
 	switch c.Type {
 	case ConnectorTools:
 		if len(c.Tools) == 0 || c.MCP != nil {
-			return fmt.Errorf("a tools connector lists tools and has no mcp block")
+			return errors.New("a tools connector lists tools and has no mcp block")
 		}
 		names = c.Tools
 	case ConnectorMCP:
-		switch {
-		case c.MCP == nil || len(c.Tools) > 0:
-			return fmt.Errorf("an mcp connector has an mcp block and no tools list (filter with mcp.tools)")
-		case (c.MCP.Endpoint == "") == (len(c.MCP.Command) == 0):
-			return fmt.Errorf("mcp needs an endpoint or a command")
-		case c.HTTP.Timeout != 0:
-			return fmt.Errorf("an mcp connector takes no timeout: it would cut the session's event stream")
+		if c.MCP == nil || len(c.Tools) > 0 {
+			return errors.New("an mcp connector has an mcp block and no tools list (filter with mcp.tools)")
 		}
+		endpoint := os.ExpandEnv(c.MCP.Endpoint)
+		switch {
+		case c.MCP.Endpoint != "" && endpoint == "":
+			return fmt.Errorf("mcp endpoint %s is empty in this environment", c.MCP.Endpoint)
+		case (endpoint == "") == (len(c.MCP.Command) == 0):
+			return errors.New("mcp needs an endpoint or a command")
+		case c.HTTP.Timeout != 0:
+			return errors.New("an mcp connector takes no timeout: it would cut the session's event stream")
+		}
+		c.MCP.Endpoint = endpoint
 		names = c.MCP.hooked()
 	default:
 		return fmt.Errorf("type must be %s or %s", ConnectorTools, ConnectorMCP)
@@ -146,6 +154,16 @@ func (c *Connector) check(seen map[string]bool, claimed map[string]string) error
 		claimed[tool] = c.ID
 	}
 	return nil
+}
+
+// hasAuthorization reports whether headers set Authorization, in any case.
+func hasAuthorization(headers map[string]string) bool {
+	for k := range headers {
+		if strings.EqualFold(k, "Authorization") {
+			return true
+		}
+	}
+	return false
 }
 
 // CheckConnectors rejects ids that are not configured.

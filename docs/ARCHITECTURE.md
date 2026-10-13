@@ -24,10 +24,12 @@ Echo server (internal/server, internal/handler, internal/ws)
    │           written to the thread's log
    │
    ├─ pass-through proxy (internal/providers): /v1/chat/completions, /v1/responses,
-   │    /v1/messages, /v1/embeddings → the configured provider, bytes untouched
+   │    /v1/messages, /v1/embeddings → the provider the body's model names, with the
+   │    model rewritten to the provider's own id (MODELS.md)
    │
-   ├─ Valkey: event logs, runs, queues, leases, adk sessions, interrupt records, source numbers
-   ├─ OpenSearch: threads, messages (the stored AG-UI events), memories, sources, artifacts
+   ├─ Valkey: event logs, runs, queues, leases, adk sessions, interrupt records
+   ├─ OpenSearch: threads, messages (the stored AG-UI events), memories, sources, artifacts,
+   │    counters (each conversation's last source number and artifact versions)
    └─ S3 (MinIO locally): artifact bodies
 ```
 
@@ -89,7 +91,8 @@ Each consumer handles up to 32 entries at once. A parent waiting on its
 sub-agents holds one of them for the whole wait, and its children need their
 own, so the limit is set well above the number of sub-agents one turn starts.
 
-Queue entries are acknowledged when the handler returns. An entry whose handler
+Queue entries are acknowledged and deleted when the handler returns; an entry
+may carry the user's `Authorization` (TOOLS.md), so none outlives its run. An entry whose handler
 failed, or whose consumer died, is retried once the queue is idle and the entry
 is older than twice the lease. A run found still running on redelivery is left
 alone while its lease names it (its worker is alive and the run is just long);
@@ -193,7 +196,7 @@ Environment (`internal/config/config.go`): `PORT`, `HOST`, `APP_NAME`,
 (provider base URLs and keys, `OPEN_SLIDE_MCP_URL`), and `MODEL_CARDS_DIR`.
 
 Files in `CONFIG_DIR`: `models.yaml` (providers, discovery, `default_model`,
-`compaction`, `memory`, `proxy`), `connectors.yaml` (toolx tools and MCP servers),
+`compaction`, `memory`), `connectors.yaml` (toolx tools and MCP servers),
 `agents/*.md`.
 
 ## Observability

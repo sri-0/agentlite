@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/adrg/frontmatter"
 	"github.com/goccy/go-yaml"
 )
 
@@ -98,17 +99,15 @@ func (a AgentDef) validate(known map[string]bool) error {
 }
 
 func parseAgentFile(path string) (AgentDef, error) {
-	raw, err := os.ReadFile(path)
+	f, err := os.Open(path)
 	if err != nil {
 		return AgentDef{}, err
 	}
-	front, body, ok := strings.Cut(strings.TrimPrefix(string(raw), "---\n"), "\n---\n")
-	if !ok || !strings.HasPrefix(string(raw), "---\n") {
-		return AgentDef{}, fmt.Errorf("missing frontmatter")
-	}
+	defer f.Close()
 	var def AgentDef
-	if err := yaml.Unmarshal([]byte(front), &def); err != nil {
-		return AgentDef{}, err
+	body, err := frontmatter.MustParse(f, &def, frontmatter.NewFormat("---", "---", yaml.Unmarshal))
+	if err != nil {
+		return AgentDef{}, fmt.Errorf("frontmatter: %w", err)
 	}
 	if def.ID == "" {
 		return AgentDef{}, fmt.Errorf("missing id")
@@ -122,6 +121,6 @@ func parseAgentFile(path string) (AgentDef, error) {
 	if def.Mode == "" {
 		def.Mode = ModePrimary
 	}
-	def.Instruction = strings.TrimSpace(body)
+	def.Instruction = strings.TrimSpace(string(body))
 	return def, nil
 }

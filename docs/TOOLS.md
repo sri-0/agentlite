@@ -24,7 +24,8 @@ describe the result.
 3. **Toolsets come from configuration; tools stay independent.** A connector in
    `connectors.yaml` is one system: its tools and an optional `http:` block.
    The runtime builds one HTTP client per connector and passes it to each tool's
-   constructor. Tools take the client and nothing else. The alternative,
+   constructor as a `toolx.Connector` (its id and client); tools take nothing
+   else. The alternative,
    toolsets declared by the tools themselves, was rejected: connectors already
    carry the user-facing name, icon and description, and a second place to
    group tools would drift.
@@ -104,17 +105,26 @@ http:
   user_agent: records-client/2     # default: connectors.yaml's top-level user_agent
   timeout: 30s                     # tools only
   forward: true                    # send who each call is for (below)
-  tls: {...}
+  tls: {...}                       # as above, plus insecure_skip_verify: true (development only)
 ```
+
+Headers (static and forwarded) are never sent to another host a system redirects to:
+they carry credentials, which net/http strips from such a redirect itself.
 
 `forward` sends, on every request made for a tool call: the user's `Authorization`
 header, `X-Thread-ID`, `X-Root-Thread-ID`, `X-Run-ID`, and for toolx tools `X-Agent-ID`
 and `X-Tool-Name`. It is off by default: a tool such as `webfetch` talks to the public
 web. The user's `Authorization` is taken from the request that created the thread
 (`POST /v1/agent/chat`) and travels with that run's queue entry to the worker (entries
-are deleted once handled); a sub-agent's run inherits it. A forwarded `Authorization`
-replaces a static one from `headers`. Runs started or resumed over the socket carry none
-yet.
+are deleted once handled); a sub-agent's run inherits it. Runs started or resumed over
+the socket carry none yet, so the calls of a resumed run (an approved write, say) go
+without the user's identity until the socket carries it. A connector with `forward`
+therefore may not also set a static `Authorization` header (refused at start): calls
+without a user would silently go out as the service's identity.
+
+An MCP server's session is shared by every run (adk keeps one per toolset), so it was
+opened under whichever user's run connected first. A forwarding MCP server must
+authorise each request by its own `Authorization`, not the session.
 
 ## Connectors and tools (`pkg/toolx`)
 
@@ -138,7 +148,7 @@ func searchRecords(conn toolx.Connector) (toolx.Tool, error) {
 		// RequireConfirmation: true pauses for the user's approval (HITL.md)
 		// UI: "records" names a UI renderer for the calls
 	}, func(tc toolx.Context, a searchRecordsArgs) (map[string]any, error) {
-		// conn: the connector's id, name and HTTP client (conn.HTTP).
+		// conn: the connector's id (conn.ID) and HTTP client (conn.HTTP).
 		// tc: adk's tool context plus tc.Thread {ID, RootID, RunID}. Requests made with
 		// tc carry the caller's identity when the connector forwards it:
 		//   req, _ := http.NewRequestWithContext(tc, ...); conn.HTTP.Do(req)
@@ -153,7 +163,8 @@ func searchRecords(conn toolx.Connector) (toolx.Tool, error) {
   adk's `functiontool`.
 - A world tool is a `tools.Builder`, `func(toolx.Connector) (toolx.Tool, error)`,
   registered by name in `tools.Catalog`; the runtime builds each one with its connector.
-  One in no connector is built on a plain client for agents that list it by name.
+  One in no connector is built on a plain client (with the top-level `user_agent`) for
+  agents that list it by name.
 - A harness tool (`internal/tools/builtin`) is built the same way from `builtin.Deps`.
 - Registries and `toolx.Toolset` accept only `toolx.Tool`, and
   `TestOnlyToolxBuildsFunctionTools` fails if any package but `toolx` imports
@@ -227,7 +238,9 @@ otherwise.
 Kinds with a body: `markdown`, `code`, `json`, `csv` (there is no HTML kind: model-written
 markup is the one kind not worth its risk). Kind `url` has no body: it points at a page
 the UI embeds. Publishing the same id again stores a new version under its own key.
-Versions come from the conversation's counters document, and the record is written with
+Versions come from the conversation's counters document (never below the current
+record's version, so an artifact saved before its counter existed keeps counting up),
+and the record is written with
 OpenSearch external versioning, so it only moves forward: two saves of one artifact at
 once both keep their bodies, and the higher version is served. Superseded bodies stay in
 S3, unread, until the thread is deleted. The tool's result, and the `artifact` activity
@@ -235,8 +248,10 @@ the encoder makes of it, is a summary without the body (`artifacts.Summary`): `{
 title, kind, version, language?, url?}`. The UI fetches the body from
 `GET /v1/threads/{id}/artifacts/{artifactId}/content`, served with the kind's content
 type and `Content-Security-Policy: sandbox`; `GET /v1/threads/{id}/artifacts` lists the
-conversation's artifacts, and `GET /v1/artifacts?before=&limit=` lists every
-conversation's, newest first, with each one's thread title.
+conversation's artifacts, and `GET /v1/artifacts?after=&limit=` lists every
+conversation's, newest first, with each one's thread title; a full page carries `next`,
+an opaque cursor (OpenSearch `search_after` on update time, conversation and id) for the
+next page's `after`, so ties never drop an artifact.
 
 S3 is any S3-compatible store through `minio-go` (`pkg/s3`); `docker-compose.yaml` runs
 MinIO on `:9000` (console `:9001`, `minioadmin`/`minioadmin`). The bucket is created on

@@ -1,10 +1,10 @@
 package opensearch
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
-	"strings"
 
 	"github.com/opensearch-project/opensearch-go/v5/opensearchapi"
 )
@@ -18,11 +18,13 @@ const countersMapping = `{"mappings":{"dynamic":false,"properties":{
 	"root_id":{"type":"keyword"},"sources":{"type":"integer"},"artifacts":{"type":"object","enabled":false}}}}`
 
 // Counter scripts. An update of one document is atomic; a concurrent one is
-// retried on conflict.
+// retried on conflict. A version never falls below the floor the caller
+// read, so an artifact saved before its counter existed keeps counting up.
 const (
 	nextSourceScript  = `ctx._source.root_id = params.root; ctx._source.sources = (ctx._source.sources ?: 0) + 1;`
 	nextVersionScript = `ctx._source.root_id = params.root; if (ctx._source.artifacts == null) { ctx._source.artifacts = [:]; }
-		ctx._source.artifacts[params.id] = (ctx._source.artifacts[params.id] ?: 0) + 1;`
+		def cur = ctx._source.artifacts[params.id]; int last = cur == null ? 0 : (int) cur; int floor = (int) params.floor;
+		ctx._source.artifacts[params.id] = (last > floor ? last : floor) + 1;`
 	counterRetries = 10
 )
 
@@ -35,17 +37,20 @@ func (c *Client) NextSourceNumber(ctx context.Context, rootID string) (int, erro
 	return got.Sources, err
 }
 
-// NextArtifactVersion returns an artifact's next version.
-func (c *Client) NextArtifactVersion(ctx context.Context, rootID, artifactID string) (int, error) {
+// NextArtifactVersion returns an artifact's next version, above floor (the
+// version of its current record).
+func (c *Client) NextArtifactVersion(ctx context.Context, rootID, artifactID string, floor int) (int, error) {
 	var got struct {
 		Artifacts map[string]int `json:"artifacts"`
 	}
-	err := c.increment(ctx, rootID, nextVersionScript, map[string]any{"root": rootID, "id": artifactID}, &got)
+	params := map[string]any{"root": rootID, "id": artifactID, "floor": floor}
+	err := c.increment(ctx, rootID, nextVersionScript, params, &got)
 	return got.Artifacts[artifactID], err
 }
 
 // increment runs a counter script on the conversation's counters document,
-// creating it if needed, and decodes the document as it is afterwards.
+// creating it if needed, and decodes the document as it is afterwards (the
+// update returns it, so no refresh is needed).
 func (c *Client) increment(ctx context.Context, rootID, script string, params map[string]any, out any) error {
 	body, err := json.Marshal(map[string]any{
 		"scripted_upsert": true,
@@ -56,8 +61,8 @@ func (c *Client) increment(ctx context.Context, rootID, script string, params ma
 		return err
 	}
 	resp, err := c.api.Update(ctx, opensearchapi.UpdateReq{
-		Index: IndexCounters, ID: rootID, BodyReader: strings.NewReader(string(body)),
-		Params: &opensearchapi.UpdateParams{RetryOnConflict: counterRetries, Source: "true", Refresh: "true"},
+		Index: IndexCounters, ID: rootID, BodyReader: bytes.NewReader(body),
+		Params: &opensearchapi.UpdateParams{RetryOnConflict: counterRetries, Source: "true"},
 	})
 	if err != nil {
 		return fmt.Errorf("count for %s: %w", rootID, err)

@@ -1,9 +1,11 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"maps"
 	"os"
+	"strings"
 	"time"
 
 	"agentlite/pkg/toolx"
@@ -80,11 +82,13 @@ func (t *TLS) Resolve() (*transport.TLS, error) {
 		CAFile:             read(t.CAEnv),
 		InsecureSkipVerify: t.InsecureSkipVerify,
 	}
-	if len(missing) > 0 {
-		return nil, fmt.Errorf("tls: %v not set", missing)
-	}
-	if (t.CertEnv == "") != (t.KeyEnv == "") {
-		return nil, fmt.Errorf("tls: cert_env and key_env go together")
+	switch {
+	case len(missing) > 0:
+		return nil, fmt.Errorf("tls: %s not set", strings.Join(missing, ", "))
+	case (t.CertEnv == "") != (t.KeyEnv == ""):
+		return nil, errors.New("tls: cert_env and key_env go together")
+	case t.KeyPasswordEnv != "" && t.KeyEnv == "":
+		return nil, errors.New("tls: key_password_env needs key_env")
 	}
 	return out, nil
 }

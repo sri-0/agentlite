@@ -28,11 +28,11 @@ type Client struct {
 	openai  openai.Client // for embeddings
 }
 
-// NewClient builds the provider's client from its configuration.
-func NewClient(p config.Provider) (*Client, error) {
-	base, err := url.Parse(strings.TrimRight(p.BaseURL, "/"))
-	if err != nil || base.Host == "" {
-		return nil, fmt.Errorf("provider %s: invalid base_url %q", p.ID, p.BaseURL)
+// newClient builds the provider's client from its configuration.
+func newClient(p config.Provider) (*Client, error) {
+	base, err := parseBaseURL(p.BaseURL)
+	if err != nil {
+		return nil, fmt.Errorf("provider %s: %w", p.ID, err)
 	}
 	tls, err := p.TLS.Resolve()
 	if err != nil {
@@ -43,8 +43,31 @@ func NewClient(p config.Provider) (*Client, error) {
 		return nil, fmt.Errorf("provider %s: %w", p.ID, err)
 	}
 	c := &Client{Config: p, BaseURL: base, APIKey: os.Getenv(p.APIKeyEnv), HTTP: httpClient}
-	c.openai = openai.NewClient(option.WithBaseURL(base.String()), option.WithAPIKey(c.APIKey), option.WithHTTPClient(httpClient))
+	opts := append(c.Credentials(), option.WithBaseURL(base.String()), option.WithHTTPClient(httpClient))
+	c.openai = openai.NewClient(opts...)
 	return c, nil
+}
+
+// Credentials are the openai-go options that make a call carry this
+// provider's credentials and nothing else. openai-go fills every client from
+// OPENAI_* variables (a key, an admin key, an organisation, a project), and
+// none of them may reach a provider: each is set or cleared here. A provider
+// with no key sends no Authorization. (OPENAI_CUSTOM_HEADERS cannot be
+// cleared this way; it must not be set.)
+func (c *Client) Credentials() []option.RequestOption {
+	return []option.RequestOption{
+		option.WithAPIKey(c.APIKey), option.WithAdminAPIKey(""),
+		option.WithHeaderDel("OpenAI-Organization"), option.WithHeaderDel("OpenAI-Project"),
+	}
+}
+
+// parseBaseURL reads an absolute http(s) base URL, without a trailing slash.
+func parseBaseURL(raw string) (*url.URL, error) {
+	u, err := url.Parse(strings.TrimRight(raw, "/"))
+	if err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
+		return nil, fmt.Errorf("invalid base_url %q", raw)
+	}
+	return u, nil
 }
 
 // Authorization returns the header value for the provider, or "".

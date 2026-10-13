@@ -41,8 +41,10 @@ type Registry struct {
 }
 
 type provider struct {
-	client     *Client
-	declared   []modelcatalog.Model          // models.yaml, by upstream id
+	client   *Client
+	declared []modelcatalog.Model // models.yaml, by upstream id
+	baseURLs map[string]*url.URL  // the declared models' own base_url, by upstream id
+
 	discovered []modelcatalog.Model          // the provider's last successful listing
 	models     map[string]modelcatalog.Model // merged, by upstream id
 	order      []string                      // upstream ids: declared first, then discovered
@@ -65,15 +67,24 @@ func NewRegistry(cfg *config.ModelsConfig, cardsDir string, log zerolog.Logger) 
 			log.Warn().Str("provider", p.ID).Msg("provider has no base_url in this environment; skipped")
 			continue
 		}
-		c, err := NewClient(p)
+		c, err := newClient(p)
 		if err != nil {
 			return nil, err
 		}
-		r.providers = append(r.providers, &provider{client: c, declared: p.Models})
+		prov := &provider{client: c, declared: p.Models, baseURLs: map[string]*url.URL{}}
+		for _, m := range p.Models {
+			if m.BaseURL == "" {
+				continue
+			}
+			if prov.baseURLs[m.ID], err = parseBaseURL(m.BaseURL); err != nil {
+				return nil, fmt.Errorf("provider %s: model %s: %w", p.ID, m.ID, err)
+			}
+		}
+		r.providers = append(r.providers, prov)
 	}
 	r.loadCards()
 	for _, p := range r.providers {
-		r.rebuild(p)
+		r.rebuild(p, nil)
 	}
 	return r, nil
 }
@@ -93,11 +104,7 @@ func (r *Registry) Resolve(id string) (Target, error) {
 		return Target{}, fmt.Errorf("%w %q for provider %q", ErrUnknownModel, upstream, pid)
 	}
 	t := Target{Client: p.client, Model: m, BaseURL: p.client.BaseURL, API: p.client.Config.API}
-	if m.BaseURL != "" {
-		u, err := url.Parse(strings.TrimRight(m.BaseURL, "/"))
-		if err != nil {
-			return Target{}, fmt.Errorf("model %q: base_url: %w", id, err)
-		}
+	if u, ok := p.baseURLs[upstream]; ok {
 		t.BaseURL = u
 	}
 	if m.API != "" {
@@ -146,13 +153,10 @@ func (r *Registry) discoverLoop(ctx context.Context, p *provider) {
 	for {
 		models, err := discover(ctx, p.client)
 		if err != nil {
-			r.log.Warn().Err(err).Str("provider", p.client.Config.ID).Msg("model discovery failed; using models.yaml only")
+			r.log.Warn().Err(err).Str("provider", p.client.Config.ID).Msg("model discovery failed; keeping the last listing")
 		} else {
 			r.loadCards()
-			r.mu.Lock()
-			p.discovered = models
-			r.mu.Unlock()
-			r.rebuild(p)
+			r.rebuild(p, models)
 			r.log.Info().Str("provider", p.client.Config.ID).Int("models", len(models)).Msg("models discovered")
 		}
 		select {
@@ -204,11 +208,15 @@ func (r *Registry) loadCards() {
 	r.mu.Unlock()
 }
 
-// rebuild merges, per model, its card, what discovery reported and
-// models.yaml, in that order of precedence.
-func (r *Registry) rebuild(p *provider) {
+// rebuild records a discovery listing (nil before the first) and merges, per
+// model, its card, what discovery reported and models.yaml, in that order of
+// precedence.
+func (r *Registry) rebuild(p *provider, discovered []modelcatalog.Model) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	if discovered != nil {
+		p.discovered = discovered
+	}
 	cfg := p.client.Config
 	declared := map[string]modelcatalog.Model{}
 	var order []string
@@ -216,9 +224,9 @@ func (r *Registry) rebuild(p *provider) {
 		declared[m.ID] = m
 		order = append(order, m.ID)
 	}
-	discovered := map[string]modelcatalog.Model{}
+	listed := map[string]modelcatalog.Model{}
 	for _, m := range p.discovered {
-		discovered[m.ID] = m
+		listed[m.ID] = m
 		if _, ok := declared[m.ID]; !ok {
 			order = append(order, m.ID)
 		}
@@ -226,7 +234,7 @@ func (r *Registry) rebuild(p *provider) {
 	models := make(map[string]modelcatalog.Model, len(order))
 	for _, id := range order {
 		card, _ := r.cards.For(id)
-		m := modelcatalog.Merge(card, discovered[id], declared[id])
+		m := modelcatalog.Merge(card, listed[id], declared[id])
 		m.ID, m.UpstreamID, m.ProviderID, m.ProviderName = cfg.ID+"/"+id, id, cfg.ID, cfg.Name
 		if m.Type == "" {
 			m.Type = "llm"

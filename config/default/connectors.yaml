@@ -22,12 +22,14 @@
 #     timeout: 30s                      # tools only
 #     forward: true     # send who a call is for: the user's Authorization,
 #                       # X-Thread-ID, X-Root-Thread-ID, X-Run-ID, and for
-#                       # toolx tools X-Agent-ID and X-Tool-Name
+#                       # toolx tools X-Agent-ID and X-Tool-Name (with forward,
+#                       # headers may not set Authorization)
 #     tls:              # mutual TLS; each *_env names a variable
 #       cert_env: RECORDS_TLS_CERT      # path to the client certificate (PEM)
 #       key_env: RECORDS_TLS_KEY        # path to its key (PEM, encrypted or not)
 #       key_password_env: RECORDS_TLS_KEY_PASSWORD   # the password itself
 #       ca_env: RECORDS_TLS_CA          # path to the trusted CA bundle
+#       insecure_skip_verify: false     # development only
 # A tool belongs to one connector at most.
 user_agent: agentlite/1.0
 

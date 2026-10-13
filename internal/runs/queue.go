@@ -115,7 +115,7 @@ func (q *queue) handle(ctx context.Context, x valkey.XRangeEntry, handler func(c
 	del := q.db.B().Xdel().Key(q.key).Id(x.ID).Build()
 	for _, res := range q.db.DoMulti(ctx, ack, del) {
 		if err := res.Error(); err != nil {
-			q.log.Error().Err(err).Str("queue", q.key).Str("entry", x.ID).Msg("ack")
+			q.log.Error().Err(err).Str("queue", q.key).Str("entry", x.ID).Msg("ack and delete")
 		}
 	}
 }

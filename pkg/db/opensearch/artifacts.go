@@ -59,12 +59,29 @@ func (c *Client) Artifact(ctx context.Context, rootID, id string) (*Artifact, er
 	return get[Artifact](ctx, c, IndexArtifacts, artifactID(rootID, id))
 }
 
-// RecentArtifacts lists artifacts across every conversation, newest first,
-// without bodies: up to limit, updated before the given time (zero: now).
-func (c *Client) RecentArtifacts(ctx context.Context, before time.Time, limit int) ([]Artifact, error) {
-	q := map[string]any{"size": limit, "sort": []any{map[string]any{"updated_at": "desc"}}, "_source": map[string]any{"excludes": []string{"content"}}}
-	if !before.IsZero() {
-		q["query"] = map[string]any{"range": map[string]any{"updated_at": map[string]any{"lt": before}}}
+// ArtifactKey is an artifact's place in RecentArtifacts' order: newest
+// first, ties broken by conversation and id, so a page never skips one.
+type ArtifactKey struct {
+	UpdatedAt int64  `json:"t"` // Unix milliseconds, as the index stores it
+	RootID    string `json:"r"`
+	ID        string `json:"i"`
+}
+
+// Key is the artifact's place in RecentArtifacts' order.
+func (a *Artifact) Key() ArtifactKey {
+	return ArtifactKey{UpdatedAt: a.UpdatedAt.UnixMilli(), RootID: a.RootID, ID: a.ID}
+}
+
+// RecentArtifacts lists artifacts across every conversation, without
+// bodies: up to limit, after the given one (nil: from the newest).
+func (c *Client) RecentArtifacts(ctx context.Context, after *ArtifactKey, limit int) ([]Artifact, error) {
+	q := map[string]any{
+		"size":    limit,
+		"sort":    []any{map[string]any{"updated_at": "desc"}, map[string]any{"root_id": "asc"}, map[string]any{"id": "asc"}},
+		"_source": map[string]any{"excludes": []string{"content"}},
+	}
+	if after != nil {
+		q["search_after"] = []any{after.UpdatedAt, after.RootID, after.ID}
 	}
 	body, err := json.Marshal(q)
 	if err != nil {

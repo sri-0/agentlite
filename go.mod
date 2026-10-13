@@ -4,6 +4,7 @@ go 1.27.1
 
 require (
 	dario.cat/mergo v1.0.2
+	github.com/adrg/frontmatter v0.2.0
 	github.com/ag-ui-protocol/ag-ui/sdks/community/go v0.0.0-20261007133343-903a9ab9a154
 	github.com/coder/websocket v1.8.15
 	github.com/goccy/go-yaml v1.19.2
@@ -32,6 +33,7 @@ require (
 	cloud.google.com/go/auth v0.23.2 // indirect
 	cloud.google.com/go/auth/oauth2adapt v0.2.8 // indirect
 	cloud.google.com/go/compute/metadata v0.9.0 // indirect
+	github.com/BurntSushi/toml v1.6.0 // indirect
 	github.com/GoogleCloudPlatform/opentelemetry-operations-go/detectors/gcp v1.36.0 // indirect
 	github.com/a2aproject/a2a-go v0.3.15 // indirect
 	github.com/a2aproject/a2a-go/v2 v2.5.0 // indirect
@@ -99,6 +101,7 @@ require (
 	google.golang.org/grpc v1.84.0 // indirect
 	google.golang.org/protobuf v1.36.12 // indirect
 	gopkg.in/ini.v1 v1.67.3 // indirect
+	gopkg.in/yaml.v2 v2.4.0 // indirect
 	rsc.io/omap v1.2.0 // indirect
 	rsc.io/ordered v1.1.1 // indirect
 )

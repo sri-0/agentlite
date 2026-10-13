@@ -88,8 +88,12 @@ func New(ctx context.Context) (*App, error) {
 	if app.Artifacts, err = artifactStore(ctx, cfg, app.Store, app.Sources, app.Log); err != nil {
 		return nil, err
 	}
+	servers, err := mcp.Servers(cfg.Connectors, app.Log)
+	if err != nil {
+		return nil, err
+	}
 	app.Agents = agents.New(cfg, agents.Deps{
-		Registry: app.Registry, Sessions: app.Sessions, Memory: mem, Servers: mcp.Servers(cfg.Connectors, app.Log),
+		Registry: app.Registry, Sessions: app.Sessions, Memory: mem, Servers: servers,
 		Sources: app.Sources, Artifacts: app.Artifacts, Log: app.Log,
 	})
 	app.Runs = runs.New(cfg, runsDB, hitl.NewStore(hitlDB), app.Store, app.Store, app.Sessions, app.Agents, app.Log)

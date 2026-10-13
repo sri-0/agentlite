@@ -21,7 +21,7 @@ import (
 )
 
 // New wires middleware and routes.
-func New(cfg *config.Config, h *handler.Handler, log zerolog.Logger) (*echo.Echo, error) {
+func New(cfg *config.Config, h *handler.Handler, log zerolog.Logger) *echo.Echo {
 	e := echo.New()
 	e.Logger = slog.Default()
 	e.HTTPErrorHandler = errorHandler(echo.DefaultHTTPErrorHandler(false))
@@ -62,7 +62,7 @@ func New(cfg *config.Config, h *handler.Handler, log zerolog.Logger) (*echo.Echo
 	e.POST("/v1/agent/chat", h.StartThread)
 	e.GET("/v1/agent/chat", h.Chat)
 	h.RegisterProxies(e)
-	return e, nil
+	return e
 }
 
 // Run serves until ctx is cancelled, then shuts down gracefully.

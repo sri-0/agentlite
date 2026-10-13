@@ -22,10 +22,11 @@ providers:
     api_key_env: VLLM_API_KEY
     discover: { endpoint: /models, refresh: 10m }
 
-  # Development and testing only; not used in production.
+  # Development and testing only: without OPENROUTER_BASE_URL (production) it
+  # is skipped, and a model id naming it is refused rather than sent there.
   - id: openrouter
     name: OpenRouter
-    base_url: https://openrouter.ai/api/v1
+    base_url: ${OPENROUTER_BASE_URL}
     api_key_env: OPENROUTER_API_KEY
     discover: { endpoint: /models, refresh: 1h }
     models:

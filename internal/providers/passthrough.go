@@ -22,8 +22,11 @@ const maxPassThroughBody = 32 << 20
 // names no known provider or model is refused, never sent elsewhere.
 func (r *Registry) Passthrough(w http.ResponseWriter, req *http.Request) {
 	body, err := io.ReadAll(http.MaxBytesReader(w, req.Body, maxPassThroughBody))
-	if err != nil {
+	if tooLarge := new(http.MaxBytesError); errors.As(err, &tooLarge) {
 		writeError(w, http.StatusRequestEntityTooLarge, "request body too large")
+		return
+	} else if err != nil {
+		writeError(w, http.StatusBadRequest, "could not read the request body")
 		return
 	}
 	var fields map[string]json.RawMessage
@@ -44,9 +47,10 @@ func (r *Registry) Passthrough(w http.ResponseWriter, req *http.Request) {
 	reverseProxy(t, r).ServeHTTP(w, req)
 }
 
-// reverseProxy sends the request to the target's base URL byte for byte,
-// replacing the Authorization header and letting streamed responses flush
-// as they arrive. The incoming /v1 prefix is dropped: base URLs end with it.
+// reverseProxy sends the request (its body already rewritten) to the
+// target's base URL, replacing the Authorization header and letting streamed
+// responses flush as they arrive. The incoming /v1 prefix is dropped: base
+// URLs end with it.
 func reverseProxy(t Target, r *Registry) *httputil.ReverseProxy {
 	return &httputil.ReverseProxy{
 		Rewrite: func(pr *httputil.ProxyRequest) {
@@ -78,5 +82,7 @@ func reverseProxy(t Target, r *Registry) *httputil.ReverseProxy {
 func writeError(w http.ResponseWriter, status int, message string) {
 	w.Header().Set("Content-Type", "application/json")
 	w.WriteHeader(status)
-	_ = json.NewEncoder(w).Encode(map[string]any{"error": map[string]any{"message": message, "type": "invalid_request_error"}})
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"error": map[string]any{"message": message, "type": "invalid_request_error"},
+	})
 }

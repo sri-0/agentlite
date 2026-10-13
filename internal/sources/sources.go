@@ -34,9 +34,10 @@ func (r *Recorder) Add(ctx context.Context, from citations.Origin, s citations.S
 	if identity == "" {
 		identity = s.URL
 	}
+	var id string
 	if identity != "" {
-		identity = s.System + "\x00" + identity
-		if n, err := r.numberOf(ctx, opensearch.SourceID(from.RootID, identity, 0)); !errors.Is(err, opensearch.ErrNotFound) {
+		id = opensearch.SourceKeyID(from.RootID, s.System+"\x00"+identity)
+		if n, err := r.numberOf(ctx, id); !errors.Is(err, opensearch.ErrNotFound) {
 			return n, err
 		}
 	}
@@ -44,13 +45,17 @@ func (r *Recorder) Add(ctx context.Context, from citations.Origin, s citations.S
 	if err != nil {
 		return 0, err
 	}
-	id := opensearch.SourceID(from.RootID, identity, n)
+	keyed := id != ""
+	if !keyed {
+		id = opensearch.SourceNumberID(from.RootID, n)
+	}
 	err = r.store.SaveSource(ctx, &opensearch.Source{
-		ID: id, RootID: from.RootID, Number: n, ThreadID: from.ThreadID, RunID: from.RunID, Tool: from.Tool, ToolCallID: from.CallID,
+		ID: id, RootID: from.RootID, Number: n,
+		ThreadID: from.ThreadID, RunID: from.RunID, Tool: from.Tool, ToolCallID: from.CallID,
 		System: s.System, Key: s.Key, URL: s.URL, Title: s.Title, Metadata: s.Metadata, RetrievedAt: time.Now(),
 	})
 	switch {
-	case errors.Is(err, opensearch.ErrConflict) && identity != "":
+	case errors.Is(err, opensearch.ErrConflict) && keyed:
 		return r.numberOf(ctx, id)
 	case err != nil:
 		return 0, fmt.Errorf("save source %d: %w", n, err)

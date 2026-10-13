@@ -59,10 +59,10 @@ func (t Tool) UI() string { return t.ui }
 func (t Tool) ADK() tool.Tool { return t.adk }
 
 // Connector is the system a tool belongs to, as connectors.yaml describes it:
-// its id, its name, and the HTTP client every tool of the system shares.
+// its id, which sources from it carry, and the HTTP client every tool of the
+// system shares.
 type Connector struct {
 	ID   string
-	Name string
 	HTTP *http.Client
 }
 

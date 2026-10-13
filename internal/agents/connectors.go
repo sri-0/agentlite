@@ -22,33 +22,29 @@ func (rt *Runtime) connectorSets() error {
 	rt.world, rt.sets = map[string]toolx.Tool{}, map[string]tool.Toolset{}
 	for _, c := range rt.connectors {
 		if c.Type == config.ConnectorMCP {
-			srv, ok := rt.servers[c.ID]
-			if !ok {
-				return fmt.Errorf("connector %q: its mcp server could not be set up (see the log)", c.ID)
-			}
-			rt.sets[c.ID] = srv.Toolset
+			rt.sets[c.ID] = rt.servers[c.ID].Toolset
 			continue
 		}
-		built, err := rt.buildTools(c.ID, c.Name, c.Tools, c.HTTP)
+		built, err := rt.buildTools(c)
 		if err != nil {
 			return fmt.Errorf("connector %q: %w", c.ID, err)
 		}
 		rt.sets[c.ID] = toolx.Toolset(c.ID, built)
 	}
-	var unlisted []string
+	unlisted := config.Connector{HTTP: config.HTTP{UserAgent: rt.userAgent}}
 	for name := range tools.Catalog {
 		if _, ok := rt.world[name]; !ok {
-			unlisted = append(unlisted, name)
+			unlisted.Tools = append(unlisted.Tools, name)
 		}
 	}
-	_, err := rt.buildTools("", "", unlisted, config.HTTP{})
+	_, err := rt.buildTools(unlisted)
 	return err
 }
 
-// buildTools builds the named tools for one connector, on one new client,
-// and records them in rt.world.
-func (rt *Runtime) buildTools(id, name string, names []string, http config.HTTP) ([]toolx.Tool, error) {
-	cfg, err := http.Transport()
+// buildTools builds a connector's tools on one new client, and records them
+// in rt.world.
+func (rt *Runtime) buildTools(c config.Connector) ([]toolx.Tool, error) {
+	cfg, err := c.HTTP.Transport()
 	if err != nil {
 		return nil, err
 	}
@@ -56,9 +52,9 @@ func (rt *Runtime) buildTools(id, name string, names []string, http config.HTTP)
 	if err != nil {
 		return nil, err
 	}
-	conn := toolx.Connector{ID: id, Name: name, HTTP: client}
-	built := make([]toolx.Tool, 0, len(names))
-	for _, n := range names {
+	conn := toolx.Connector{ID: c.ID, HTTP: client}
+	built := make([]toolx.Tool, 0, len(c.Tools))
+	for _, n := range c.Tools {
 		build, ok := tools.Catalog[n]
 		if !ok {
 			return nil, fmt.Errorf("unknown tool %q", n)
@@ -125,12 +121,7 @@ func (rt *Runtime) Connector(ctx context.Context, id string) (*ConnectorInfo, er
 	if c.Type != config.ConnectorMCP {
 		return &info, nil
 	}
-	srv, ok := rt.servers[c.ID]
-	if !ok {
-		info.Status, info.Error = "unreachable", "the mcp server could not be set up"
-		return &info, nil
-	}
-	tools, err := srv.Tools(ctx)
+	tools, err := rt.servers[c.ID].Tools(ctx)
 	if err != nil {
 		info.Status, info.Error = "unreachable", err.Error()
 		return &info, nil
@@ -145,9 +136,7 @@ func (rt *Runtime) Connector(ctx context.Context, id string) (*ConnectorInfo, er
 func (rt *Runtime) describe(c config.Connector) ConnectorInfo {
 	info := ConnectorInfo{ID: c.ID, Name: c.Name, Description: c.Description, Icon: c.Icon, Type: c.Type}
 	if c.Type == config.ConnectorMCP {
-		if srv, ok := rt.servers[c.ID]; ok {
-			info.URL = srv.URL()
-		}
+		info.URL = rt.servers[c.ID].URL()
 		return info
 	}
 	for _, name := range c.Tools {

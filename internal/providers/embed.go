@@ -2,6 +2,7 @@ package providers
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"time"
 
@@ -39,7 +40,7 @@ func (e *Embedder) Embed(ctx context.Context, text string) ([]float32, error) {
 		return nil, fmt.Errorf("embeddings: %w", err)
 	}
 	if len(resp.Data) == 0 {
-		return nil, fmt.Errorf("embeddings: empty response")
+		return nil, errors.New("embeddings: empty response")
 	}
 	out := make([]float32, len(resp.Data[0].Embedding))
 	for i, v := range resp.Data[0].Embedding {

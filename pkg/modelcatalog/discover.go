@@ -37,9 +37,11 @@ func parseOpenAI(body []byte) ([]Model, error) {
 	}
 	out := make([]Model, 0, len(payload.Data))
 	for _, m := range payload.Data {
+		// Name and Type stay empty unless reported, so a card's show.
 		model := Model{
-			ID: m.ID, Name: m.Name, Type: "llm", OwnedBy: m.OwnedBy, Description: m.Description,
-			ContextLength: max(m.ContextLength, m.MaxModelLen), SupportedParameters: m.SupportedParameters, Architecture: m.Architecture,
+			ID: m.ID, Name: m.Name, OwnedBy: m.OwnedBy, Description: m.Description,
+			ContextLength: max(m.ContextLength, m.MaxModelLen), SupportedParameters: m.SupportedParameters,
+			Architecture: m.Architecture,
 		}
 		if strings.Contains(m.ID, "embed") {
 			model.Type = "embedding"
@@ -86,7 +88,7 @@ func parseLiteLLM(body []byte) ([]Model, error) {
 	}
 	out := make([]Model, 0, len(payload.Data))
 	for _, m := range payload.Data {
-		model := Model{ID: m.ModelName, Name: m.ModelName, Type: "llm", ContextLength: m.ModelInfo.MaxInputTokens}
+		model := Model{ID: m.ModelName, ContextLength: m.ModelInfo.MaxInputTokens}
 		if m.ModelInfo.Mode == "embedding" {
 			model.Type = "embedding"
 		}
