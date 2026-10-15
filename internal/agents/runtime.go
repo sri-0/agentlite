@@ -110,6 +110,13 @@ func (rt *Runtime) Bind(d builtin.Dispatcher) error {
 	return nil
 }
 
+// modelChange is the model activity's content: the turn runs on To, and the
+// thread's previous turn ran on From.
+type modelChange struct {
+	From string `json:"from"`
+	To   string `json:"to"`
+}
+
 // Seed rebuilds a thread's session from its persisted messages.
 func (rt *Runtime) Seed(ctx context.Context, threadID, agentID string, history []opensearch.Message) error {
 	return seed(ctx, rt.sessions, rt.appName, runs.SessionUser, threadID, agentID, history)
@@ -122,6 +129,9 @@ func (rt *Runtime) Run(ctx context.Context, in runs.Input, sink stream.Sink) (ru
 	enc := stream.NewEncoder(run.ThreadID, run.ID, run.Model, sink.Emit)
 	enc.ToolUI = rt.toolUI
 	enc.Start(run.TurnID, run.AgentID)
+	if run.PreviousModel != "" && in.Message != "" { // marked once, by the turn's first segment
+		sink.Emit(stream.Activity("model:"+run.TurnID, stream.ActivityModel, modelChange{From: run.PreviousModel, To: run.Model}))
+	}
 	fail := func(err error) (runs.Result, error) {
 		enc.Fail(err)
 		return runs.Result{Status: runs.StatusError}, err
