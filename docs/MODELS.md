@@ -60,9 +60,10 @@ agents can run on it (`modelcatalog.Type*`):
 | Type | What | Endpoints |
 |---|---|---|
 | `llm` | chat, completions, responses | `/v1/chat/completions`, `/v1/responses`, `/v1/messages`; agent runs |
+| `image` | image generation and editing | `/v1/chat/completions` (vLLM-Omni serves Qwen-Image and Qwen-Image-Edit there, returning images in `message.content`; OpenRouter generates images there) |
 | `embedding` | embeddings | `/v1/embeddings`; memory |
 | `decision` | typed answers to questions | `/v1/decisions`, `/v1/systemone` |
-| `rerank`, `image`, `transcription`, `speech` | relevance scores, image generation and editing, speech to text, text to speech | none yet |
+| `rerank`, `transcription`, `speech` | relevance scores, speech to text, text to speech | none yet |
 
 A type is taken from, in order, `models.yaml`, the provider's list, the model card;
 with none of them saying, a model is an `llm`. What providers report:
@@ -151,7 +152,8 @@ there):
 
 | Endpoint | API | Types |
 |---|---|---|
-| `/v1/chat/completions`, `/v1/responses` | OpenAI | `llm` |
+| `/v1/chat/completions` | OpenAI | `llm`, `image` |
+| `/v1/responses` | OpenAI | `llm` |
 | `/v1/messages` | Anthropic | `llm` |
 | `/v1/embeddings` | OpenAI | `embedding` |
 | `/v1/decisions` | OpenAI's decisions API (beta, Oct 2026) | `decision` |
