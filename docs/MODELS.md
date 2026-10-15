@@ -76,8 +76,8 @@ with none of them saying, a model is an `llm`. What providers report:
   `embedding`; `rerank`; `image_generation`, `image_edit` → `image`;
   `audio_transcription` → `transcription`; `audio_speech` → `speech`; `decisions` →
   `decision`. A deployment without a `mode` is an `llm`, as LiteLLM treats it.
-- **vLLM** reports no type (an id containing `embed` is taken for an `embedding`).
-  OpenRouter (development only) lists text models by default, all `llm`.
+- **vLLM** reports no type. OpenRouter (development only) lists text models by
+  default.
 
 Declare `type` in `models.yaml` for any model that is not an `llm` or whose reported
 type is wrong; the entry overrides discovery.

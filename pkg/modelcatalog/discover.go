@@ -43,9 +43,6 @@ func parseOpenAI(body []byte) ([]Model, error) {
 			Description: m.Description, ContextLength: max(m.ContextLength, m.MaxModelLen),
 			SupportedParameters: m.SupportedParameters, Architecture: m.Architecture,
 		}
-		if model.Type == "" && strings.Contains(m.ID, "embed") { // vLLM reports no type
-			model.Type = TypeEmbedding
-		}
 		model.Capabilities = capabilitiesFromParameters(m.SupportedParameters, m.Architecture)
 		out = append(out, model)
 	}
