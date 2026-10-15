@@ -249,7 +249,7 @@ func (rt *Runtime) llm(ctx context.Context, t providers.Target) (model.LLM, erro
 		api = openaimodel.APIResponses
 	}
 	return openaimodel.NewModel(ctx, t.Model.UpstreamID, &openaimodel.ClientConfig{
-		BaseURL: t.BaseURL.String(), HTTPClient: t.Client.HTTP, API: api, Options: t.Client.Credentials(),
+		APIKey: t.Client.APIKey, BaseURL: t.BaseURL.String(), HTTPClient: t.Client.HTTP, API: api,
 	})
 }
 

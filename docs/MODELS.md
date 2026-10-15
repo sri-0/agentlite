@@ -120,14 +120,10 @@ providers:
 
 ## Credentials
 
-Every call to a provider carries that provider's credentials and nothing else: its
-`api_key_env` key (none if empty), its headers and its client certificate. openai-go
-fills every client from `OPENAI_*` variables (a key, an admin key, an organisation, a
-project); `providers.Client.Credentials` sets or clears each of them on agent model
-calls and embeddings, so a provider with no key sends no `Authorization` rather than
-`OPENAI_API_KEY`. `OPENAI_CUSTOM_HEADERS` cannot be cleared that way, so the server
-refuses to start with it set. The pass-through replaces the client's `Authorization`
-with the provider's.
+Every call to a provider carries that provider's credentials: its `api_key_env` key,
+its headers and its client certificate. The pass-through drops the caller's
+`Authorization`, which is the internal user's JWT, and sends the provider's key
+instead, so a user's token never reaches a provider.
 
 The development provider `openrouter` takes its base URL from `OPENROUTER_BASE_URL`;
 unset (production) it is skipped like any provider without a base URL, so a model id
@@ -166,10 +162,12 @@ there):
 | `/v1/decisions` | OpenAI's decisions API (beta, Oct 2026) | `decision` |
 | `/v1/systemone` | TypeSafe's System One API (also vLLM, LiteLLM, DigitalOcean) | `decision` |
 
-`providers.Registry.Passthrough` reads the whole body (up to 32 MiB) for its `model`,
+The handler (`internal/handler/proxy.go`) reads the whole body (up to 32 MiB, Echo's
+`BodyLimit`; a `413` above it) for its `model`,
 resolves it, checks its type, rewrites it to the upstream id, and forwards the
-request to that provider (or the model's own `base_url`) with the provider's key,
-streaming the response back as it arrives. A body without a `model` of the form
+request to that provider (or the model's own `base_url`) with the provider's key
+(`providers.Registry.Forward`), streaming the response back as it arrives. Refusals
+are Echo errors (`{"message": ...}`); a provider that cannot be reached is a `502`. A body without a `model` of the form
 `<provider>/<model>`, or a model of a type the endpoint does not take, is refused with
 a `400` and never sent. Endpoints with no JSON model (multipart uploads: image edits,
 transcriptions, files) are not proxied yet. The two decision APIs differ (`input` and
@@ -193,6 +191,7 @@ provider. It is the server calling a provider itself, not the pass-through.
 | `pkg/modelcatalog/cards.go` | the model card loader and lookup |
 | `internal/providers/client.go` | one client per provider (pkg/transport, TLS) |
 | `internal/providers/registry.go` | per-provider model lists, `Resolve`, discovery |
-| `internal/providers/passthrough.go` | the pass-through proxy |
+| `internal/handler/proxy.go` | the pass-through endpoints, their model types, the checks |
+| `internal/providers/passthrough.go` | forwarding a pass-through request to its provider |
 | `internal/providers/embed.go` | embeddings for memory |
 | `internal/config/models.go` | `models.yaml` and its checks |

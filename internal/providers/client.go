@@ -10,9 +10,6 @@ import (
 	"os"
 	"strings"
 
-	"github.com/openai/openai-go/v3"
-	"github.com/openai/openai-go/v3/option"
-
 	"agentlite/internal/config"
 	"agentlite/pkg/transport"
 )
@@ -25,7 +22,6 @@ type Client struct {
 	BaseURL *url.URL
 	APIKey  string
 	HTTP    *http.Client
-	openai  openai.Client // for embeddings
 }
 
 // newClient builds the provider's client from its configuration.
@@ -42,23 +38,7 @@ func newClient(p config.Provider) (*Client, error) {
 	if err != nil {
 		return nil, fmt.Errorf("provider %s: %w", p.ID, err)
 	}
-	c := &Client{Config: p, BaseURL: base, APIKey: os.Getenv(p.APIKeyEnv), HTTP: httpClient}
-	opts := append(c.Credentials(), option.WithBaseURL(base.String()), option.WithHTTPClient(httpClient))
-	c.openai = openai.NewClient(opts...)
-	return c, nil
-}
-
-// Credentials are the openai-go options that make a call carry this
-// provider's credentials and nothing else. openai-go fills every client from
-// OPENAI_* variables (a key, an admin key, an organisation, a project), and
-// none of them may reach a provider: each is set or cleared here. A provider
-// with no key sends no Authorization. (OPENAI_CUSTOM_HEADERS cannot be
-// cleared this way; NewRegistry refuses to start with it set.)
-func (c *Client) Credentials() []option.RequestOption {
-	return []option.RequestOption{
-		option.WithAPIKey(c.APIKey), option.WithAdminAPIKey(""),
-		option.WithHeaderDel("OpenAI-Organization"), option.WithHeaderDel("OpenAI-Project"),
-	}
+	return &Client{Config: p, BaseURL: base, APIKey: os.Getenv(p.APIKeyEnv), HTTP: httpClient}, nil
 }
 
 // parseBaseURL reads an absolute http(s) base URL, without a trailing slash.

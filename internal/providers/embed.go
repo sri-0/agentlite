@@ -38,9 +38,11 @@ func (e *Embedder) Embed(ctx context.Context, text string) ([]float32, error) {
 	}
 	ctx, cancel := context.WithTimeout(ctx, embedTimeout)
 	defer cancel()
-	resp, err := t.Client.openai.Embeddings.New(ctx, openai.EmbeddingNewParams{
+	client := openai.NewClient(option.WithBaseURL(t.BaseURL.String()), option.WithAPIKey(t.Client.APIKey),
+		option.WithHTTPClient(t.Client.HTTP))
+	resp, err := client.Embeddings.New(ctx, openai.EmbeddingNewParams{
 		Model: t.Model.UpstreamID, Input: openai.EmbeddingNewParamsInputUnion{OfString: openai.String(text)},
-	}, option.WithBaseURL(t.BaseURL.String()))
+	})
 	if err != nil {
 		return nil, fmt.Errorf("embeddings: %w", err)
 	}

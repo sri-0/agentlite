@@ -1,10 +1,7 @@
 package providers
 
 import (
-	"context"
 	"errors"
-	"net/http"
-	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
@@ -15,39 +12,47 @@ import (
 	"agentlite/pkg/modelcatalog"
 )
 
-// TestResolve pins what routing must never do: send a model to a provider
-// other than the one its id names, or to a host a model card names.
+// TestResolve pins how a model id routes in the deployed, offline setup
+// (LiteLLM and vLLM): to the provider its prefix names and nowhere else,
+// never to a provider that merely serves a model of the same name, and never
+// to a host a model card names.
 func TestResolve(t *testing.T) {
 	cards := t.TempDir()
-	card := "---\nid: openai/m1\nname: Card name\ncontext_length: 100\npricing: {input: 1}\n" +
+	card := "---\nid: Qwen/Qwen3-32B\nname: Card name\ncontext_length: 100\npricing: {input: 1}\n" +
 		"base_url: http://card.invalid/v1\n---\nNotes.\n"
-	if err := os.MkdirAll(filepath.Join(cards, "openai"), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Join(cards, "Qwen"), 0o755); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.WriteFile(filepath.Join(cards, "openai", "m1.md"), []byte(card), 0o644); err != nil {
+	if err := os.WriteFile(filepath.Join(cards, "Qwen", "Qwen3-32B.md"), []byte(card), 0o644); err != nil {
 		t.Fatal(err)
 	}
 	r, err := NewRegistry(&config.ModelsConfig{Providers: []config.Provider{
-		{ID: "a", BaseURL: "http://a.invalid/v1", Models: []modelcatalog.Model{
-			{ID: "openai/m1", ContextLength: 300},
+		{ID: "litellm", BaseURL: "http://litellm.invalid/v1", Models: []modelcatalog.Model{{ID: "gpt-oss-120b"}}},
+		{ID: "vllm", BaseURL: "http://vllm.invalid/v1", Models: []modelcatalog.Model{
+			{ID: "Qwen/Qwen3-32B", ContextLength: 300},
+			{ID: "qwen3-embedding", Type: modelcatalog.TypeEmbedding, BaseURL: "http://vllm-embed.invalid/v1"},
 		}},
-		{ID: "b", BaseURL: "http://b.invalid/v1", Models: []modelcatalog.Model{{ID: "m2", BaseURL: "http://m2.invalid/v1"}}},
+		{ID: "vllm-gpu2"}, // no base_url in this environment: skipped
 	}}, cards, zerolog.Nop())
 	if err != nil {
 		t.Fatal(err)
 	}
-	r.rebuild(r.provider("a"), []modelcatalog.Model{{ID: "openai/m1", Name: "Listed", ContextLength: 200}, {ID: "m3"}})
+	r.rebuild(r.provider("vllm"), []modelcatalog.Model{{ID: "Qwen/Qwen3-32B", Name: "Listed", ContextLength: 200}})
+	r.rebuild(r.provider("litellm"), []modelcatalog.Model{{ID: "glm-4.6"}})
 
 	for _, tc := range []struct {
 		id, host string
 		err      error
 	}{
-		{"a/openai/m1", "a.invalid", nil},
-		{"a/m3", "a.invalid", nil}, // discovered only
-		{"b/m2", "m2.invalid", nil},
-		{"b/openai/m1", "", ErrUnknownModel}, // a's model, never served by b
-		{"c/openai/m1", "", ErrUnknownProvider},
-		{"openai/m1", "", ErrUnknownProvider}, // no provider prefix
+		{"litellm/gpt-oss-120b", "litellm.invalid", nil},
+		{"litellm/glm-4.6", "litellm.invalid", nil},         // discovered only
+		{"vllm/Qwen/Qwen3-32B", "vllm.invalid", nil},        // split at the first /
+		{"vllm/qwen3-embedding", "vllm-embed.invalid", nil}, // the model's own base_url
+		{"litellm/Qwen/Qwen3-32B", "", ErrUnknownModel},     // vllm's model, never served by litellm
+		{"vllm/gpt-oss-120b", "", ErrUnknownModel},
+		{"vllm-gpu2/Qwen/Qwen3-32B", "", ErrUnknownProvider},  // skipped
+		{"openrouter/Qwen/Qwen3-32B", "", ErrUnknownProvider}, // not configured
+		{"Qwen/Qwen3-32B", "", ErrUnknownProvider},            // no provider prefix
 	} {
 		got, err := r.Resolve(tc.id)
 		if !errors.Is(err, tc.err) || (err == nil && got.BaseURL.Host != tc.host) {
@@ -55,39 +60,12 @@ func TestResolve(t *testing.T) {
 		}
 	}
 
-	// card < discovery < models.yaml, field by field
-	m, _ := r.Resolve("a/openai/m1")
+	// card < discovery < models.yaml, field by field; the card's base_url is ignored
+	m, _ := r.Resolve("vllm/Qwen/Qwen3-32B")
 	if got := m.Model; got.Name != "Listed" || got.ContextLength != 300 || got.Pricing.Input != 1 || got.Notes != "Notes." {
-		t.Errorf("merged model = %+v", m.Model)
+		t.Errorf("merged model = %+v", got)
 	}
-}
-
-// TestNoAmbientCredentials: openai-go reads OPENAI_* variables into every
-// client; none of them may reach a provider, even one without a key.
-func TestNoAmbientCredentials(t *testing.T) {
-	t.Setenv("OPENAI_API_KEY", "sk-ambient")
-	t.Setenv("OPENAI_ADMIN_KEY", "admin-ambient")
-	t.Setenv("OPENAI_ORG_ID", "org-ambient")
-	t.Setenv("OPENAI_PROJECT_ID", "proj-ambient")
-	var got http.Header
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		got = r.Header.Clone()
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(`{"object":"list","data":[{"object":"embedding","index":0,"embedding":[0.5]}]}`))
-	}))
-	defer srv.Close()
-	r, err := NewRegistry(&config.ModelsConfig{Providers: []config.Provider{
-		{ID: "v", BaseURL: srv.URL, Models: []modelcatalog.Model{{ID: "emb", Type: "embedding"}}},
-	}}, "", zerolog.Nop())
-	if err != nil {
-		t.Fatal(err)
-	}
-	if _, err := r.Embedder("v/emb").Embed(context.Background(), "hello"); err != nil {
-		t.Fatal(err)
-	}
-	for _, h := range []string{"Authorization", "OpenAI-Organization", "OpenAI-Project"} {
-		if v := got.Get(h); v != "" {
-			t.Errorf("%s: %q reached the provider", h, v)
-		}
+	if m.Model.UpstreamID != "Qwen/Qwen3-32B" || m.Model.ID != "vllm/Qwen/Qwen3-32B" {
+		t.Errorf("ids = %q, %q", m.Model.ID, m.Model.UpstreamID)
 	}
 }

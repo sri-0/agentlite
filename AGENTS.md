@@ -109,7 +109,7 @@ started or resumed over the socket carry none yet.
 ## Configuration
 
 Environment (`internal/config/config.go`): `PORT`, `HOST`, `APP_NAME`, `CONFIG_DIR`,
-`LOG_LEVEL`, `LOG_JSON`, `ALLOWED_ORIGINS`, `REDIS_HOST/PORT/USER/PASS`,
+`LOG_LEVEL`, `LOG_JSON`, `ALLOWED_ORIGINS` (CORS and the socket's browser origins), `REDIS_HOST/PORT/USER/PASS`,
 `REDIS_DB_RUNS/SESSIONS/HITL` (default 1/2/3), `OPENSEARCH_URL/USERNAME/PASSWORD`,
 `S3_ENDPOINT/ACCESS_KEY/SECRET_KEY/BUCKET/REGION/USE_SSL` (no endpoint keeps artifact bodies
 in OpenSearch), `MODEL_CARDS_DIR` (a checkout of the model cards), `OTEL_EXPORTER_OTLP_ENDPOINT`,
