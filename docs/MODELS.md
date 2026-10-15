@@ -20,7 +20,10 @@ id is what is sent to the provider.
 ## Strict routing
 
 `providers.Registry.Resolve(id)` looks the model up in the named provider's own
-list and nowhere else (`internal/providers/registry.go`):
+list and nowhere else (`internal/providers/registry.go`). Every use resolves through
+`ResolveAs(id, types...)`, which also refuses a model of another type
+(`ErrWrongType`): the pass-through with its endpoint's types, agents with `llm`,
+memory with `embedding`.
 
 | Case | Result |
 |---|---|
@@ -52,6 +55,45 @@ A later layer replaces a field it sets and leaves the rest; it cannot clear a
 value. Discovery outranks the card because it reports what is deployed (a vLLM
 server's real context window); `models.yaml` has the last word.
 
+## Model types
+
+Every model has a `type`, which decides the endpoints it may be sent to and whether
+agents can run on it (`modelcatalog.Type*`):
+
+| Type | What | Endpoints |
+|---|---|---|
+| `llm` | chat, completions, responses | `/v1/chat/completions`, `/v1/responses`, `/v1/messages`; agent runs |
+| `image` | image generation and editing | `/v1/chat/completions` (vLLM-Omni serves Qwen-Image and Qwen-Image-Edit there, returning images in `message.content`; OpenRouter generates images there) |
+| `embedding` | embeddings | `/v1/embeddings`; memory |
+| `audio` | speech and audio understanding (Voxtral: transcripts and questions about a recording) | `/v1/chat/completions`, with the audio in an `input_audio` part |
+| `decision` | typed answers to questions | `/v1/decisions`, `/v1/systemone` |
+| `rerank`, `transcription`, `speech` | relevance scores, speech to text, text to speech | none yet |
+
+A type is taken from, in order, `models.yaml`, the provider's list, the model card;
+with none of them saying, a model is an `llm`. What providers report:
+
+- **LiteLLM** `/model/info` gives `mode`: `chat`, `completion`, `responses` → `llm`;
+  `embedding`; `rerank`; `image_generation`, `image_edit` → `image`;
+  `audio_transcription` → `transcription`; `audio_speech` → `speech`; `decisions` →
+  `decision`. A deployment without a `mode` is an `llm`, as LiteLLM treats it.
+- **vLLM** reports no type. OpenRouter (development only) lists text models by
+  default.
+
+Declare `type` in `models.yaml` for any model that is not an `llm` or whose reported
+type is wrong; the entry overrides discovery.
+
+`audio` is never reported: a speech model that takes text and audio and answers in
+text (Voxtral Small) looks like any chat model to OpenRouter (`text+audio->text`) and
+LiteLLM (`chat`), and so do general models that also hear (GPT-4o audio, Gemini).
+Declare a model used for voice as `audio` in `models.yaml`; agents and the UI's model
+picker take `llm` models only, so it stays out of them.
+
+A type no endpoint takes (LiteLLM's `video_generation` or `ocr`) is kept as reported
+and refused everywhere. A run on a model that is not an `llm` is refused when it is
+queued (`400`), and memory refuses an embedding model of another type.
+`default_model` and `memory.embedding_model`, when already known at start, must be
+an `llm` and an `embedding` model.
+
 `models.yaml` entries, and only they, may also set where a model's requests go
 (a card's `base_url` or `api` is ignored: cards come from another repository and are
 shared by every provider). Per model:
@@ -80,14 +122,10 @@ providers:
 
 ## Credentials
 
-Every call to a provider carries that provider's credentials and nothing else: its
-`api_key_env` key (none if empty), its headers and its client certificate. openai-go
-fills every client from `OPENAI_*` variables (a key, an admin key, an organisation, a
-project); `providers.Client.Credentials` sets or clears each of them on agent model
-calls and embeddings, so a provider with no key sends no `Authorization` rather than
-`OPENAI_API_KEY`. `OPENAI_CUSTOM_HEADERS` cannot be cleared that way, so the server
-refuses to start with it set. The pass-through replaces the client's `Authorization`
-with the provider's.
+Every call to a provider carries that provider's credentials: its `api_key_env` key,
+its headers and its client certificate. The pass-through drops the caller's
+`Authorization`, which is the internal user's JWT, and sends the provider's key
+instead, so a user's token never reaches a provider.
 
 The development provider `openrouter` takes its base URL from `OPENROUTER_BASE_URL`;
 unset (production) it is skipped like any provider without a base URL, so a model id
@@ -113,15 +151,32 @@ result, and the UI's model view shows it.
 
 ## The pass-through proxy
 
-`/v1/chat/completions`, `/v1/responses`, `/v1/messages` and `/v1/embeddings` are
-forwarded as they are (`internal/handler/proxy.go` lists them; serving another
-upstream endpoint is one more line there). `providers.Registry.Passthrough` reads
-the body's `model`, resolves it, rewrites it to the upstream id, and forwards the
-request to that provider (or the model's own `base_url`) with the provider's key,
-streaming the response back as it arrives. A body without a `model` of the form
-`<provider>/<model>` is refused with a `400`, so endpoints with no JSON model
-(multipart uploads, files) are not proxied. Responses carry the upstream id in
-their own `model` field.
+These endpoints are forwarded as they are, each for the model types it takes
+(`internal/handler/passthrough.go`; serving another upstream endpoint is one more line
+there):
+
+| Endpoint | API | Types |
+|---|---|---|
+| `/v1/chat/completions` | OpenAI | `llm`, `image`, `audio` |
+| `/v1/responses` | OpenAI | `llm` |
+| `/v1/messages` | Anthropic | `llm` |
+| `/v1/embeddings` | OpenAI | `embedding` |
+| `/v1/decisions` | OpenAI's decisions API (beta, Oct 2026) | `decision` |
+| `/v1/systemone` | TypeSafe's System One API (also vLLM, LiteLLM, DigitalOcean) | `decision` |
+
+The handler (`internal/handler/passthrough.go`) reads the whole body (within the server's
+body limit, `MAX_BODY_MB`, default 32: Echo's `BodyLimit`, a `413` above it) for its
+`model`,
+resolves it, checks its type, rewrites it to the upstream id, and forwards the
+request to that provider (or the model's own `base_url`) with the provider's key
+(`providers.Registry.Forward`), streaming the response back as it arrives. Refusals
+are Echo errors (`{"message": ...}`); a provider that cannot be reached is a `502`. A body without a `model` of the form
+`<provider>/<model>`, or a model of a type the endpoint does not take, is refused with
+a `400` and never sent. Endpoints with no JSON model (multipart uploads: image edits,
+transcriptions, files) are not proxied yet. The two decision APIs differ (`input` and
+a list of questions, against `state` and questions by name); each is passed as it is
+to a provider that serves it. Responses carry the upstream id in their own `model`
+field.
 
 ## Embeddings
 
@@ -139,6 +194,7 @@ provider. It is the server calling a provider itself, not the pass-through.
 | `pkg/modelcatalog/cards.go` | the model card loader and lookup |
 | `internal/providers/client.go` | one client per provider (pkg/transport, TLS) |
 | `internal/providers/registry.go` | per-provider model lists, `Resolve`, discovery |
-| `internal/providers/passthrough.go` | the pass-through proxy |
+| `internal/handler/passthrough.go` | the pass-through endpoints, their model types, the checks |
+| `internal/providers/reverseproxy.go` | forwarding a pass-through request to its provider |
 | `internal/providers/embed.go` | embeddings for memory |
 | `internal/config/models.go` | `models.yaml` and its checks |

@@ -7,7 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
-	"os"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -18,11 +18,12 @@ import (
 	"agentlite/pkg/modelcatalog"
 )
 
-// Errors Resolve returns. Neither falls back to another provider: a request
-// goes to the provider its model id names, or nowhere.
+// Errors Resolve and ResolveAs return. None falls back to another provider
+// or model: a request goes to the model its id names, or nowhere.
 var (
 	ErrUnknownProvider = errors.New("unknown provider")
 	ErrUnknownModel    = errors.New("unknown model")
+	ErrWrongType       = errors.New("wrong model type")
 )
 
 const (
@@ -62,9 +63,6 @@ type Target struct {
 // NewRegistry builds a client per provider and the model lists from
 // models.yaml and the model cards; Start adds what discovery finds.
 func NewRegistry(cfg *config.ModelsConfig, cardsDir string, log zerolog.Logger) (*Registry, error) {
-	if _, ok := os.LookupEnv("OPENAI_CUSTOM_HEADERS"); ok {
-		return nil, errors.New("OPENAI_CUSTOM_HEADERS is set: openai-go would send its headers to every provider")
-	}
 	r := &Registry{cardsDir: cardsDir, log: log}
 	for _, p := range cfg.Providers {
 		if p.BaseURL == "" {
@@ -113,6 +111,19 @@ func (r *Registry) Resolve(id string) (Target, error) {
 	}
 	if m.API != "" {
 		t.API = m.API
+	}
+	return t, nil
+}
+
+// ResolveAs resolves a model id, as Resolve does, for a use that takes models
+// of the given types only: an endpoint, agents, memory.
+func (r *Registry) ResolveAs(id string, types ...string) (Target, error) {
+	t, err := r.Resolve(id)
+	if err != nil {
+		return Target{}, err
+	}
+	if !slices.Contains(types, t.Model.Type) {
+		return Target{}, fmt.Errorf("%w: %q is of type %s, not %s", ErrWrongType, id, t.Model.Type, strings.Join(types, " or "))
 	}
 	return t, nil
 }
@@ -241,7 +252,7 @@ func (r *Registry) rebuild(p *provider, discovered []modelcatalog.Model) {
 		m := modelcatalog.Merge(card, listed[id], declared[id])
 		m.ID, m.UpstreamID, m.ProviderID, m.ProviderName = cfg.ID+"/"+id, id, cfg.ID, cfg.Name
 		if m.Type == "" {
-			m.Type = "llm"
+			m.Type = modelcatalog.TypeLLM
 		}
 		models[id] = m
 	}

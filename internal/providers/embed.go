@@ -8,6 +8,8 @@ import (
 
 	"github.com/openai/openai-go/v3"
 	"github.com/openai/openai-go/v3/option"
+
+	"agentlite/pkg/modelcatalog"
 )
 
 const embedTimeout = 15 * time.Second
@@ -27,15 +29,17 @@ func (r *Registry) Embedder(model string) *Embedder {
 
 // Embed returns the embedding of one text, sending the provider its own id.
 func (e *Embedder) Embed(ctx context.Context, text string) ([]float32, error) {
-	t, err := e.registry.Resolve(e.model)
+	t, err := e.registry.ResolveAs(e.model, modelcatalog.TypeEmbedding)
 	if err != nil {
 		return nil, err
 	}
 	ctx, cancel := context.WithTimeout(ctx, embedTimeout)
 	defer cancel()
-	resp, err := t.Client.openai.Embeddings.New(ctx, openai.EmbeddingNewParams{
+	client := openai.NewClient(option.WithBaseURL(t.BaseURL.String()), option.WithAPIKey(t.Client.APIKey),
+		option.WithHTTPClient(t.Client.HTTP))
+	resp, err := client.Embeddings.New(ctx, openai.EmbeddingNewParams{
 		Model: t.Model.UpstreamID, Input: openai.EmbeddingNewParamsInputUnion{OfString: openai.String(text)},
-	}, option.WithBaseURL(t.BaseURL.String()))
+	})
 	if err != nil {
 		return nil, fmt.Errorf("embeddings: %w", err)
 	}

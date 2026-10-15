@@ -22,6 +22,9 @@ type Env struct {
 	LogLevel       string   `env:"LOG_LEVEL, default=info"`
 	LogJSON        bool     `env:"LOG_JSON, default=false"`
 	AllowedOrigins []string `env:"ALLOWED_ORIGINS, default=http://localhost:3000"`
+	// MaxBodyMB is the largest request body the server accepts; the
+	// pass-through reads one whole to find its model.
+	MaxBodyMB int64 `env:"MAX_BODY_MB, default=32"`
 
 	Redis      Redis      `env:", prefix=REDIS_"`
 	OpenSearch OpenSearch `env:", prefix=OPENSEARCH_"`

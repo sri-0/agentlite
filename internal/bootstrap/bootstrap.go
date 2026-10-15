@@ -25,6 +25,7 @@ import (
 	"agentlite/pkg/db/valkey"
 	"agentlite/pkg/logging"
 	"agentlite/pkg/memory"
+	"agentlite/pkg/modelcatalog"
 	"agentlite/pkg/s3"
 	valkeysession "agentlite/pkg/session/valkey"
 )
@@ -61,14 +62,8 @@ func New(ctx context.Context) (*App, error) {
 	if app.Registry, err = providers.NewRegistry(cfg.Models, cfg.ModelCardsDir, app.Log); err != nil {
 		return nil, err
 	}
-	// A model the server falls back to must name a provider this environment
-	// has (one without a base_url is skipped), or every run without a model,
-	// or every memory, would be refused. The model itself may still come
-	// from discovery.
-	for _, id := range cfg.Models.Fallbacks() {
-		if _, err := app.Registry.Resolve(id); errors.Is(err, providers.ErrUnknownProvider) {
-			return nil, fmt.Errorf("models.yaml: %w", err)
-		}
+	if err := checkConfiguredModels(cfg.Models, app.Registry); err != nil {
+		return nil, err
 	}
 	app.Registry.Start(ctx)
 	// One client per logical database: runs, sessions and interrupts are kept apart.
@@ -131,6 +126,24 @@ func (a *App) Close() {
 	for i := len(a.closers) - 1; i >= 0; i-- {
 		a.closers[i]()
 	}
+}
+
+// checkConfiguredModels checks the models models.yaml names: default_model
+// (a run that names none uses it) and memory's embedding model. Each must
+// resolve as the type it is used for, so a mistake fails the start rather
+// than every run or memory; one not listed yet may still come from
+// discovery.
+func checkConfiguredModels(m *config.ModelsConfig, registry *providers.Registry) error {
+	check := func(id, typ string) error {
+		if _, err := registry.ResolveAs(id, typ); err != nil && !errors.Is(err, providers.ErrUnknownModel) {
+			return fmt.Errorf("models.yaml: %w", err)
+		}
+		return nil
+	}
+	if err := check(m.DefaultModel, modelcatalog.TypeLLM); err != nil || m.Memory == nil {
+		return err
+	}
+	return check(m.Memory.EmbeddingModel, modelcatalog.TypeEmbedding)
 }
 
 // artifactStore keeps artifact bodies in S3 when S3_ENDPOINT is set, and in

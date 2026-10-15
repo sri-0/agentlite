@@ -39,12 +39,9 @@ func parseOpenAI(body []byte) ([]Model, error) {
 	for _, m := range payload.Data {
 		// Name and Type stay empty unless reported, so a card's show.
 		model := Model{
-			ID: m.ID, Name: m.Name, OwnedBy: m.OwnedBy, Description: m.Description,
-			ContextLength: max(m.ContextLength, m.MaxModelLen), SupportedParameters: m.SupportedParameters,
-			Architecture: m.Architecture,
-		}
-		if strings.Contains(m.ID, "embed") {
-			model.Type = "embedding"
+			ID: m.ID, Name: m.Name, OwnedBy: m.OwnedBy,
+			Description: m.Description, ContextLength: max(m.ContextLength, m.MaxModelLen),
+			SupportedParameters: m.SupportedParameters, Architecture: m.Architecture,
 		}
 		model.Capabilities = capabilitiesFromParameters(m.SupportedParameters, m.Architecture)
 		out = append(out, model)
@@ -88,10 +85,7 @@ func parseLiteLLM(body []byte) ([]Model, error) {
 	}
 	out := make([]Model, 0, len(payload.Data))
 	for _, m := range payload.Data {
-		model := Model{ID: m.ModelName, ContextLength: m.ModelInfo.MaxInputTokens}
-		if m.ModelInfo.Mode == "embedding" {
-			model.Type = "embedding"
-		}
+		model := Model{ID: m.ModelName, Type: liteLLMType(m.ModelInfo.Mode), ContextLength: m.ModelInfo.MaxInputTokens}
 		if m.ModelInfo.SupportsFunctionCalling {
 			model.Capabilities = append(model.Capabilities, "tool_calling")
 		}
@@ -105,4 +99,28 @@ func parseLiteLLM(body []byte) ([]Model, error) {
 		out = append(out, model)
 	}
 	return out, nil
+}
+
+// liteLLMType maps LiteLLM's model_info.mode to a type. No mode is "" (an
+// llm by default, as LiteLLM treats it); a mode with no type of ours
+// (video_generation, realtime, ocr, ...) stays as it is, which no endpoint
+// takes.
+func liteLLMType(mode string) string {
+	switch mode {
+	case "chat", "completion", "responses":
+		return TypeLLM
+	case "embedding":
+		return TypeEmbedding
+	case "rerank":
+		return TypeRerank
+	case "image_generation", "image_edit":
+		return TypeImage
+	case "audio_transcription":
+		return TypeTranscription
+	case "audio_speech":
+		return TypeSpeech
+	case "decisions":
+		return TypeDecision
+	}
+	return mode
 }

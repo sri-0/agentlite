@@ -234,7 +234,7 @@ func (rt *Runtime) remember(ctx context.Context, threadID string) {
 // model opens the adk model for a model id on the provider the id names,
 // sending the provider its own id for the model.
 func (rt *Runtime) model(ctx context.Context, modelID string) (model.LLM, *modelcatalog.Model, error) {
-	t, err := rt.registry.Resolve(modelID)
+	t, err := rt.registry.ResolveAs(modelID, modelcatalog.TypeLLM)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -249,13 +249,13 @@ func (rt *Runtime) llm(ctx context.Context, t providers.Target) (model.LLM, erro
 		api = openaimodel.APIResponses
 	}
 	return openaimodel.NewModel(ctx, t.Model.UpstreamID, &openaimodel.ClientConfig{
-		BaseURL: t.BaseURL.String(), HTTPClient: t.Client.HTTP, API: api, Options: t.Client.Credentials(),
+		APIKey: t.Client.APIKey, BaseURL: t.BaseURL.String(), HTTPClient: t.Client.HTTP, API: api,
 	})
 }
 
-// CheckModel reports whether a model id resolves; runs.Start refuses a run
-// on one that does not.
+// CheckModel reports whether a model id resolves to a model agents can run
+// on; runs.Start refuses a run on one that does not.
 func (rt *Runtime) CheckModel(modelID string) error {
-	_, err := rt.registry.Resolve(modelID)
+	_, err := rt.registry.ResolveAs(modelID, modelcatalog.TypeLLM)
 	return err
 }

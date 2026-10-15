@@ -24,8 +24,9 @@ Echo server (internal/server, internal/handler, internal/ws)
    │           written to the thread's log
    │
    ├─ pass-through proxy (internal/providers): /v1/chat/completions, /v1/responses,
-   │    /v1/messages, /v1/embeddings → the provider the body's model names, with the
-   │    model rewritten to the provider's own id (MODELS.md)
+   │    /v1/messages, /v1/embeddings, /v1/decisions, /v1/systemone → the provider the
+   │    body's model names, for models of the endpoint's types, with the model
+   │    rewritten to the provider's own id (MODELS.md)
    │
    ├─ Valkey: event logs, runs, queues, leases, adk sessions, interrupt records
    ├─ OpenSearch: threads, messages (the stored AG-UI events), memories, sources, artifacts,
@@ -188,7 +189,9 @@ records.
 ## Configuration
 
 Environment (`internal/config/config.go`): `PORT`, `HOST`, `APP_NAME`,
-`CONFIG_DIR`, `LOG_LEVEL`, `LOG_JSON`, `ALLOWED_ORIGINS`, `REDIS_HOST`,
+`CONFIG_DIR`, `LOG_LEVEL`, `LOG_JSON`, `ALLOWED_ORIGINS` (CORS, and the page origins a
+browser may open the socket from; clients that send no `Origin` are not checked),
+`MAX_BODY_MB` (the largest request body, default 32), `REDIS_HOST`,
 `REDIS_PORT`, `REDIS_USER`, `REDIS_PASS`, `REDIS_DB_RUNS`, `REDIS_DB_SESSIONS`,
 `REDIS_DB_HITL`, `OPENSEARCH_URL`, `OPENSEARCH_USERNAME`, `OPENSEARCH_PASSWORD`,
 `S3_ENDPOINT`, `S3_ACCESS_KEY`, `S3_SECRET_KEY`, `S3_BUCKET`, `S3_REGION`, `S3_USE_SSL`,

@@ -2,7 +2,7 @@ package handler
 
 import (
 	"net/http"
-	"net/url"
+	"slices"
 
 	"github.com/coder/websocket"
 	"github.com/labstack/echo/v5"
@@ -38,25 +38,22 @@ func (h *Handler) StartThread(c *echo.Context) error {
 	return c.JSON(http.StatusCreated, startedThread{ThreadID: run.ThreadID, RunID: run.ID, Seq: run.SegmentFrom})
 }
 
-// Chat upgrades to the agent chat socket (see internal/ws).
+// Chat upgrades to the agent chat socket (see internal/ws). A browser names
+// the page it runs in (Origin); only the origins CORS allows may open the
+// socket. Clients that are not browsers send none.
 func (h *Handler) Chat(c *echo.Context) error {
 	if c.QueryParam("v") != ws.Version {
 		return echo.NewHTTPError(http.StatusUpgradeRequired, "unsupported protocol version; use ?v="+ws.Version)
 	}
-	conn, err := websocket.Accept(c.Response(), c.Request(), &websocket.AcceptOptions{OriginPatterns: originHosts(h.Config.AllowedOrigins)})
+	if origin := c.Request().Header.Get("Origin"); origin != "" && !slices.Contains(h.Config.AllowedOrigins, origin) {
+		return echo.NewHTTPError(http.StatusForbidden, "origin not allowed")
+	}
+	// The origin is checked above, against whole origins rather than the
+	// hosts the library would compare.
+	conn, err := websocket.Accept(c.Response(), c.Request(), &websocket.AcceptOptions{InsecureSkipVerify: true})
 	if err != nil {
 		return nil // Accept has already written the HTTP error
 	}
 	ws.Serve(c.Request().Context(), conn, h.Runs, h.Store)
 	return nil
-}
-
-func originHosts(origins []string) []string {
-	hosts := make([]string, 0, len(origins))
-	for _, o := range origins {
-		if u, err := url.Parse(o); err == nil && u.Host != "" {
-			hosts = append(hosts, u.Host)
-		}
-	}
-	return hosts
 }

@@ -10,6 +10,7 @@ import (
 	"google.golang.org/adk/v2/session/compaction"
 
 	"agentlite/internal/stream"
+	"agentlite/pkg/modelcatalog"
 )
 
 // compaction builds adk's compaction config for a run from the global
@@ -21,7 +22,7 @@ func (rt *Runtime) compaction(ctx context.Context, modelID string, watch *compac
 	if c == nil {
 		return nil, nil
 	}
-	t, err := rt.registry.Resolve(modelID)
+	t, err := rt.registry.ResolveAs(modelID, modelcatalog.TypeLLM)
 	if err != nil {
 		return nil, err
 	}
