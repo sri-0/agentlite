@@ -62,6 +62,7 @@ agents can run on it (`modelcatalog.Type*`):
 | `llm` | chat, completions, responses | `/v1/chat/completions`, `/v1/responses`, `/v1/messages`; agent runs |
 | `image` | image generation and editing | `/v1/chat/completions` (vLLM-Omni serves Qwen-Image and Qwen-Image-Edit there, returning images in `message.content`; OpenRouter generates images there) |
 | `embedding` | embeddings | `/v1/embeddings`; memory |
+| `audio` | speech and audio understanding (Voxtral: transcripts and questions about a recording) | `/v1/chat/completions`, with the audio in an `input_audio` part |
 | `decision` | typed answers to questions | `/v1/decisions`, `/v1/systemone` |
 | `rerank`, `transcription`, `speech` | relevance scores, speech to text, text to speech | none yet |
 
@@ -78,6 +79,12 @@ with none of them saying, a model is an `llm`. What providers report:
   `decision`. A deployment without a `mode` is an `llm`, as LiteLLM treats it.
 - **vLLM** reports no type, so a vLLM model that is not an `llm` is declared in
   `models.yaml` (an id containing `embed` is taken for an `embedding`).
+
+`audio` is never reported: a speech model that takes text and audio and answers in
+text (Voxtral Small) looks like any chat model to OpenRouter (`text+audio->text`) and
+LiteLLM (`chat`), and so do general models that also hear (GPT-4o audio, Gemini).
+Declare a model used for voice as `audio` in `models.yaml`; agents and the UI's model
+picker take `llm` models only, so it stays out of them.
 
 A type no endpoint takes (OpenRouter's `video`, LiteLLM's `ocr`) is kept as reported
 and refused everywhere. A run on a model that is not an `llm` is refused when it is
@@ -152,7 +159,7 @@ there):
 
 | Endpoint | API | Types |
 |---|---|---|
-| `/v1/chat/completions` | OpenAI | `llm`, `image` |
+| `/v1/chat/completions` | OpenAI | `llm`, `image`, `audio` |
 | `/v1/responses` | OpenAI | `llm` |
 | `/v1/messages` | Anthropic | `llm` |
 | `/v1/embeddings` | OpenAI | `embedding` |

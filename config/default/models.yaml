@@ -45,6 +45,8 @@ providers:
         name: Text Embedding 3 Small
         type: embedding
         owned_by: openai
+      - id: mistralai/voxtral-small-24b-2507   # discovered as an llm; it is for voice
+        type: audio
 
 # A model id is "<provider>/<model>": the provider's id, then the provider's
 # own name for the model (openrouter/openai/gpt-4.1-mini). A request goes to
@@ -55,9 +57,11 @@ providers:
 # base_url and api.
 #
 # A model's type decides which endpoints take it (docs/MODELS.md): llm (the
-# default), embedding, decision, rerank, image, transcription, speech. OpenRouter
-# and LiteLLM report it; vLLM does not, so declare a vLLM model that is not an
-# llm here with its type.
+# default), embedding, decision, image, audio, rerank, transcription, speech.
+# OpenRouter and LiteLLM report it; vLLM does not, so declare a vLLM model that
+# is not an llm here with its type. Audio is never reported: a speech model
+# used through chat (Voxtral) is declared audio, so agents and the UI's model
+# picker leave it out.
 #
 # Agents run on the model the request names, all the way down to sub-agents;
 # this one answers when a request names none.

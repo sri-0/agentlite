@@ -53,6 +53,7 @@ const (
 	TypeEmbedding     = "embedding"     // embeddings
 	TypeRerank        = "rerank"        // relevance scores for documents
 	TypeImage         = "image"         // image generation and editing
+	TypeAudio         = "audio"         // speech and audio understanding through chat
 	TypeTranscription = "transcription" // speech to text
 	TypeSpeech        = "speech"        // text to speech
 	TypeDecision      = "decision"      // typed answers to questions

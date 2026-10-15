@@ -11,8 +11,9 @@ import (
 // (providers.Registry.Passthrough). Serving a new upstream endpoint is one
 // more line here.
 var passThrough = map[string][]string{
-	// Image models generate and edit through chat too (vLLM-Omni, OpenRouter).
-	"/v1/chat/completions": {modelcatalog.TypeLLM, modelcatalog.TypeImage},
+	// Image models generate and edit through chat too (vLLM-Omni, OpenRouter),
+	// and audio models (Voxtral) hear through it.
+	"/v1/chat/completions": {modelcatalog.TypeLLM, modelcatalog.TypeImage, modelcatalog.TypeAudio},
 	"/v1/responses":        {modelcatalog.TypeLLM},
 	"/v1/messages":         {modelcatalog.TypeLLM}, // Anthropic's API
 	"/v1/embeddings":       {modelcatalog.TypeEmbedding},
