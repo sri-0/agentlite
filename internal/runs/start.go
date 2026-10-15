@@ -87,11 +87,14 @@ func (m *Manager) Start(ctx context.Context, in StartInput) (*Run, error) {
 
 // prepare persists the user turn, readies the session and queues the run.
 func (m *Manager) prepare(ctx context.Context, in StartInput, run *Run) error {
-	thread, err := m.upsertThread(ctx, in)
+	thread, previousModel, err := m.upsertThread(ctx, in)
 	if err != nil {
 		return err
 	}
 	run.RootID, run.Connectors = thread.RootID, thread.Connectors
+	if previousModel != "" && previousModel != run.Model {
+		run.PreviousModel = previousModel
+	}
 	if err := m.ensureSession(ctx, in.ThreadID, in.AgentID); err != nil {
 		return err
 	}
@@ -155,23 +158,24 @@ func (m *Manager) release(ctx context.Context, run *Run) {
 // upsertThread records the turn on its thread. A new conversation's thread
 // and a sub-agent's thread (under its parent's root) are created here; any
 // other thread must already exist.
-func (m *Manager) upsertThread(ctx context.Context, in StartInput) (*opensearch.Thread, error) {
+func (m *Manager) upsertThread(ctx context.Context, in StartInput) (thread *opensearch.Thread, previousModel string, err error) {
 	now := time.Now()
-	thread, err := m.history.Thread(ctx, in.ThreadID)
+	thread, err = m.history.Thread(ctx, in.ThreadID)
 	switch {
 	case errors.Is(err, opensearch.ErrNotFound) && in.newThread:
 		thread = &opensearch.Thread{ID: in.ThreadID, RootID: in.ThreadID, CreatedAt: now}
 	case errors.Is(err, opensearch.ErrNotFound) && in.ParentID != "":
 		parent, err := m.history.Thread(ctx, in.ParentID)
 		if err != nil {
-			return nil, fmt.Errorf("parent thread: %w", err)
+			return nil, "", fmt.Errorf("parent thread: %w", err)
 		}
 		thread = &opensearch.Thread{ID: in.ThreadID, ParentID: in.ParentID, RootID: parent.RootID, CreatedAt: now}
 	case errors.Is(err, opensearch.ErrNotFound):
-		return nil, fmt.Errorf("%w: thread %s", ErrNotFound, in.ThreadID)
+		return nil, "", fmt.Errorf("%w: thread %s", ErrNotFound, in.ThreadID)
 	case err != nil:
-		return nil, err
+		return nil, "", err
 	}
+	previousModel = thread.Model
 	if in.Connectors != nil {
 		thread.Connectors = in.Connectors
 	}
@@ -179,7 +183,7 @@ func (m *Manager) upsertThread(ctx context.Context, in StartInput) (*opensearch.
 		thread.Title = title(in.Text)
 	}
 	thread.AgentID, thread.Model, thread.UpdatedAt = in.AgentID, in.Model, now
-	return thread, m.sink.SaveThread(ctx, thread)
+	return thread, previousModel, m.sink.SaveThread(ctx, thread)
 }
 
 func title(text string) string {

@@ -20,6 +20,7 @@ const (
 	ActivityArtifact   = "artifact"   // messageId = artifact id
 	ActivityAgent      = "agent"      // messageId = subagentRunId
 	ActivityCompaction = "compaction" // messageId = "compaction:<uuid>"
+	ActivityModel      = "model"      // messageId = "model:<turn id>": the turn changed the thread's model
 )
 
 // Metadata keys: the turn on RUN_STARTED and RUN_FINISHED, a tool's UI

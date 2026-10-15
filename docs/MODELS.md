@@ -38,6 +38,12 @@ check the model before they are queued (`runs.Start`, a `400` on the thread POST
 `default_model` and `memory.embedding_model` must start with a provider id
 (checked at start), and the pass-through refuses with a `400`.
 
+A thread can change model between turns. The thread record keeps the last turn's
+model; a turn that runs on another one starts with a `model` activity (`{from, to}`,
+stored with the turn), which the UI shows as "Changed model to …"
+(AG-UI-RENDERING.md). Only a turn that ran marks a change: picking a model in the UI
+does not.
+
 ## Where a model's description comes from
 
 Each provider's list is built per model from three layers, lowest precedence
