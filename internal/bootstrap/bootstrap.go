@@ -20,6 +20,7 @@ import (
 	"agentlite/internal/mcp"
 	"agentlite/internal/providers"
 	"agentlite/internal/runs"
+	"agentlite/internal/skills"
 	"agentlite/internal/sources"
 	"agentlite/pkg/db/opensearch"
 	"agentlite/pkg/db/valkey"
@@ -40,6 +41,7 @@ type App struct {
 	Memory    *memory.Service // nil when memory is not configured
 	Sources   *sources.Recorder
 	Artifacts *artifacts.Store
+	Skills    *skills.Library
 	Agents    *agents.Runtime
 	Runs      *runs.Manager
 
@@ -91,6 +93,7 @@ func New(ctx context.Context) (*App, error) {
 		mem = app.Memory
 	}
 	app.Sources = sources.New(app.Store)
+	app.Skills = &skills.Library{Store: app.Store}
 	if app.Artifacts, err = artifactStore(ctx, cfg, app.Store, app.Sources, app.Log); err != nil {
 		return nil, err
 	}
@@ -100,7 +103,7 @@ func New(ctx context.Context) (*App, error) {
 	}
 	app.Agents = agents.New(cfg, agents.Deps{
 		Registry: app.Registry, Sessions: app.Sessions, Memory: mem, Servers: servers,
-		Sources: app.Sources, Artifacts: app.Artifacts, Log: app.Log,
+		Sources: app.Sources, Artifacts: app.Artifacts, Skills: app.Skills, Log: app.Log,
 	})
 	app.Runs = runs.New(cfg, runsDB, hitl.NewStore(hitlDB), app.Store, app.Store, app.Sessions, app.Agents, app.Log)
 	if err := app.Agents.Bind(app.Runs); err != nil { // the subagent tool dispatches through the run manager

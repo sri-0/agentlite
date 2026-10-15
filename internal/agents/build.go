@@ -77,7 +77,8 @@ func (rt *Runtime) buildLLM(ctx context.Context, def config.AgentDef, run *runs.
 // toolsFor resolves an agent's tools for a run. A listed name must be a
 // harness or world tool or, when MCP servers are configured, is taken to be
 // one of their tools. Omitted means every harness tool plus the toolsets of
-// the run's connectors; the subagent tool only for agents with subagents.
+// the run's connectors and the skills toolset; the subagent tool only for
+// agents with subagents.
 func (rt *Runtime) toolsFor(def config.AgentDef, run *runs.Run) ([]tool.Tool, []tool.Toolset, error) {
 	var fns []tool.Tool
 	if def.Tools != nil {
@@ -110,7 +111,7 @@ func (rt *Runtime) toolsFor(def config.AgentDef, run *runs.Run) ([]tool.Tool, []
 		}
 		fns = append(fns, rt.harness[name].ADK())
 	}
-	return fns, rt.enabled(run.Connectors), nil
+	return fns, append(rt.enabled(run.Connectors), rt.skillset), nil
 }
 
 // toolList names what a sub-agent can call, so the parent delegates only

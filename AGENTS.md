@@ -51,7 +51,8 @@ internal/
   stream/              AG-UI conventions, adk → AG-UI encoder, storage coalescing
   tools/               world tools (calculate, webfetch, write_note, search_records); the
                        catalog; tools/builtin: subagent, todowrite, question, emit_artifact,
-                       report_progress
+                       report_progress, write_skill
+  skills/              the skills library: uploads, adk skill.Source over OpenSearch, /name
   sources/             numbers and stores the sources tools return
   artifacts/           artifact records (OpenSearch) and bodies (S3)
   mcp/                 mcp connectors → adk toolsets
@@ -100,6 +101,10 @@ document-level security, is `not_found`. ARCHITECTURE.md has the frames.
 | GET | `/v1/threads/{id}/sources`, `/v1/threads/{id}/sources/{n}` | the conversation's sources by number; one source, what `[source:n]` refers to |
 | GET | `/v1/threads/{id}/artifacts`, `/v1/threads/{id}/artifacts/{artifactId}/content` | the conversation's artifacts, newest first; one artifact's body |
 | GET | `/v1/artifacts?after=&limit=` | artifacts across every conversation, newest first, with thread titles; a full page carries `next`, the cursor for `after` |
+| GET/POST | `/v1/skills` | the skills library; `POST` a skill's zip or its SKILL.md as the body (SKILLS.md) |
+| DELETE | `/v1/skills/{name}` | remove a skill |
+| GET | `/v1/skills/{name}/files/{path}` | one file of a skill, sandboxed |
+| GET | `/.well-known/agent-skills/index.json`, `/.well-known/agent-skills/{name}/{path}` | the skills discovery index and files `npx skills add <server>` reads (no credentials) |
 | POST | `/v1/chat/completions`, `/v1/responses`, `/v1/messages`, `/v1/embeddings`, `/v1/decisions`, `/v1/systemone` | pass-through to the provider the body's `model` names, with the model rewritten to the provider's own id; each endpoint takes only models of its types (MODELS.md) |
 
 There is no authentication yet. The `Authorization` header on `POST /v1/agent/chat`

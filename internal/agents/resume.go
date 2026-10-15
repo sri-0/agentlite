@@ -15,11 +15,18 @@ import (
 )
 
 // content is the user message or, on resume, the adk_request_confirmation
-// responses adk expects for each answered interrupt. On resume it also
-// returns the CUSTOM approval events that record the answers in the log.
+// responses adk expects for each answered interrupt. A message that invokes a
+// skill (/name) carries it, and comes with the skill activity that shows it;
+// on resume the CUSTOM approval events that record the answers come with it.
 func (rt *Runtime) content(ctx context.Context, threadID string, in runs.Input) (*genai.Content, []stream.Event, error) {
 	if len(in.Resume) == 0 {
-		return genai.NewContentFromText(in.Message, genai.RoleUser), nil, nil
+		c, s, err := rt.skills.Expand(ctx, in.Message)
+		if err != nil || s == nil {
+			return c, nil, err
+		}
+		used := stream.Activity("skill:"+in.Run.TurnID, stream.ActivitySkill,
+			skillActivity{Name: s.Name, Description: s.Description})
+		return c, []stream.Event{used}, nil
 	}
 	got, err := rt.sessions.Get(ctx, &session.GetRequest{AppName: rt.appName, UserID: runs.SessionUser, SessionID: threadID})
 	if err != nil {

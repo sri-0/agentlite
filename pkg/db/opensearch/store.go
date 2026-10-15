@@ -96,9 +96,11 @@ var indices = map[string]string{
 	IndexSources:   sourcesMapping,
 	IndexArtifacts: artifactsMapping,
 	IndexCounters:  countersMapping,
+	IndexSkills:    skillsMapping,
 }
 
-// listCap bounds the lists of one conversation's sources and artifacts.
+// listCap bounds the lists of one conversation's sources and artifacts, and
+// the skills library.
 const listCap = 1000
 
 func (c *Client) ensureIndex(ctx context.Context, name, mapping string) error {

@@ -12,6 +12,7 @@ import (
 	"agentlite/internal/config"
 	"agentlite/internal/providers"
 	"agentlite/internal/runs"
+	"agentlite/internal/skills"
 	"agentlite/pkg/db/opensearch"
 )
 
@@ -23,6 +24,7 @@ type Handler struct {
 	Runtime   *agents.Runtime
 	Store     *opensearch.Client
 	Artifacts *artifacts.Store
+	Skills    *skills.Library
 	Log       zerolog.Logger
 }
 

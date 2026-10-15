@@ -3,7 +3,6 @@ package agents
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 
 	"github.com/ag-ui-protocol/ag-ui/sdks/community/go/pkg/core/events"
 	"google.golang.org/adk/v2/session"
@@ -13,30 +12,14 @@ import (
 	"agentlite/pkg/db/opensearch"
 )
 
-// seed rebuilds a thread's adk session from its persisted messages: user text
-// becomes user content, assistant text and tool calls become model content,
-// tool results become function responses. Reasoning and activities are dropped.
-func seed(ctx context.Context, svc session.Service, app, user, threadID, author string, msgs []opensearch.Message) error {
-	resp, err := svc.Create(ctx, &session.CreateRequest{AppName: app, UserID: user, SessionID: threadID})
-	if err != nil {
-		return err
-	}
-	for _, m := range msgs {
-		for _, ev := range seedEvents(ctx, m, author) {
-			if err := svc.AppendEvent(ctx, resp.Session, ev); err != nil {
-				return fmt.Errorf("seed %s: %w", m.ID, err)
-			}
-		}
-	}
-	return nil
-}
-
-func seedEvents(ctx context.Context, m opensearch.Message, author string) []*session.Event {
+// seedEvents are the session events of one persisted message.
+func (rt *Runtime) seedEvents(ctx context.Context, m opensearch.Message, author string) ([]*session.Event, error) {
 	if m.Role == "user" {
 		ev := session.NewEvent(ctx, m.ID)
 		ev.Author = "user"
-		ev.Content = genai.NewContentFromText(m.Text, genai.RoleUser)
-		return []*session.Event{ev}
+		var err error
+		ev.Content, _, err = rt.skills.Expand(ctx, m.Text)
+		return []*session.Event{ev}, err
 	}
 	var out []*session.Event
 	var model *session.Event
@@ -90,5 +73,5 @@ func seedEvents(ctx context.Context, m opensearch.Message, author string) []*ses
 		}
 	}
 	flush()
-	return out
+	return out, nil
 }

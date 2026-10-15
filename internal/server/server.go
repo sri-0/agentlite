@@ -12,10 +12,12 @@ import (
 	"github.com/labstack/echo/v5"
 	"github.com/labstack/echo/v5/middleware"
 	"github.com/rs/zerolog"
+	"google.golang.org/adk/v2/tool/skilltoolset/skill"
 
 	"agentlite/internal/config"
 	"agentlite/internal/handler"
 	"agentlite/internal/runs"
+	"agentlite/internal/skills"
 	"agentlite/pkg/db/opensearch"
 	"agentlite/pkg/s3"
 )
@@ -59,6 +61,13 @@ func New(cfg *config.Config, h *handler.Handler, log zerolog.Logger) *echo.Echo 
 	e.GET("/v1/threads/:id/sources/:n", h.ThreadSource)
 	e.GET("/v1/threads/:id/artifacts", h.ThreadArtifacts)
 	e.GET("/v1/artifacts", h.RecentArtifacts)
+	e.GET("/v1/skills", h.ListSkills)
+	e.POST("/v1/skills", h.CreateSkill)
+	e.DELETE("/v1/skills/:name", h.DeleteSkill)
+	e.GET("/v1/skills/:name/files/*", h.SkillFile)
+	// npx skills discovery: the index, and each file next to it.
+	e.GET("/.well-known/agent-skills/index.json", h.SkillsIndex)
+	e.GET("/.well-known/agent-skills/:name/*", h.SkillFile)
 	e.GET("/v1/threads/:id/artifacts/:artifactId/content", h.ArtifactContent)
 	e.POST("/v1/agent/chat", h.StartThread)
 	e.GET("/v1/agent/chat", h.Chat)
@@ -90,8 +99,11 @@ func errorHandler(next echo.HTTPErrorHandler) echo.HTTPErrorHandler {
 			status int
 		}{
 			{runs.ErrInvalid, http.StatusBadRequest},
+			{skills.ErrInvalid, http.StatusBadRequest},
 			{runs.ErrNotFound, http.StatusNotFound},
 			{opensearch.ErrNotFound, http.StatusNotFound},
+			{skill.ErrSkillNotFound, http.StatusNotFound},
+			{skill.ErrResourceNotFound, http.StatusNotFound},
 			{s3.ErrNotFound, http.StatusNotFound},
 			{runs.ErrBusy, http.StatusConflict},
 		} {
