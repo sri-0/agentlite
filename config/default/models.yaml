@@ -28,7 +28,7 @@ providers:
     name: OpenRouter
     base_url: ${OPENROUTER_BASE_URL}
     api_key_env: OPENROUTER_API_KEY
-    discover: { endpoint: "/models?output_modalities=all", refresh: 1h }  # every kind of model, not just text
+    discover: { endpoint: /models, refresh: 1h }
     models:
       - id: openai/gpt-4.1-mini
         name: GPT-4.1 Mini
@@ -58,10 +58,10 @@ providers:
 #
 # A model's type decides which endpoints take it (docs/MODELS.md): llm (the
 # default), embedding, decision, image, audio, rerank, transcription, speech.
-# OpenRouter and LiteLLM report it; vLLM does not, so declare a vLLM model that
-# is not an llm here with its type. Audio is never reported: a speech model
-# used through chat (Voxtral) is declared audio, so agents and the UI's model
-# picker leave it out.
+# LiteLLM reports it; vLLM does not. Declare `type` here for any model that is
+# not an llm, or whose reported type is wrong: an entry here overrides
+# discovery. A speech model used through chat (Voxtral) is declared audio, so
+# agents and the UI's model picker leave it out.
 #
 # Agents run on the model the request names, all the way down to sub-agents;
 # this one answers when a request names none.

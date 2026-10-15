@@ -39,7 +39,7 @@ func parseOpenAI(body []byte) ([]Model, error) {
 	for _, m := range payload.Data {
 		// Name and Type stay empty unless reported, so a card's show.
 		model := Model{
-			ID: m.ID, Name: m.Name, Type: typeFromOutputs(m.Architecture.OutputModalities), OwnedBy: m.OwnedBy,
+			ID: m.ID, Name: m.Name, OwnedBy: m.OwnedBy,
 			Description: m.Description, ContextLength: max(m.ContextLength, m.MaxModelLen),
 			SupportedParameters: m.SupportedParameters, Architecture: m.Architecture,
 		}
@@ -50,27 +50,6 @@ func parseOpenAI(body []byte) ([]Model, error) {
 		out = append(out, model)
 	}
 	return out, nil
-}
-
-// typeFromOutputs maps OpenRouter's output modalities (listed with
-// ?output_modalities=all) to a type; "" when the list says nothing, as
-// vLLM's and OpenAI's do. A model that outputs text is an llm, whatever else
-// it outputs.
-func typeFromOutputs(outputs []string) string {
-	for _, out := range []string{"text", "embeddings", "rerank", "image", "transcription", "speech", "decisions"} {
-		if slices.Contains(outputs, out) {
-			return outputTypes[out]
-		}
-	}
-	if len(outputs) > 0 {
-		return outputs[0] // video, say: a type no endpoint takes
-	}
-	return ""
-}
-
-var outputTypes = map[string]string{
-	"text": TypeLLM, "embeddings": TypeEmbedding, "rerank": TypeRerank, "image": TypeImage,
-	"transcription": TypeTranscription, "speech": TypeSpeech, "decisions": TypeDecision,
 }
 
 func capabilitiesFromParameters(params []string, arch Architecture) []string {

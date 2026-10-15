@@ -72,16 +72,15 @@ agents can run on it (`modelcatalog.Type*`):
 A type is taken from, in order, `models.yaml`, the provider's list, the model card;
 with none of them saying, a model is an `llm`. What providers report:
 
-- **OpenRouter** lists every kind of model only when asked (`/models?output_modalities=all`,
-  as `models.yaml` does) and gives each its output modalities: one that outputs text is
-  an `llm`, whatever else it outputs; `embeddings`, `rerank`, `image`, `transcription`,
-  `speech` and `decisions` map to the types above.
 - **LiteLLM** `/model/info` gives `mode`: `chat`, `completion`, `responses` → `llm`;
   `embedding`; `rerank`; `image_generation`, `image_edit` → `image`;
   `audio_transcription` → `transcription`; `audio_speech` → `speech`; `decisions` →
   `decision`. A deployment without a `mode` is an `llm`, as LiteLLM treats it.
-- **vLLM** reports no type, so a vLLM model that is not an `llm` is declared in
-  `models.yaml` (an id containing `embed` is taken for an `embedding`).
+- **vLLM** reports no type (an id containing `embed` is taken for an `embedding`).
+  OpenRouter (development only) lists text models by default, all `llm`.
+
+Declare `type` in `models.yaml` for any model that is not an `llm` or whose reported
+type is wrong; the entry overrides discovery.
 
 `audio` is never reported: a speech model that takes text and audio and answers in
 text (Voxtral Small) looks like any chat model to OpenRouter (`text+audio->text`) and
@@ -89,7 +88,7 @@ LiteLLM (`chat`), and so do general models that also hear (GPT-4o audio, Gemini)
 Declare a model used for voice as `audio` in `models.yaml`; agents and the UI's model
 picker take `llm` models only, so it stays out of them.
 
-A type no endpoint takes (OpenRouter's `video`, LiteLLM's `ocr`) is kept as reported
+A type no endpoint takes (LiteLLM's `video_generation` or `ocr`) is kept as reported
 and refused everywhere. A run on a model that is not an `llm` is refused when it is
 queued (`400`), and memory refuses an embedding model of another type.
 `default_model` and `memory.embedding_model`, when already known at start, must be
