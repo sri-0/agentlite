@@ -152,7 +152,7 @@ result, and the UI's model view shows it.
 ## The pass-through proxy
 
 These endpoints are forwarded as they are, each for the model types it takes
-(`internal/handler/proxy.go`; serving another upstream endpoint is one more line
+(`internal/handler/passthrough.go`; serving another upstream endpoint is one more line
 there):
 
 | Endpoint | API | Types |
@@ -164,7 +164,7 @@ there):
 | `/v1/decisions` | OpenAI's decisions API (beta, Oct 2026) | `decision` |
 | `/v1/systemone` | TypeSafe's System One API (also vLLM, LiteLLM, DigitalOcean) | `decision` |
 
-The handler (`internal/handler/proxy.go`) reads the whole body (within the server's
+The handler (`internal/handler/passthrough.go`) reads the whole body (within the server's
 body limit, `MAX_BODY_MB`, default 32: Echo's `BodyLimit`, a `413` above it) for its
 `model`,
 resolves it, checks its type, rewrites it to the upstream id, and forwards the
@@ -194,7 +194,7 @@ provider. It is the server calling a provider itself, not the pass-through.
 | `pkg/modelcatalog/cards.go` | the model card loader and lookup |
 | `internal/providers/client.go` | one client per provider (pkg/transport, TLS) |
 | `internal/providers/registry.go` | per-provider model lists, `Resolve`, discovery |
-| `internal/handler/proxy.go` | the pass-through endpoints, their model types, the checks |
-| `internal/providers/passthrough.go` | forwarding a pass-through request to its provider |
+| `internal/handler/passthrough.go` | the pass-through endpoints, their model types, the checks |
+| `internal/providers/reverseproxy.go` | forwarding a pass-through request to its provider |
 | `internal/providers/embed.go` | embeddings for memory |
 | `internal/config/models.go` | `models.yaml` and its checks |
