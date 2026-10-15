@@ -241,7 +241,7 @@ func (r *Registry) rebuild(p *provider, discovered []modelcatalog.Model) {
 		m := modelcatalog.Merge(card, listed[id], declared[id])
 		m.ID, m.UpstreamID, m.ProviderID, m.ProviderName = cfg.ID+"/"+id, id, cfg.ID, cfg.Name
 		if m.Type == "" {
-			m.Type = "llm"
+			m.Type = modelcatalog.TypeLLM
 		}
 		models[id] = m
 	}

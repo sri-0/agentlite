@@ -25,6 +25,7 @@ import (
 	"agentlite/pkg/db/valkey"
 	"agentlite/pkg/logging"
 	"agentlite/pkg/memory"
+	"agentlite/pkg/modelcatalog"
 	"agentlite/pkg/s3"
 	valkeysession "agentlite/pkg/session/valkey"
 )
@@ -61,14 +62,8 @@ func New(ctx context.Context) (*App, error) {
 	if app.Registry, err = providers.NewRegistry(cfg.Models, cfg.ModelCardsDir, app.Log); err != nil {
 		return nil, err
 	}
-	// A model the server falls back to must name a provider this environment
-	// has (one without a base_url is skipped), or every run without a model,
-	// or every memory, would be refused. The model itself may still come
-	// from discovery.
-	for _, id := range cfg.Models.Fallbacks() {
-		if _, err := app.Registry.Resolve(id); errors.Is(err, providers.ErrUnknownProvider) {
-			return nil, fmt.Errorf("models.yaml: %w", err)
-		}
+	if err := checkFallbacks(cfg.Models, app.Registry); err != nil {
+		return nil, err
 	}
 	app.Registry.Start(ctx)
 	// One client per logical database: runs, sessions and interrupts are kept apart.
@@ -131,6 +126,28 @@ func (a *App) Close() {
 	for i := len(a.closers) - 1; i >= 0; i-- {
 		a.closers[i]()
 	}
+}
+
+// checkFallbacks checks the models the server uses when a request names
+// none. Each must name a provider this environment has (one without a
+// base_url is skipped), or every run without a model, or every memory, would
+// be refused; and one already known must be of the type it is used for. It
+// may still come from discovery.
+func checkFallbacks(m *config.ModelsConfig, registry *providers.Registry) error {
+	want := map[string]string{m.DefaultModel: modelcatalog.TypeLLM}
+	if m.Memory != nil {
+		want[m.Memory.EmbeddingModel] = modelcatalog.TypeEmbedding
+	}
+	for id, typ := range want {
+		t, err := registry.Resolve(id)
+		switch {
+		case errors.Is(err, providers.ErrUnknownProvider):
+			return fmt.Errorf("models.yaml: %w", err)
+		case err == nil && t.Model.Type != typ:
+			return fmt.Errorf("models.yaml: %s is of type %s, not %s", id, t.Model.Type, typ)
+		}
+	}
+	return nil
 }
 
 // artifactStore keeps artifact bodies in S3 when S3_ENDPOINT is set, and in

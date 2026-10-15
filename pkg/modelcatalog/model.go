@@ -17,7 +17,7 @@ type Model struct {
 	UpstreamID string `yaml:"-" json:"upstream_id"`
 
 	Name                string             `yaml:"name" json:"name,omitempty"`
-	Type                string             `yaml:"type" json:"type"` // llm | embedding
+	Type                string             `yaml:"type" json:"type"` // one of the Type constants
 	OwnedBy             string             `yaml:"owned_by" json:"owned_by,omitempty"`
 	Description         string             `yaml:"description" json:"description,omitempty"`
 	ContextLength       int                `yaml:"context_length" json:"context_length,omitempty"`
@@ -44,6 +44,19 @@ type Model struct {
 	ProviderID   string `yaml:"-" json:"provider_id"`
 	ProviderName string `yaml:"-" json:"provider_name"`
 }
+
+// Model types: what a model does, which decides the endpoints it may be sent
+// to and whether agents can run on it. A provider can report others (video,
+// say); no endpoint takes those.
+const (
+	TypeLLM           = "llm"           // chat completions, responses, messages
+	TypeEmbedding     = "embedding"     // embeddings
+	TypeRerank        = "rerank"        // relevance scores for documents
+	TypeImage         = "image"         // image generation and editing
+	TypeTranscription = "transcription" // speech to text
+	TypeSpeech        = "speech"        // text to speech
+	TypeDecision      = "decision"      // typed answers to questions
+)
 
 // Architecture mirrors the OpenRouter model metadata shape.
 type Architecture struct {

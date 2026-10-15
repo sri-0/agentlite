@@ -28,7 +28,7 @@ providers:
     name: OpenRouter
     base_url: ${OPENROUTER_BASE_URL}
     api_key_env: OPENROUTER_API_KEY
-    discover: { endpoint: /models, refresh: 1h }
+    discover: { endpoint: "/models?output_modalities=all", refresh: 1h }  # every kind of model, not just text
     models:
       - id: openai/gpt-4.1-mini
         name: GPT-4.1 Mini
@@ -53,6 +53,11 @@ providers:
 # the provider's own name; each entry overrides, field by field, what
 # discovery and the model cards (MODEL_CARDS_DIR) say, and may set its own
 # base_url and api.
+#
+# A model's type decides which endpoints take it (docs/MODELS.md): llm (the
+# default), embedding, decision, rerank, image, transcription, speech. OpenRouter
+# and LiteLLM report it; vLLM does not, so declare a vLLM model that is not an
+# llm here with its type.
 #
 # Agents run on the model the request names, all the way down to sub-agents;
 # this one answers when a request names none.

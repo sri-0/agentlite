@@ -100,7 +100,7 @@ document-level security, is `not_found`. ARCHITECTURE.md has the frames.
 | GET | `/v1/threads/{id}/sources`, `/v1/threads/{id}/sources/{n}` | the conversation's sources by number; one source, what `[source:n]` refers to |
 | GET | `/v1/threads/{id}/artifacts`, `/v1/threads/{id}/artifacts/{artifactId}/content` | the conversation's artifacts, newest first; one artifact's body |
 | GET | `/v1/artifacts?after=&limit=` | artifacts across every conversation, newest first, with thread titles; a full page carries `next`, the cursor for `after` |
-| POST | `/v1/chat/completions`, `/v1/responses`, `/v1/messages`, `/v1/embeddings` | pass-through to the provider the body's `model` names, with the model rewritten to the provider's own id |
+| POST | `/v1/chat/completions`, `/v1/responses`, `/v1/messages`, `/v1/embeddings`, `/v1/decisions`, `/v1/systemone` | pass-through to the provider the body's `model` names, with the model rewritten to the provider's own id; each endpoint takes only models of its types (MODELS.md) |
 
 There is no authentication yet. The `Authorization` header on `POST /v1/agent/chat`
 is kept with that run and forwarded to connectors that opt in (TOOLS.md); turns

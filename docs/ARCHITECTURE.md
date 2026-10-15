@@ -24,8 +24,9 @@ Echo server (internal/server, internal/handler, internal/ws)
    │           written to the thread's log
    │
    ├─ pass-through proxy (internal/providers): /v1/chat/completions, /v1/responses,
-   │    /v1/messages, /v1/embeddings → the provider the body's model names, with the
-   │    model rewritten to the provider's own id (MODELS.md)
+   │    /v1/messages, /v1/embeddings, /v1/decisions, /v1/systemone → the provider the
+   │    body's model names, for models of the endpoint's types, with the model
+   │    rewritten to the provider's own id (MODELS.md)
    │
    ├─ Valkey: event logs, runs, queues, leases, adk sessions, interrupt records
    ├─ OpenSearch: threads, messages (the stored AG-UI events), memories, sources, artifacts,

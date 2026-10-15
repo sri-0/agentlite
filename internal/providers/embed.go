@@ -8,6 +8,8 @@ import (
 
 	"github.com/openai/openai-go/v3"
 	"github.com/openai/openai-go/v3/option"
+
+	"agentlite/pkg/modelcatalog"
 )
 
 const embedTimeout = 15 * time.Second
@@ -30,6 +32,9 @@ func (e *Embedder) Embed(ctx context.Context, text string) ([]float32, error) {
 	t, err := e.registry.Resolve(e.model)
 	if err != nil {
 		return nil, err
+	}
+	if t.Model.Type != modelcatalog.TypeEmbedding {
+		return nil, fmt.Errorf("%q is of type %s, not %s", e.model, t.Model.Type, modelcatalog.TypeEmbedding)
 	}
 	ctx, cancel := context.WithTimeout(ctx, embedTimeout)
 	defer cancel()

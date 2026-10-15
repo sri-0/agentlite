@@ -253,9 +253,12 @@ func (rt *Runtime) llm(ctx context.Context, t providers.Target) (model.LLM, erro
 	})
 }
 
-// CheckModel reports whether a model id resolves; runs.Start refuses a run
-// on one that does not.
+// CheckModel reports whether a model id resolves to a model agents can run
+// on; runs.Start refuses a run on one that does not.
 func (rt *Runtime) CheckModel(modelID string) error {
-	_, err := rt.registry.Resolve(modelID)
+	t, err := rt.registry.Resolve(modelID)
+	if err == nil && t.Model.Type != modelcatalog.TypeLLM {
+		err = fmt.Errorf("agents run on %s models; %q is of type %s", modelcatalog.TypeLLM, modelID, t.Model.Type)
+	}
 	return err
 }

@@ -52,6 +52,38 @@ A later layer replaces a field it sets and leaves the rest; it cannot clear a
 value. Discovery outranks the card because it reports what is deployed (a vLLM
 server's real context window); `models.yaml` has the last word.
 
+## Model types
+
+Every model has a `type`, which decides the endpoints it may be sent to and whether
+agents can run on it (`modelcatalog.Type*`):
+
+| Type | What | Endpoints |
+|---|---|---|
+| `llm` | chat, completions, responses | `/v1/chat/completions`, `/v1/responses`, `/v1/messages`; agent runs |
+| `embedding` | embeddings | `/v1/embeddings`; memory |
+| `decision` | typed answers to questions | `/v1/decisions`, `/v1/systemone` |
+| `rerank`, `image`, `transcription`, `speech` | relevance scores, image generation and editing, speech to text, text to speech | none yet |
+
+A type is taken from, in order, `models.yaml`, the provider's list, the model card;
+with none of them saying, a model is an `llm`. What providers report:
+
+- **OpenRouter** lists every kind of model only when asked (`/models?output_modalities=all`,
+  as `models.yaml` does) and gives each its output modalities: one that outputs text is
+  an `llm`, whatever else it outputs; `embeddings`, `rerank`, `image`, `transcription`,
+  `speech` and `decisions` map to the types above.
+- **LiteLLM** `/model/info` gives `mode`: `chat`, `completion`, `responses` → `llm`;
+  `embedding`; `rerank`; `image_generation`, `image_edit` → `image`;
+  `audio_transcription` → `transcription`; `audio_speech` → `speech`; `decisions` →
+  `decision`. A deployment without a `mode` is an `llm`, as LiteLLM treats it.
+- **vLLM** reports no type, so a vLLM model that is not an `llm` is declared in
+  `models.yaml` (an id containing `embed` is taken for an `embedding`).
+
+A type no endpoint takes (OpenRouter's `video`, LiteLLM's `ocr`) is kept as reported
+and refused everywhere. A run on a model that is not an `llm` is refused when it is
+queued (`400`), and memory refuses an embedding model of another type.
+`default_model` and `memory.embedding_model`, when already known at start, must be
+an `llm` and an `embedding` model.
+
 `models.yaml` entries, and only they, may also set where a model's requests go
 (a card's `base_url` or `api` is ignored: cards come from another repository and are
 shared by every provider). Per model:
@@ -113,15 +145,28 @@ result, and the UI's model view shows it.
 
 ## The pass-through proxy
 
-`/v1/chat/completions`, `/v1/responses`, `/v1/messages` and `/v1/embeddings` are
-forwarded as they are (`internal/handler/proxy.go` lists them; serving another
-upstream endpoint is one more line there). `providers.Registry.Passthrough` reads
-the body's `model`, resolves it, rewrites it to the upstream id, and forwards the
+These endpoints are forwarded as they are, each for the model types it takes
+(`internal/handler/proxy.go`; serving another upstream endpoint is one more line
+there):
+
+| Endpoint | API | Types |
+|---|---|---|
+| `/v1/chat/completions`, `/v1/responses` | OpenAI | `llm` |
+| `/v1/messages` | Anthropic | `llm` |
+| `/v1/embeddings` | OpenAI | `embedding` |
+| `/v1/decisions` | OpenAI's decisions API (beta, Oct 2026) | `decision` |
+| `/v1/systemone` | TypeSafe's System One API (also vLLM, LiteLLM, DigitalOcean) | `decision` |
+
+`providers.Registry.Passthrough` reads the whole body (up to 32 MiB) for its `model`,
+resolves it, checks its type, rewrites it to the upstream id, and forwards the
 request to that provider (or the model's own `base_url`) with the provider's key,
 streaming the response back as it arrives. A body without a `model` of the form
-`<provider>/<model>` is refused with a `400`, so endpoints with no JSON model
-(multipart uploads, files) are not proxied. Responses carry the upstream id in
-their own `model` field.
+`<provider>/<model>`, or a model of a type the endpoint does not take, is refused with
+a `400` and never sent. Endpoints with no JSON model (multipart uploads: image edits,
+transcriptions, files) are not proxied yet. The two decision APIs differ (`input` and
+a list of questions, against `state` and questions by name); each is passed as it is
+to a provider that serves it. Responses carry the upstream id in their own `model`
+field.
 
 ## Embeddings
 

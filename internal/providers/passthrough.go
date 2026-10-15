@@ -5,10 +5,12 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httputil"
 	"net/url"
+	"slices"
 	"strings"
 )
 
@@ -16,11 +18,17 @@ import (
 // find its model.
 const maxPassThroughBody = 32 << 20
 
-// Passthrough forwards an OpenAI-style request to the provider its body's
+// Passthrough is the handler of an endpoint proxied as it is, for models of
+// the given types: it forwards each request to the provider its body's
 // "model" names, with the model rewritten to the provider's own id;
 // everything else passes as it is, streamed responses included. A model that
-// names no known provider or model is refused, never sent elsewhere.
-func (r *Registry) Passthrough(w http.ResponseWriter, req *http.Request) {
+// names no known provider or model, or a model of another type, is refused,
+// never sent elsewhere.
+func (r *Registry) Passthrough(types ...string) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, req *http.Request) { r.passthrough(w, req, types) })
+}
+
+func (r *Registry) passthrough(w http.ResponseWriter, req *http.Request, types []string) {
 	body, err := io.ReadAll(http.MaxBytesReader(w, req.Body, maxPassThroughBody))
 	var tooLarge *http.MaxBytesError
 	switch {
@@ -40,6 +48,11 @@ func (r *Registry) Passthrough(w http.ResponseWriter, req *http.Request) {
 	t, err := r.Resolve(model)
 	if err != nil {
 		writeError(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	if !slices.Contains(types, t.Model.Type) {
+		writeError(w, http.StatusBadRequest, fmt.Sprintf("%s takes %s models; %q is of type %s",
+			req.URL.Path, strings.Join(types, " or "), model, t.Model.Type))
 		return
 	}
 	fields["model"], _ = json.Marshal(t.Model.UpstreamID)

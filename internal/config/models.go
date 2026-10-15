@@ -62,16 +62,6 @@ func (c *Compaction) check() error {
 	return nil
 }
 
-// Fallbacks are the models the server uses when a request names none: the
-// default model and memory's embedding model.
-func (c *ModelsConfig) Fallbacks() []string {
-	out := []string{c.DefaultModel}
-	if c.Memory != nil {
-		out = append(out, c.Memory.EmbeddingModel)
-	}
-	return out
-}
-
 // MemoryConfig enables long-term memory: which model embeds entries and the
 // vector size it produces.
 type MemoryConfig struct {
