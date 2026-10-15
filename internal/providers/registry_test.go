@@ -60,6 +60,14 @@ func TestResolve(t *testing.T) {
 		}
 	}
 
+	// a use takes models of its types only
+	if _, err := r.ResolveAs("vllm/qwen3-embedding", modelcatalog.TypeLLM); !errors.Is(err, ErrWrongType) {
+		t.Errorf("an embedding model as an llm: %v", err)
+	}
+	if _, err := r.ResolveAs("vllm/qwen3-embedding", modelcatalog.TypeEmbedding); err != nil {
+		t.Errorf("an embedding model as an embedding model: %v", err)
+	}
+
 	// card < discovery < models.yaml, field by field; the card's base_url is ignored
 	m, _ := r.Resolve("vllm/Qwen/Qwen3-32B")
 	if got := m.Model; got.Name != "Listed" || got.ContextLength != 300 || got.Pricing.Input != 1 || got.Notes != "Notes." {

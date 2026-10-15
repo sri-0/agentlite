@@ -27,6 +27,7 @@ func New(cfg *config.Config, h *handler.Handler, log zerolog.Logger) *echo.Echo 
 	e.HTTPErrorHandler = errorHandler(echo.DefaultHTTPErrorHandler(false))
 	e.Use(middleware.RequestID())
 	e.Use(middleware.Recover())
+	e.Use(middleware.BodyLimit(cfg.MaxBodyMB << 20))
 	e.Use(middleware.CORSWithConfig(middleware.CORSConfig{
 		AllowOrigins: cfg.AllowedOrigins,
 		AllowHeaders: []string{"Content-Type", "Authorization"},

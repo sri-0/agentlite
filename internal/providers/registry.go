@@ -7,6 +7,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -17,11 +18,12 @@ import (
 	"agentlite/pkg/modelcatalog"
 )
 
-// Errors Resolve returns. Neither falls back to another provider: a request
-// goes to the provider its model id names, or nowhere.
+// Errors Resolve and ResolveAs return. None falls back to another provider
+// or model: a request goes to the model its id names, or nowhere.
 var (
 	ErrUnknownProvider = errors.New("unknown provider")
 	ErrUnknownModel    = errors.New("unknown model")
+	ErrWrongType       = errors.New("wrong model type")
 )
 
 const (
@@ -109,6 +111,19 @@ func (r *Registry) Resolve(id string) (Target, error) {
 	}
 	if m.API != "" {
 		t.API = m.API
+	}
+	return t, nil
+}
+
+// ResolveAs resolves a model id, as Resolve does, for a use that takes models
+// of the given types only: an endpoint, agents, memory.
+func (r *Registry) ResolveAs(id string, types ...string) (Target, error) {
+	t, err := r.Resolve(id)
+	if err != nil {
+		return Target{}, err
+	}
+	if !slices.Contains(types, t.Model.Type) {
+		return Target{}, fmt.Errorf("%w: %q is of type %s, not %s", ErrWrongType, id, t.Model.Type, strings.Join(types, " or "))
 	}
 	return t, nil
 }

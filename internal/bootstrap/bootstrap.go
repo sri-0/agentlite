@@ -62,7 +62,7 @@ func New(ctx context.Context) (*App, error) {
 	if app.Registry, err = providers.NewRegistry(cfg.Models, cfg.ModelCardsDir, app.Log); err != nil {
 		return nil, err
 	}
-	if err := checkFallbacks(cfg.Models, app.Registry); err != nil {
+	if err := checkConfiguredModels(cfg.Models, app.Registry); err != nil {
 		return nil, err
 	}
 	app.Registry.Start(ctx)
@@ -128,26 +128,22 @@ func (a *App) Close() {
 	}
 }
 
-// checkFallbacks checks the models the server uses when a request names
-// none. Each must name a provider this environment has (one without a
-// base_url is skipped), or every run without a model, or every memory, would
-// be refused; and one already known must be of the type it is used for. It
-// may still come from discovery.
-func checkFallbacks(m *config.ModelsConfig, registry *providers.Registry) error {
-	want := map[string]string{m.DefaultModel: modelcatalog.TypeLLM}
-	if m.Memory != nil {
-		want[m.Memory.EmbeddingModel] = modelcatalog.TypeEmbedding
-	}
-	for id, typ := range want {
-		t, err := registry.Resolve(id)
-		switch {
-		case errors.Is(err, providers.ErrUnknownProvider):
+// checkConfiguredModels checks the models models.yaml names: default_model
+// (a run that names none uses it) and memory's embedding model. Each must
+// resolve as the type it is used for, so a mistake fails the start rather
+// than every run or memory; one not listed yet may still come from
+// discovery.
+func checkConfiguredModels(m *config.ModelsConfig, registry *providers.Registry) error {
+	check := func(id, typ string) error {
+		if _, err := registry.ResolveAs(id, typ); err != nil && !errors.Is(err, providers.ErrUnknownModel) {
 			return fmt.Errorf("models.yaml: %w", err)
-		case err == nil && t.Model.Type != typ:
-			return fmt.Errorf("models.yaml: %s is of type %s, not %s", id, t.Model.Type, typ)
 		}
+		return nil
 	}
-	return nil
+	if err := check(m.DefaultModel, modelcatalog.TypeLLM); err != nil || m.Memory == nil {
+		return err
+	}
+	return check(m.Memory.EmbeddingModel, modelcatalog.TypeEmbedding)
 }
 
 // artifactStore keeps artifact bodies in S3 when S3_ENDPOINT is set, and in

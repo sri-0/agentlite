@@ -20,7 +20,10 @@ id is what is sent to the provider.
 ## Strict routing
 
 `providers.Registry.Resolve(id)` looks the model up in the named provider's own
-list and nowhere else (`internal/providers/registry.go`):
+list and nowhere else (`internal/providers/registry.go`). Every use resolves through
+`ResolveAs(id, types...)`, which also refuses a model of another type
+(`ErrWrongType`): the pass-through with its endpoint's types, agents with `llm`,
+memory with `embedding`.
 
 | Case | Result |
 |---|---|
@@ -162,8 +165,9 @@ there):
 | `/v1/decisions` | OpenAI's decisions API (beta, Oct 2026) | `decision` |
 | `/v1/systemone` | TypeSafe's System One API (also vLLM, LiteLLM, DigitalOcean) | `decision` |
 
-The handler (`internal/handler/proxy.go`) reads the whole body (up to 32 MiB, Echo's
-`BodyLimit`; a `413` above it) for its `model`,
+The handler (`internal/handler/proxy.go`) reads the whole body (within the server's
+body limit, `MAX_BODY_MB`, default 32: Echo's `BodyLimit`, a `413` above it) for its
+`model`,
 resolves it, checks its type, rewrites it to the upstream id, and forwards the
 request to that provider (or the model's own `base_url`) with the provider's key
 (`providers.Registry.Forward`), streaming the response back as it arrives. Refusals

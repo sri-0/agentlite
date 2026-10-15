@@ -139,15 +139,5 @@ func LoadModels(dir string) (*ModelsConfig, error) {
 			}
 		}
 	}
-	// Strict routing starts here: a model id must name a provider.
-	named := map[string]string{"default_model": cfg.DefaultModel}
-	if cfg.Memory != nil {
-		named["memory.embedding_model"] = cfg.Memory.EmbeddingModel
-	}
-	for field, id := range named {
-		if pid, _, _ := strings.Cut(id, "/"); !seen[pid] {
-			return nil, fmt.Errorf("models.yaml: %s %q must start with a provider id", field, id)
-		}
-	}
 	return &cfg, nil
 }

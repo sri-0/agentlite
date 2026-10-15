@@ -29,12 +29,9 @@ func (r *Registry) Embedder(model string) *Embedder {
 
 // Embed returns the embedding of one text, sending the provider its own id.
 func (e *Embedder) Embed(ctx context.Context, text string) ([]float32, error) {
-	t, err := e.registry.Resolve(e.model)
+	t, err := e.registry.ResolveAs(e.model, modelcatalog.TypeEmbedding)
 	if err != nil {
 		return nil, err
-	}
-	if t.Model.Type != modelcatalog.TypeEmbedding {
-		return nil, fmt.Errorf("%q is of type %s, not %s", e.model, t.Model.Type, modelcatalog.TypeEmbedding)
 	}
 	ctx, cancel := context.WithTimeout(ctx, embedTimeout)
 	defer cancel()
