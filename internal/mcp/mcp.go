@@ -1,9 +1,12 @@
-// Package mcp turns the mcp connectors of connectors.yaml into adk toolsets.
+// Package mcp turns the mcp connectors of connectors.yaml into adk toolsets,
+// and proxies the servers they expose to clients such as opencode.
 package mcp
 
 import (
 	"context"
 	"fmt"
+	"net/http"
+	"net/url"
 	"os/exec"
 	"slices"
 	"strings"
@@ -25,6 +28,11 @@ type Server struct {
 	Toolset   tool.Toolset
 	config    *config.MCP
 	transport mcp.Transport
+
+	// An exposed server's endpoint, nil otherwise, and how it is reached.
+	endpoint *url.URL
+	client   *http.Client
+	forward  bool // the connector forwards the user's Authorization
 }
 
 // Servers builds one server per mcp connector, keyed by connector id. adk
@@ -48,12 +56,22 @@ func Servers(connectors []config.Connector, log zerolog.Logger) (map[string]*Ser
 }
 
 func newServer(c config.Connector, log zerolog.Logger) (*Server, error) {
-	t, err := mcpTransport(c)
-	if err != nil {
-		return nil, err
+	s := &Server{config: c.MCP, transport: commandTransport(c.MCP.Command), forward: c.HTTP.Forward}
+	if c.MCP.Endpoint != "" {
+		client, err := httpClient(c)
+		if err != nil {
+			return nil, err
+		}
+		s.client = client
+		s.transport = outsideRun{&mcp.StreamableClientTransport{Endpoint: c.MCP.Endpoint, HTTPClient: client}}
+		if c.MCP.Expose {
+			if s.endpoint, err = url.Parse(c.MCP.Endpoint); err != nil {
+				return nil, err
+			}
+		}
 	}
 	ts, err := mcptoolset.New(mcptoolset.Config{
-		Transport: t,
+		Transport: s.transport,
 		RequireConfirmationProvider: func(toolName string, _ any) bool {
 			return slices.Contains(c.MCP.RequireConfirmation, toolName)
 		},
@@ -64,7 +82,8 @@ func newServer(c config.Connector, log zerolog.Logger) (*Server, error) {
 	if len(c.MCP.Tools) > 0 {
 		ts = tool.FilterToolset(ts, tool.AllowedToolsPredicate(c.MCP.Tools))
 	}
-	return &Server{Toolset: resilient{Toolset: ts, name: c.ID, log: log}, config: c.MCP, transport: t}, nil
+	s.Toolset = resilient{Toolset: ts, name: c.ID, log: log}
+	return s, nil
 }
 
 // URL is how the server is reached: its endpoint, or the command that starts it.
@@ -112,21 +131,14 @@ func (r resilient) Tools(ctx agent.ReadonlyContext) ([]tool.Tool, error) {
 	return tools, nil
 }
 
-// mcpTransport reaches the server over streamable HTTP, with a client of its
-// own (pkg/transport, from the connector's http block), or over stdio.
-func mcpTransport(c config.Connector) (mcp.Transport, error) {
-	if c.MCP.Endpoint == "" {
-		return commandTransport(c.MCP.Command), nil
-	}
+// httpClient is the client a server over streamable HTTP is reached with, its
+// own (pkg/transport, from the connector's http block).
+func httpClient(c config.Connector) (*http.Client, error) {
 	cfg, err := c.HTTP.Transport()
 	if err != nil {
 		return nil, err
 	}
-	client, err := transport.New(cfg)
-	if err != nil {
-		return nil, err
-	}
-	return outsideRun{&mcp.StreamableClientTransport{Endpoint: c.MCP.Endpoint, HTTPClient: client}}, nil
+	return transport.New(cfg)
 }
 
 // outsideRun connects without the thread of the run that happened to need

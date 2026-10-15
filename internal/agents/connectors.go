@@ -8,6 +8,7 @@ import (
 	"google.golang.org/adk/v2/tool"
 
 	"agentlite/internal/config"
+	"agentlite/internal/mcp"
 	"agentlite/internal/runs"
 	"agentlite/internal/tools"
 	"agentlite/pkg/toolx"
@@ -143,4 +144,13 @@ func (rt *Runtime) describe(c config.Connector) ConnectorInfo {
 		info.Tools = append(info.Tools, ToolInfo{Name: name, Description: rt.world[name].Description()})
 	}
 	return info
+}
+
+// ExposedMCP is the MCP server a connector exposes to clients (mcp.expose),
+// nil when there is none.
+func (rt *Runtime) ExposedMCP(id string) *mcp.Server {
+	if srv := rt.servers[id]; srv != nil && srv.Exposed() {
+		return srv
+	}
+	return nil
 }

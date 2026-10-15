@@ -107,6 +107,8 @@ document-level security, is `not_found`. ARCHITECTURE.md has the frames.
 | GET/PATCH/DELETE | `/v1/skills/{id}` | one skill by its uuid; change its title, description, category or source; remove it and its files |
 | GET/PUT | `/v1/skills/{id}/files/{path}` | one file of a skill, sandboxed; replace or add one |
 | GET | `/.well-known/agent-skills/index.json`, `/.well-known/agent-skills/{name}/{path}` | the skills discovery index and files `npx skills add <server>` reads (no credentials) |
+| GET | `/.well-known/opencode` | what `opencode auth login <server>` configures: models, exposed MCP servers, skills (docs/OPENCODE.md) |
+| any | `/mcp/{id}` | an MCP connector with `mcp.expose: true`, proxied for clients such as opencode |
 | POST | `/v1/chat/completions`, `/v1/responses`, `/v1/messages`, `/v1/embeddings`, `/v1/decisions`, `/v1/systemone` | pass-through to the provider the body's `model` names, with the model rewritten to the provider's own id; each endpoint takes only models of its types (MODELS.md) |
 
 There is no authentication yet. The `Authorization` header on `POST /v1/agent/chat`
@@ -132,7 +134,7 @@ headers and MCP endpoints.
   an optional per-model `base_url` and `api`. A provider with an empty `base_url` is skipped.
 - `connectors.yaml`: `user_agent` and `connectors[]` (`id, name, description, icon, type:
   tools | mcp, tools[], mcp: {endpoint | command, tools, require_confirmation, thread_args,
-  ui, artifacts}, http: {headers, user_agent, timeout, forward, tls}`). A tool belongs to
+  ui, artifacts, expose}, http: {headers, user_agent, timeout, forward, tls}`). A tool belongs to
   one connector at most. The development MCP server is open-slide-mcp
   (`~/code/open-slide-mcp`, `make run`, `:8090/mcp`).
 - `agents/*.md`: frontmatter `id, name, description, kind, mode, tools, subagents,

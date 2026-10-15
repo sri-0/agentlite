@@ -71,6 +71,9 @@ func New(cfg *config.Config, h *handler.Handler, log zerolog.Logger) *echo.Echo 
 	// npx skills discovery: the index, and each skill's files by its name next to it.
 	e.GET("/.well-known/agent-skills/index.json", h.SkillsIndex)
 	e.GET("/.well-known/agent-skills/:name/*", h.SkillsIndexFile, sandboxed)
+	// opencode: `opencode auth login <server>` configures models, MCP and skills.
+	e.GET("/.well-known/opencode", h.Opencode)
+	e.Any("/mcp/:id", h.MCPProxy)
 	e.POST("/v1/agent/chat", h.StartThread)
 	e.GET("/v1/agent/chat", h.Chat)
 	h.RegisterProxies(e)

@@ -1,0 +1,97 @@
+# opencode
+
+`opencode auth login https://<server>` points [opencode](https://opencode.ai) at
+agentlite. It then gets this server's models, its exposed MCP servers and its skills
+library, with no configuration of its own. opencode reads `GET /.well-known/opencode`
+at login, and again on every start (`internal/handler/opencode.go`):
+
+```json
+{
+  "auth": {"command": ["true"], "env": "AGENTLITE_TOKEN"},
+  "config": {
+    "model": "agentlite/openrouter/openai/gpt-4.1-mini",
+    "provider": {
+      "agentlite": {
+        "npm": "@ai-sdk/openai-compatible",
+        "name": "agentlite",
+        "options": {"baseURL": "https://<server>/v1"},
+        "models": {"openrouter/openai/gpt-4.1-mini": {"name": "GPT-4.1 Mini", "tool_call": true, "attachment": true}}
+      }
+    },
+    "mcp": {"slides": {"type": "remote", "url": "https://<server>/mcp/slides", "oauth": false}},
+    "skills": {"urls": ["https://<server>/.well-known/agent-skills/"]}
+  }
+}
+```
+
+opencode puts `config` under the user's own configuration, so a user's settings win.
+The URLs are this server's as the request reached it: the `Host` header, and the scheme
+from TLS or `X-Forwarded-Proto` (Echo's `Context.Scheme`). A gateway in front must pass
+both through; one that rewrites `Host` hands opencode internal URLs.
+
+## Login
+
+Clients prove who they are with their certificate at the gateway (mutual TLS), so there
+is no token. opencode still needs a login command, whose output it keeps as a token in
+`env`; `true` succeeds and prints nothing. The command runs on the user's machine, so it
+must exist there (macOS and Linux have `true`).
+
+## Models
+
+- **The provider** is named after the app (`APP_NAME`, default `agentlite`). It is the
+  pass-through (MODELS.md) as an OpenAI-compatible provider, so a model is
+  `agentlite/<provider>/<model>`.
+- **Its models** are every `llm` model of the registry, as `/v1/models` lists them.
+  `reasoning` and `attachment` (vision) are set when the model's capabilities say so.
+  `tool_call` is set when its capabilities are known, so a model without tool calls
+  says so; opencode assumes it has them otherwise. `limit` is set only when both the
+  context window and the maximum output are known, since opencode needs both.
+- **`model`**, opencode's default, is `default_model`, once the provider lists it
+  (discovery may not have yet).
+
+## MCP servers
+
+An MCP connector with `mcp.expose: true` is published at `/mcp/{id}`
+(`mcp.Server.Forward`, `internal/mcp/proxy.go`). The proxy is `httputil.ReverseProxy` over
+the connector's own HTTP client, so requests carry the connector's headers and client
+certificate, to the connector's endpoint as configured. Streamed responses pass through
+as they come. A server that cannot be reached is a `502`, through the server's error
+handler. It publishes the server as it is:
+
+- every tool, whatever `mcp.tools` allows the agents;
+- no harness hooks: no `require_confirmation`, `thread_args`, `ui` or `artifacts`; tool
+  approval is whatever opencode's own `permission` settings say;
+- no thread or run identity: the headers through which agentlite tells a server whose
+  call it is (`X-Thread-ID`, `X-Root-Thread-ID`, `X-Run-ID`, `X-Agent-ID`,
+  `X-Tool-Name`) are removed from the client's requests, so only agentlite sets them.
+  The client's `Authorization` reaches the server only when the connector forwards the
+  user's (`http.forward`, TOOLS.md). The client's other headers go through.
+
+Only a server reached over HTTP can be exposed: a connector with a `command` (stdio) and
+`expose` fails the start. Any other id is a `404`.
+
+## Skills
+
+`skills.urls` points opencode at the skills library's discovery index (SKILLS.md), the
+same one `npx skills` reads. opencode downloads every skill into its cache. An entry's
+`version`, the skill's `updated_at`, lets opencode releases that read it download a
+changed skill again. opencode 1.15.1 does not read it, and keeps its first download until
+its cache (`~/.cache/opencode/skills`) is cleared.
+
+## Trying it
+
+```bash
+opencode auth login http://localhost:8000
+opencode models agentlite
+opencode mcp list
+opencode run -m agentlite/openrouter/openai/gpt-4.1-mini "Use the report-style skill: ..."
+```
+
+## Code map
+
+| File | Role |
+|---|---|
+| `internal/handler/opencode.go` | `/.well-known/opencode`, the `/mcp/{id}` route |
+| `internal/mcp/proxy.go` | the MCP proxy (`Server.Forward`) |
+| `internal/agents/connectors.go` | `Runtime.ExposedMCP` |
+| `internal/config/connectors.go` | `mcp.expose` |
