@@ -17,18 +17,26 @@ type startedThread struct {
 	Seq      string `json:"seq"`
 }
 
-// StartThread creates a thread with its first turn and queues the run. It
-// replies once the thread is stored, so a subscribe sent on the reply finds
-// it. Later turns on the thread go over the socket.
+// StartThread creates a thread with its first turn and queues the run; a
+// workspaceId files it under that workspace. It replies once the thread is
+// stored, so a subscribe sent on the reply finds it. Later turns on the
+// thread go over the socket.
 func (h *Handler) StartThread(c *echo.Context) error {
-	var turn ws.Turn
-	if err := c.Bind(&turn); err != nil {
+	var body struct {
+		ws.Turn
+		WorkspaceID string `json:"workspaceId"`
+	}
+	if err := c.Bind(&body); err != nil {
 		return err // 400, or 415 for a body that is not JSON
 	}
-	in, err := turn.StartInput("")
+	in, err := body.StartInput("")
 	if err != nil {
 		return err
 	}
+	if err := h.checkWorkspace(c.Request().Context(), body.WorkspaceID); err != nil {
+		return err
+	}
+	in.WorkspaceID = body.WorkspaceID
 	in.Authorization = c.Request().Header.Get("Authorization")
 	run, err := h.Runs.Start(c.Request().Context(), in)
 	if err != nil {
