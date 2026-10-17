@@ -16,7 +16,7 @@ import (
 	"google.golang.org/adk/v2/tool/preloadmemorytool"
 	"google.golang.org/genai"
 
-	"agentlite/internal/config"
+	"agentlite/config"
 	"agentlite/internal/runs"
 	"agentlite/internal/skills"
 	"agentlite/internal/tools/builtin"

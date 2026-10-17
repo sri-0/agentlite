@@ -10,7 +10,7 @@ import (
 	"os"
 	"strings"
 
-	"agentlite/internal/config"
+	"agentlite/config"
 	"agentlite/pkg/transport"
 )
 

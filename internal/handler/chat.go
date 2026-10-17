@@ -39,13 +39,14 @@ func (h *Handler) StartThread(c *echo.Context) error {
 }
 
 // Chat upgrades to the agent chat socket (see internal/ws). A browser names
-// the page it runs in (Origin); only the origins CORS allows may open the
+// the page it runs in (Origin); only SOCKET_ALLOWED_ORIGINS may open the
 // socket. Clients that are not browsers send none.
 func (h *Handler) Chat(c *echo.Context) error {
 	if c.QueryParam("v") != ws.Version {
 		return echo.NewHTTPError(http.StatusUpgradeRequired, "unsupported protocol version; use ?v="+ws.Version)
 	}
-	if origin := c.Request().Header.Get("Origin"); origin != "" && !slices.Contains(h.Config.AllowedOrigins, origin) {
+	allowed := h.Config.SocketOrigins
+	if origin := c.Request().Header.Get("Origin"); origin != "" && !slices.Contains(allowed, "*") && !slices.Contains(allowed, origin) {
 		return echo.NewHTTPError(http.StatusForbidden, "origin not allowed")
 	}
 	// The origin is checked above, against whole origins rather than the

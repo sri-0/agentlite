@@ -13,11 +13,7 @@ import (
 )
 
 // New builds the root logger and installs it as the slog default.
-func New(level string, json bool) zerolog.Logger {
-	lvl, err := zerolog.ParseLevel(level)
-	if err != nil {
-		lvl = zerolog.InfoLevel
-	}
+func New(lvl zerolog.Level, json bool) zerolog.Logger {
 	var w io.Writer = os.Stdout
 	if !json {
 		w = zerolog.ConsoleWriter{Out: os.Stdout, TimeFormat: time.Kitchen}

@@ -69,7 +69,7 @@ func subagent(d Deps) (toolx.Tool, error) {
 		if sink == nil || parentRun == nil {
 			return nil, fmt.Errorf("subagent tool needs a run context")
 		}
-		childThread := uuid.Must(uuid.NewV7()).String()
+		childThread := uuid.NewString()
 		run, err := d.Dispatcher.Start(ctx, runs.StartInput{
 			ThreadID: childThread, ParentID: ctx.SessionID(), AgentID: a.SubagentType, Model: parentRun.Model,
 			Connectors: parentRun.Connectors, MessageID: uuid.NewString(), Text: a.Prompt,

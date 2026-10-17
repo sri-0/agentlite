@@ -5,6 +5,8 @@ import (
 	"iter"
 	"time"
 
+	"google.golang.org/adk/v2/session"
+
 	"agentlite/internal/stream"
 )
 
@@ -58,6 +60,19 @@ func (m *Manager) Wait(ctx context.Context, runID string) (*Run, error) {
 // Active returns the thread's active run, or nil.
 func (m *Manager) Active(ctx context.Context, threadID string) (*Run, error) {
 	return m.store.active(ctx, threadID)
+}
+
+// Forget deletes what Valkey keeps of idle threads: their event logs,
+// sequence counters and adk sessions.
+func (m *Manager) Forget(ctx context.Context, threadIDs ...string) error {
+	keys := make([]string, 0, 2*len(threadIDs))
+	for _, id := range threadIDs {
+		keys = append(keys, logKey(id), threadSeqKey(id))
+		if err := m.sessions.Delete(ctx, &session.DeleteRequest{AppName: m.appName, UserID: SessionUser, SessionID: id}); err != nil {
+			return err
+		}
+	}
+	return m.db.Do(ctx, m.db.B().Del().Key(keys...).Build()).Error()
 }
 
 // RunStatuses returns the status of each listed thread's active run, for

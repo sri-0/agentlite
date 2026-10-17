@@ -1,6 +1,7 @@
 // Package opensearch persists threads, messages, sources and artifacts.
 // Messages are stored as coalesced AG-UI events plus the extracted text;
-// nothing is converted.
+// nothing is converted. The indices and their mappings are created outside
+// the service, from deploy/opensearch (make indices).
 package opensearch
 
 import (
@@ -10,20 +11,23 @@ import (
 	"errors"
 	"fmt"
 	"slices"
-	"strings"
 	"time"
 
 	oslib "github.com/opensearch-project/opensearch-go/v5"
 	"github.com/opensearch-project/opensearch-go/v5/opensearchapi"
-	"github.com/rs/zerolog"
-
-	"agentlite/internal/config"
 )
+
+// Config is the OpenSearch connection.
+type Config struct {
+	URL      string `env:"URL, default=http://localhost:9200"`
+	Username string `env:"USERNAME"`
+	Password string `env:"PASSWORD"`
+}
 
 // Index names.
 const (
-	IndexThreads  = "threads"
-	IndexMessages = "messages"
+	indexThreads  = "threads"
+	indexMessages = "messages"
 )
 
 // Thread is a conversation; a sub-agent's thread carries parent_id.
@@ -62,11 +66,10 @@ var (
 // Client is the OpenSearch store.
 type Client struct {
 	api *opensearchapi.Client
-	log zerolog.Logger
 }
 
-// New connects and creates the indices if they are missing.
-func New(ctx context.Context, cfg config.OpenSearch, log zerolog.Logger) (*Client, error) {
+// New returns a client of the cluster.
+func New(cfg Config) (*Client, error) {
 	api, err := opensearchapi.NewClient(opensearchapi.Config{Client: oslib.Config{
 		Addresses: []string{cfg.URL}, Username: cfg.Username, Password: cfg.Password,
 		DiscoverNodesOnStart: new(bool), // false: the configured URL is the only reachable address
@@ -74,58 +77,30 @@ func New(ctx context.Context, cfg config.OpenSearch, log zerolog.Logger) (*Clien
 	if err != nil {
 		return nil, fmt.Errorf("opensearch: %w", err)
 	}
-	c := &Client{api: api, log: log}
-	for name, mapping := range indices {
-		if err := c.ensureIndex(ctx, name, mapping); err != nil {
-			return nil, err
-		}
-	}
-	return c, nil
-}
-
-var indices = map[string]string{
-	IndexThreads: `{"mappings":{"properties":{
-		"id":{"type":"keyword"},"parent_id":{"type":"keyword"},"root_id":{"type":"keyword"},
-		"title":{"type":"text"},"agent_id":{"type":"keyword"},"model":{"type":"keyword"},
-		"connectors":{"type":"keyword"},
-		"created_at":{"type":"date"},"updated_at":{"type":"date"}}}}`,
-	IndexMessages: `{"mappings":{"properties":{
-		"id":{"type":"keyword"},"thread_id":{"type":"keyword"},"root_id":{"type":"keyword"},"role":{"type":"keyword"},
-		"seq":{"type":"long"},"created_at":{"type":"date"},"text":{"type":"text"},
-		"events":{"type":"object","enabled":false}}}}`,
-	IndexSources:   sourcesMapping,
-	IndexArtifacts: artifactsMapping,
-	IndexCounters:  countersMapping,
-	IndexSkills:    skillsMapping,
+	return &Client{api: api}, nil
 }
 
 // listCap bounds the lists of one conversation's sources and artifacts, and
 // the skills library.
 const listCap = 1000
 
-func (c *Client) ensureIndex(ctx context.Context, name, mapping string) error {
-	_, err := c.api.Indices.Create(ctx, opensearchapi.IndicesCreateReq{Index: name, BodyReader: strings.NewReader(mapping)})
-	if err != nil && errType(err) != "resource_already_exists_exception" {
-		return fmt.Errorf("create index %s: %w", name, err)
-	}
-	return nil
-}
+// refreshed makes a write readable by searches as soon as it returns.
+var refreshed = opensearchapi.IndexParams{Refresh: "true"}
 
 // index upserts a document and refreshes the index at once: writes are few,
 // and a thread or message must be readable as soon as its save returns.
 func (c *Client) index(ctx context.Context, index, id string, doc any) error {
-	return c.write(ctx, index, id, doc, opensearchapi.IndexParams{})
+	return c.write(ctx, index, id, doc, refreshed)
 }
 
-// write stores a document and refreshes the index. A write the params
-// forbid (create of a taken id, an external version not above the stored
-// one) keeps the stored document and returns ErrConflict.
+// write stores a document. A write the params forbid (create of a taken id,
+// an external version not above the stored one) keeps the stored document
+// and returns ErrConflict.
 func (c *Client) write(ctx context.Context, index, id string, doc any, params opensearchapi.IndexParams) error {
 	body, err := json.Marshal(doc)
 	if err != nil {
 		return err
 	}
-	params.Refresh = "true"
 	_, err = c.api.Document.Index(ctx, opensearchapi.IndexReq{Index: index, ID: id, Body: bytes.NewReader(body), Params: &params})
 	if errStatus(err) == 409 {
 		return fmt.Errorf("index %s/%s: %w", index, id, ErrConflict)
@@ -149,56 +124,28 @@ func errStatus(err error) int {
 	return 0
 }
 
-// errType is the OpenSearch exception type of an API error, or "".
-func errType(err error) string {
-	var structured *oslib.StructError
-	if errors.As(err, &structured) {
-		return structured.Err.Type
-	}
-	return ""
-}
-
 // SaveThread upserts a thread.
 func (c *Client) SaveThread(ctx context.Context, t *Thread) error {
-	return c.index(ctx, IndexThreads, t.ID, t)
+	return c.index(ctx, indexThreads, t.ID, t)
 }
 
 // SaveMessage upserts a message.
 func (c *Client) SaveMessage(ctx context.Context, m *Message) error {
-	return c.index(ctx, IndexMessages, m.ID, m)
-}
-
-// search runs a query and decodes each hit's source.
-func search[T any](ctx context.Context, c *Client, index, query string) ([]T, error) {
-	resp, err := c.api.Search(ctx, &opensearchapi.SearchReq{Indices: []string{index}, BodyReader: strings.NewReader(query)})
-	if err != nil {
-		return nil, fmt.Errorf("search %s: %w", index, err)
-	}
-	return hits[T](index, resp)
-}
-
-// hits decodes each hit's source.
-func hits[T any](index string, resp *opensearchapi.SearchResp) ([]T, error) {
-	out := make([]T, len(resp.Hits.Hits))
-	for i, h := range resp.Hits.Hits {
-		if err := json.Unmarshal(h.Source, &out[i]); err != nil {
-			return nil, fmt.Errorf("search %s: %w", index, err)
-		}
-	}
-	return out, nil
+	return c.index(ctx, indexMessages, m.ID, m)
 }
 
 // Threads lists root threads, newest first; the list is capped at threadsCap.
 func (c *Client) Threads(ctx context.Context) ([]Thread, error) {
-	return search[Thread](ctx, c, IndexThreads, fmt.Sprintf(`{"size":%d,"sort":[{"updated_at":"desc"}],
-		"query":{"bool":{"must_not":{"exists":{"field":"parent_id"}}}}}`, threadsCap))
+	return search[Thread](ctx, c, indexThreads, opensearchapi.SearchBody{
+		Size: new(threadsCap), Sort: sortBy("-updated_at"), Query: new(not(exists("parent_id"))),
+	})
 }
 
 const threadsCap = 200
 
 // Thread fetches one thread by id.
 func (c *Client) Thread(ctx context.Context, id string) (*Thread, error) {
-	return get[Thread](ctx, c, IndexThreads, id)
+	return get[Thread](ctx, c, indexThreads, id)
 }
 
 // ThreadTitles returns the titles of the given threads, by id.
@@ -207,14 +154,7 @@ func (c *Client) ThreadTitles(ctx context.Context, ids []string) (map[string]str
 	if len(ids) == 0 {
 		return titles, nil
 	}
-	q, err := json.Marshal(map[string]any{
-		"size": len(ids), "_source": []string{"id", "title"},
-		"query": map[string]any{"ids": map[string]any{"values": ids}},
-	})
-	if err != nil {
-		return nil, err
-	}
-	found, err := search[Thread](ctx, c, IndexThreads, string(q))
+	found, err := search[Thread](ctx, c, indexThreads, opensearchapi.SearchBody{Size: new(len(ids)), Query: new(oneOf("id", ids))}, "id", "title")
 	for _, t := range found {
 		titles[t.ID] = t.Title
 	}
@@ -237,32 +177,44 @@ func get[T any](ctx context.Context, c *Client, index, id string) (*T, error) {
 	return &out, nil
 }
 
-// DeleteThread removes a root thread, its sub-agent threads and everything
-// recorded for them: messages, memories, sources and artifact records.
-func (c *Client) DeleteThread(ctx context.Context, id string) error {
-	refresh := &opensearchapi.DeleteByQueryParams{Refresh: "true"}
-	for index, field := range map[string]string{
-		IndexThreads: "root_id", IndexMessages: "root_id", IndexMemories: "thread_id",
-		IndexSources: "root_id", IndexArtifacts: "root_id", IndexCounters: "root_id",
+// DeleteThread removes a root thread, its sub-agent threads, their messages
+// and the memories made of them. Sources and artifacts stay: they are the
+// evidence of what was said. The threads go last, so a failure can be retried.
+func (c *Client) DeleteThread(ctx context.Context, rootID string) error {
+	for _, d := range []struct{ index, field string }{
+		{indexMessages, "root_id"}, {indexMemories, "thread_id"}, {indexThreads, "root_id"},
 	} {
-		q := fmt.Sprintf(`{"query":{"term":{%q:%q}}}`, field, id)
-		_, err := c.api.DeleteByQuery(ctx, &opensearchapi.DeleteByQueryReq{Indices: []string{index}, BodyReader: strings.NewReader(q), Params: refresh})
-		if err != nil && errStatus(err) != 404 { // the memories index exists only when memory is on
-			return fmt.Errorf("delete %s: %w", index, err)
+		_, err := c.api.DeleteByQuery(ctx, &opensearchapi.DeleteByQueryReq{
+			Indices: []string{d.index}, Body: &opensearchapi.DeleteByQueryBody{Query: new(term(d.field, rootID))},
+			Params: &opensearchapi.DeleteByQueryParams{Refresh: "true"},
+		})
+		if err != nil {
+			return fmt.Errorf("delete %s: %w", d.index, err)
 		}
 	}
 	return nil
 }
 
+// SubThreads lists the ids of a conversation's sub-agent threads.
+func (c *Client) SubThreads(ctx context.Context, rootID string) ([]string, error) {
+	found, err := search[Thread](ctx, c, indexThreads, opensearchapi.SearchBody{
+		Size: new(listCap), Query: new(allOf(term("root_id", rootID), exists("parent_id"))),
+	}, "id")
+	ids := make([]string, len(found))
+	for i, t := range found {
+		ids[i] = t.ID
+	}
+	return ids, err
+}
+
 // Messages returns up to limit messages of a thread with seq below before
 // (0 means from the newest), in ascending seq order.
 func (c *Client) Messages(ctx context.Context, threadID string, before int64, limit int) ([]Message, error) {
-	rng := ""
+	q := term("thread_id", threadID)
 	if before > 0 {
-		rng = fmt.Sprintf(`,{"range":{"seq":{"lt":%d}}}`, before)
+		q = allOf(q, below("seq", before))
 	}
-	q := fmt.Sprintf(`{"size":%d,"sort":[{"seq":"desc"}],"query":{"bool":{"filter":[{"term":{"thread_id":%q}}%s]}}}`, limit, threadID, rng)
-	out, err := search[Message](ctx, c, IndexMessages, q)
+	out, err := search[Message](ctx, c, indexMessages, opensearchapi.SearchBody{Size: new(limit), Sort: sortBy("-seq"), Query: &q})
 	if err != nil {
 		return nil, err
 	}

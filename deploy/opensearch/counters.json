@@ -1,0 +1,10 @@
+{
+  "mappings": {
+    "dynamic": "strict",
+    "properties": {
+      "root_id": {"type": "keyword"},
+      "sources": {"type": "integer"},
+      "artifacts": {"type": "object", "enabled": false}
+    }
+  }
+}

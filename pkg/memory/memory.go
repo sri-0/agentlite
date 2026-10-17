@@ -5,9 +5,10 @@ package memory
 
 import (
 	"context"
-	"crypto/sha1"
+	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"strings"
 
 	"github.com/rs/zerolog"
 	"go.opentelemetry.io/otel"
@@ -15,7 +16,6 @@ import (
 	"google.golang.org/adk/v2/session"
 	"google.golang.org/genai"
 
-	"agentlite/internal/stream"
 	"agentlite/pkg/db/opensearch"
 )
 
@@ -33,12 +33,10 @@ type Service struct {
 	log      zerolog.Logger
 }
 
-// New prepares the index for vectors of the embedder's size.
-func New(ctx context.Context, store *opensearch.Client, embedder Embedder, dimensions int, log zerolog.Logger) (*Service, error) {
-	if err := store.EnsureMemoryIndex(ctx, dimensions); err != nil {
-		return nil, err
-	}
-	return &Service{store: store, embedder: embedder, log: log}, nil
+// New returns the memory; the memories index is created with the others
+// (deploy/opensearch), sized for the embedding model.
+func New(store *opensearch.Client, embedder Embedder, log zerolog.Logger) *Service {
+	return &Service{store: store, embedder: embedder, log: log}
 }
 
 // AddSessionToMemory stores the text turns of the session's latest turn: the
@@ -47,13 +45,13 @@ func New(ctx context.Context, store *opensearch.Client, embedder Embedder, dimen
 func (s *Service) AddSessionToMemory(ctx context.Context, sess session.Session) error {
 	var turn []*session.Event
 	for ev := range sess.Events().All() {
-		if ev.Author == "user" && stream.TextOf(ev.Content) != "" {
+		if ev.Author == "user" && textOf(ev.Content) != "" {
 			turn = turn[:0]
 		}
 		turn = append(turn, ev)
 	}
 	for _, ev := range turn {
-		text := stream.TextOf(ev.Content)
+		text := textOf(ev.Content)
 		if text == "" {
 			continue
 		}
@@ -113,6 +111,20 @@ func (v *threadView) SearchMemory(ctx context.Context, req *memory.SearchRequest
 }
 
 func memoryID(sessionID, eventID string) string {
-	sum := sha1.Sum([]byte(sessionID + ":" + eventID))
-	return hex.EncodeToString(sum[:])
+	sum := sha256.Sum256([]byte(sessionID + ":" + eventID))
+	return hex.EncodeToString(sum[:16])
+}
+
+// textOf is the content's visible text, without thoughts.
+func textOf(c *genai.Content) string {
+	if c == nil {
+		return ""
+	}
+	var b strings.Builder
+	for _, p := range c.Parts {
+		if p.Text != "" && !p.Thought {
+			b.WriteString(p.Text)
+		}
+	}
+	return b.String()
 }

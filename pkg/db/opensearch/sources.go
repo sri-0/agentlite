@@ -13,8 +13,8 @@ import (
 	"github.com/opensearch-project/opensearch-go/v5/opensearchapi"
 )
 
-// IndexSources holds the sources tools returned, numbered per conversation.
-const IndexSources = "sources"
+// indexSources holds the sources tools returned, numbered per conversation.
+const indexSources = "sources"
 
 // Source is an item a tool returned that answers may cite as [source:N]: the
 // record the tool made of it, and where it has been cited since.
@@ -36,12 +36,6 @@ type Source struct {
 	CitedIn []string `json:"cited_in,omitempty"`
 }
 
-const sourcesMapping = `{"mappings":{"properties":{
-	"id":{"type":"keyword"},"root_id":{"type":"keyword"},"number":{"type":"integer"},
-	"thread_id":{"type":"keyword"},"run_id":{"type":"keyword"},"tool":{"type":"keyword"},"tool_call_id":{"type":"keyword"},
-	"system":{"type":"keyword"},"key":{"type":"keyword"},"url":{"type":"keyword"},"title":{"type":"text"},
-	"metadata":{"type":"flat_object"},"retrieved_at":{"type":"date"},"cited_in":{"type":"keyword"}}}}`
-
 // SourceKeyID is the document id of a source with an identity (its system
 // and key or URL): one per conversation, so recording it twice collides
 // instead of numbering it twice.
@@ -55,21 +49,23 @@ func SourceNumberID(rootID string, number int) string {
 	return fmt.Sprintf("%s:n:%d", rootID, number)
 }
 
-// SaveSource stores a new source. A record is never replaced: when one with
-// the same id exists, it is kept and ErrConflict returned.
+// SaveSource stores a new source, at once searchable for the citations that
+// follow. A record is never replaced: when one with the same id exists, it is
+// kept and ErrConflict returned.
 func (c *Client) SaveSource(ctx context.Context, s *Source) error {
-	return c.write(ctx, IndexSources, s.ID, s, opensearchapi.IndexParams{OpType: opensearchapi.OpTypeCreate})
+	return c.write(ctx, indexSources, s.ID, s, opensearchapi.IndexParams{OpType: opensearchapi.OpTypeCreate, Refresh: "true"})
 }
 
 // SourceByID fetches one source by document id.
 func (c *Client) SourceByID(ctx context.Context, id string) (*Source, error) {
-	return get[Source](ctx, c, IndexSources, id)
+	return get[Source](ctx, c, indexSources, id)
 }
 
 // Sources lists a conversation's sources by number.
 func (c *Client) Sources(ctx context.Context, rootID string) ([]Source, error) {
-	return search[Source](ctx, c, IndexSources, fmt.Sprintf(`{"size":%d,"sort":[{"number":"asc"}],
-		"query":{"term":{"root_id":%q}}}`, listCap, rootID))
+	return search[Source](ctx, c, indexSources, opensearchapi.SearchBody{
+		Size: new(listCap), Sort: sortBy("number"), Query: new(term("root_id", rootID)),
+	})
 }
 
 // Source fetches one source of a conversation by number.
@@ -85,17 +81,9 @@ func (c *Client) Source(ctx context.Context, rootID string, number int) (*Source
 }
 
 func (c *Client) sourcesNumbered(ctx context.Context, rootID string, numbers []int) ([]Source, error) {
-	q, err := json.Marshal(map[string]any{
-		"size": len(numbers),
-		"query": map[string]any{"bool": map[string]any{"filter": []any{
-			map[string]any{"term": map[string]any{"root_id": rootID}},
-			map[string]any{"terms": map[string]any{"number": numbers}},
-		}}},
+	return search[Source](ctx, c, indexSources, opensearchapi.SearchBody{
+		Size: new(len(numbers)), Query: new(allOf(term("root_id", rootID), oneOf("number", numbers))),
 	})
-	if err != nil {
-		return nil, err
-	}
-	return search[Source](ctx, c, IndexSources, string(q))
 }
 
 const citeScript = "if (ctx._source.cited_in == null) { ctx._source.cited_in = []; } " +
@@ -122,7 +110,7 @@ func (c *Client) Cite(ctx context.Context, rootID, ref string, numbers []int) er
 	var body bytes.Buffer
 	for _, s := range cited {
 		action, _ := json.Marshal(map[string]any{
-			"update": map[string]any{"_index": IndexSources, "_id": s.ID, "retry_on_conflict": 3},
+			"update": map[string]any{"_index": indexSources, "_id": s.ID, "retry_on_conflict": 3},
 		})
 		body.Write(action)
 		body.WriteByte('\n')

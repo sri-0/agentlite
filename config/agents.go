@@ -5,12 +5,13 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
-	"sort"
 	"strings"
 
 	"github.com/adrg/frontmatter"
-	"github.com/goccy/go-yaml"
 )
+
+// DefaultAgent answers when a run names no agent.
+const DefaultAgent = "assistant"
 
 // Agent kinds and modes.
 const (
@@ -43,13 +44,12 @@ type AgentDef struct {
 // Primary reports whether the agent can be selected directly by a user.
 func (a AgentDef) Primary() bool { return a.Mode == ModePrimary || a.Mode == ModeAll }
 
-// LoadAgents reads every agents/*.md file, sorted by file name.
-func LoadAgents(dir string) ([]AgentDef, error) {
+// loadAgents reads every agents/*.md file, sorted by file name (Glob's order).
+func loadAgents(dir string) ([]AgentDef, error) {
 	paths, err := filepath.Glob(filepath.Join(dir, "agents", "*.md"))
 	if err != nil {
 		return nil, err
 	}
-	sort.Strings(paths)
 	defs := make([]AgentDef, 0, len(paths))
 	seen := map[string]bool{}
 	for _, p := range paths {
@@ -63,12 +63,42 @@ func LoadAgents(dir string) ([]AgentDef, error) {
 		seen[def.ID] = true
 		defs = append(defs, def)
 	}
+	byID := map[string]AgentDef{}
 	for _, d := range defs {
 		if err := d.validate(seen); err != nil {
 			return nil, fmt.Errorf("agent %q: %w", d.ID, err)
 		}
+		byID[d.ID] = d
+	}
+	if d, ok := byID[DefaultAgent]; !ok || !d.Primary() {
+		return nil, fmt.Errorf("agents: the default agent %q must exist and be primary", DefaultAgent)
+	}
+	for _, d := range defs {
+		if err := checkCycle(byID, d.ID, nil); err != nil {
+			return nil, err
+		}
 	}
 	return defs, nil
+}
+
+// checkCycle refuses a pipeline that contains itself: building it would
+// never end. Only pipelines nest when built; an llm agent's subagents run as
+// runs of their own.
+func checkCycle(byID map[string]AgentDef, id string, path []string) error {
+	path = append(slices.Clone(path), id)
+	if slices.Contains(path[:len(path)-1], id) {
+		return fmt.Errorf("agents: pipeline cycle %s", strings.Join(path, " → "))
+	}
+	d := byID[id]
+	if d.Kind != KindSequential {
+		return nil
+	}
+	for _, sub := range d.Subagents {
+		if err := checkCycle(byID, sub, path); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // validate checks what can be known before a run: every reference resolves
@@ -105,7 +135,7 @@ func parseAgentFile(path string) (AgentDef, error) {
 	}
 	defer f.Close()
 	var def AgentDef
-	body, err := frontmatter.MustParse(f, &def, frontmatter.NewFormat("---", "---", yaml.Unmarshal))
+	body, err := frontmatter.MustParse(f, &def, frontmatter.NewFormat("---", "---", decode))
 	if err != nil {
 		return AgentDef{}, fmt.Errorf("frontmatter: %w", err)
 	}

@@ -5,11 +5,10 @@ import (
 	"net/http"
 
 	"github.com/labstack/echo/v5"
-	"github.com/rs/zerolog"
 
+	"agentlite/config"
 	"agentlite/internal/agents"
 	"agentlite/internal/artifacts"
-	"agentlite/internal/config"
 	"agentlite/internal/providers"
 	"agentlite/internal/runs"
 	"agentlite/internal/skills"
@@ -25,7 +24,6 @@ type Handler struct {
 	Store     *opensearch.Client
 	Artifacts *artifacts.Store
 	Skills    *skills.Library
-	Log       zerolog.Logger
 }
 
 // list is the OpenAI-style list envelope the UI expects.

@@ -103,8 +103,9 @@ re-executed, because tools have side effects.
 ## Threads
 
 A thread is a conversation: a root thread the user started, or a child thread a
-`subagent` call started for a sub-agent (`parent_id`, `root_id`). Ids are UUIDv7 and
-always the server's. Each thread has:
+`subagent` call started for a sub-agent (`parent_id`, `root_id`). Ids are UUIDv4, like
+every id the server makes, and always the server's; a path or frame whose thread or
+skill id is not a UUID gets 400. Each thread has:
 
 - one **event log** in Valkey (`thread:{id}:log`), the live channel and the
   source the finalizer folds from, trimmed to 24 h after each run;
@@ -117,8 +118,10 @@ always the server's. Each thread has:
 A sub-agent's thread is followed like any other; the parent's agent card also
 mirrors its status, progress and pending requests (AGENT-ARCHITECTURE.md).
 
-Deleting a root thread deletes its child threads, their messages, memories,
-sources and artifacts, including the bodies in S3.
+Deleting a root thread (`DELETE /v1/threads/{id}`; a child thread is refused, 400)
+deletes its child threads, their messages and memories, and their logs, counters
+and adk sessions in Valkey. Its sources and artifacts stay, as the evidence of what
+was said.
 
 ## Creating a thread
 
@@ -178,10 +181,16 @@ Valkey is split into logical databases, set by environment:
 | `REDIS_DB_HITL` | 3 | interrupts | `hitl:{interruptId}` (record and decision, 7 days), `hitl:thread:{id}:pending` (open), `hitl:thread:{id}:decided` (answered, waiting for the rest) |
 
 OpenSearch indices: `threads`, `messages` (events stored unindexed), `memories`
-(kNN vectors; created only when memory is configured), `sources`, `artifacts`,
-`counters` (each conversation's source numbers and artifact versions), `skills` (the
-skills library, one record per skill; its files are in S3; SKILLS.md).
-Every write refreshes the index, so a read after a save sees it.
+(kNN vectors), `sources`, `artifacts`, `counters` (each conversation's source
+numbers and artifact versions), `skills` (the skills library, one record per skill;
+its files are in S3; SKILLS.md). The service never creates or changes an index, so it
+needs no rights beyond reading and writing documents: each index's mapping is a file
+in `deploy/opensearch`, applied with `make indices` (curl: it creates a missing index,
+and adds new fields to an existing one; a changed type needs a reindex). Mappings are
+`"dynamic": "strict"`, so a field missing from them fails the write instead of being
+guessed. Queries are built with opensearch-go's typed query DSL
+(`pkg/db/opensearch/query.go`). Writes a read follows at once refresh the index;
+memories, which nothing reads back straight away, do not.
 
 S3 (`S3_ENDPOINT`, required; MinIO in `docker-compose.yaml`): artifact bodies at
 `artifacts/{root}/{artifact id}/{version}`, and skill files at `skills/{skill id}/{path}`.
@@ -189,9 +198,12 @@ OpenSearch keeps only their records.
 
 ## Configuration
 
-Environment (`internal/config/config.go`): `PORT`, `HOST`, `APP_NAME`, `APP_URL`
-(this server as clients reach it, through any gateway), `CONFIG_DIR`, `LOG_LEVEL`, `LOG_JSON`, `ALLOWED_ORIGINS` (CORS, and the page origins a
-browser may open the socket from; clients that send no `Origin` are not checked),
+Environment (`config/config.go`; each storage package declares its own settings,
+such as `valkey.Config`): `PORT`, `HOST`, `APP_NAME`, `APP_URL`
+(this server as clients reach it, through any gateway), `CONFIG_DIR`, `LOG_LEVEL`
+(debug, info, warn or error; empty or unknown fails the start), `LOG_JSON`, `ALLOWED_ORIGINS` (CORS),
+`SOCKET_ALLOWED_ORIGINS` (the page origins a browser may open the socket from; `*`
+allows any, and clients that send no `Origin` are not checked),
 `MAX_BODY_MB` (the largest request body, default 32), `REDIS_HOST`,
 `REDIS_PORT`, `REDIS_USER`, `REDIS_PASS`, `REDIS_DB_RUNS`, `REDIS_DB_SESSIONS`,
 `REDIS_DB_HITL`, `OPENSEARCH_URL`, `OPENSEARCH_USERNAME`, `OPENSEARCH_PASSWORD`,
@@ -202,7 +214,9 @@ browser may open the socket from; clients that send no `Origin` are not checked)
 
 Files in `CONFIG_DIR`: `models.yaml` (providers, discovery, `default_model`,
 `compaction`, `memory`), `connectors.yaml` (toolx tools and MCP servers),
-`agents/*.md`.
+`agents/*.md`. They are read strictly: an unknown key, an unset `${VAR}` in a header,
+an unknown `api`, a tool an agent lists that nothing serves, a pipeline that contains
+itself, or a missing default agent (`assistant`) fails the start.
 
 ## Observability
 

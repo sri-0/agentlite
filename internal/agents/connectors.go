@@ -7,7 +7,7 @@ import (
 
 	"google.golang.org/adk/v2/tool"
 
-	"agentlite/internal/config"
+	"agentlite/config"
 	"agentlite/internal/mcp"
 	"agentlite/internal/runs"
 	"agentlite/internal/tools"

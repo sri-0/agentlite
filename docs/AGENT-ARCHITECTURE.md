@@ -8,7 +8,7 @@ sub-agents through a `subagent` tool. There is no classifier in front of it.
 ## Agents are configuration
 
 Each agent is one markdown file in `config/default/agents/`: YAML frontmatter and
-the instruction as the body. `internal/config/agents.go` loads and validates them
+the instruction as the body. `config/agents.go` loads and validates them
 at boot; `internal/agents/build.go` turns a definition into an adk agent for each
 run. There is no Go per agent.
 

@@ -5,7 +5,7 @@ import (
 
 	"github.com/labstack/echo/v5"
 
-	"agentlite/internal/config"
+	"agentlite/config"
 	"agentlite/pkg/modelcatalog"
 )
 

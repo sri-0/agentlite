@@ -9,11 +9,12 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/labstack/echo/v5"
 	"github.com/labstack/echo/v5/middleware"
 	"github.com/rs/zerolog"
 
-	"agentlite/internal/config"
+	"agentlite/config"
 	"agentlite/internal/handler"
 	"agentlite/internal/handler/wellknown"
 	"agentlite/internal/runs"
@@ -52,23 +53,25 @@ func New(cfg *config.Config, h *handler.Handler, log zerolog.Logger) *echo.Echo 
 	e.GET("/v1/connectors", h.Connectors)
 	e.GET("/v1/connectors/:id", h.Connector)
 	e.GET("/v1/threads", h.Threads)
-	e.GET("/v1/threads/:id", h.Thread)
-	e.PATCH("/v1/threads/:id", h.UpdateThread)
-	e.DELETE("/v1/threads/:id", h.DeleteThread)
-	e.GET("/v1/threads/:id/messages", h.Messages)
-	e.GET("/v1/threads/:id/interrupts", h.Interrupts)
-	e.GET("/v1/threads/:id/sources", h.ThreadSources)
-	e.GET("/v1/threads/:id/sources/:n", h.ThreadSource)
-	e.GET("/v1/threads/:id/artifacts", h.ThreadArtifacts)
+	thread := e.Group("/v1/threads/:id", uuidID)
+	thread.GET("", h.Thread)
+	thread.PATCH("", h.UpdateThread)
+	thread.DELETE("", h.DeleteThread)
+	thread.GET("/messages", h.Messages)
+	thread.GET("/interrupts", h.Interrupts)
+	thread.GET("/sources", h.ThreadSources)
+	thread.GET("/sources/:n", h.ThreadSource)
+	thread.GET("/artifacts", h.ThreadArtifacts)
+	thread.GET("/artifacts/:artifactId/content", h.ArtifactContent, sandboxed)
 	e.GET("/v1/artifacts", h.RecentArtifacts)
-	e.GET("/v1/threads/:id/artifacts/:artifactId/content", h.ArtifactContent, sandboxed)
 	e.GET("/v1/skills", h.ListSkills)
 	e.POST("/v1/skills", h.CreateSkill, middleware.BodyLimit(skills.MaxBytes+1<<20)) // the zip, and the form around it
-	e.GET("/v1/skills/:id", h.GetSkill)
-	e.PATCH("/v1/skills/:id", h.UpdateSkill)
-	e.DELETE("/v1/skills/:id", h.DeleteSkill)
-	e.GET("/v1/skills/:id/files/*", h.SkillFile, sandboxed)
-	e.PUT("/v1/skills/:id/files/*", h.WriteSkillFile, middleware.BodyLimit(skills.MaxBytes))
+	skill := e.Group("/v1/skills/:id", uuidID)
+	skill.GET("", h.GetSkill)
+	skill.PATCH("", h.UpdateSkill)
+	skill.DELETE("", h.DeleteSkill)
+	skill.GET("/files/*", h.SkillFile, sandboxed)
+	skill.PUT("/files/*", h.WriteSkillFile, middleware.BodyLimit(skills.MaxBytes))
 	// What opencode and npx skills set themselves up from (docs/OPENCODE.md).
 	wk := &wellknown.Handler{Config: cfg, Registry: h.Registry, Skills: h.Skills}
 	e.GET("/.well-known/opencode", wk.Opencode)
@@ -79,6 +82,16 @@ func New(cfg *config.Config, h *handler.Handler, log zerolog.Logger) *echo.Echo 
 	e.GET("/v1/agent/chat", h.Chat)
 	h.RegisterProxies(e)
 	return e
+}
+
+// uuidID refuses an :id that is not a UUID before any handler sees it.
+func uuidID(next echo.HandlerFunc) echo.HandlerFunc {
+	return func(c *echo.Context) error {
+		if err := uuid.Validate(c.Param("id")); err != nil {
+			return echo.NewHTTPError(http.StatusBadRequest, "id must be a UUID")
+		}
+		return next(c)
+	}
 }
 
 // sandboxed serves what users and models wrote (artifact bodies, skill

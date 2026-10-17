@@ -121,12 +121,6 @@ func (s *Store) Body(ctx context.Context, a *opensearch.Artifact) (io.ReadCloser
 	return s.bodies.Get(ctx, key(a))
 }
 
-// Delete removes a conversation's bodies; the records and counters are
-// deleted with the thread's documents.
-func (s *Store) Delete(ctx context.Context, rootID string) error {
-	return s.bodies.DeletePrefix(ctx, "artifacts/"+rootID+"/")
-}
-
 // key is where a version's body lives in S3.
 func key(a *opensearch.Artifact) string {
 	return fmt.Sprintf("artifacts/%s/%s/%d", a.RootID, a.ID, a.Version)

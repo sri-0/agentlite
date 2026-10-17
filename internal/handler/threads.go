@@ -1,6 +1,7 @@
 package handler
 
 import (
+	"fmt"
 	"net/http"
 
 	"github.com/labstack/echo/v5"
@@ -90,10 +91,18 @@ func (h *Handler) UpdateThread(c *echo.Context) error {
 	return c.JSON(http.StatusOK, t)
 }
 
-// DeleteThread removes a root thread, its sub-agent threads and all their
-// messages. A thread with an active run is refused.
+// DeleteThread removes a conversation: its root and sub-agent threads, their
+// messages and memories, and what Valkey keeps of them. Its sources and
+// artifacts stay as evidence. A thread with an active run is refused.
 func (h *Handler) DeleteThread(c *echo.Context) error {
 	ctx, id := c.Request().Context(), c.Param("id")
+	t, err := h.Store.Thread(ctx, id)
+	if err != nil {
+		return err
+	}
+	if t.ParentID != "" {
+		return fmt.Errorf("%w: a sub-agent's thread goes with its conversation; delete %s", runs.ErrInvalid, t.RootID)
+	}
 	run, err := h.Runs.Active(ctx, id)
 	if err != nil {
 		return err
@@ -101,7 +110,11 @@ func (h *Handler) DeleteThread(c *echo.Context) error {
 	if run != nil {
 		return runs.ErrBusy
 	}
-	if err := h.Artifacts.Delete(ctx, id); err != nil {
+	subs, err := h.Store.SubThreads(ctx, id)
+	if err != nil {
+		return err
+	}
+	if err := h.Runs.Forget(ctx, append(subs, id)...); err != nil {
 		return err
 	}
 	if err := h.Store.DeleteThread(ctx, id); err != nil {

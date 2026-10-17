@@ -5,10 +5,9 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
-
-	"github.com/goccy/go-yaml"
 
 	"agentlite/pkg/modelcatalog"
 )
@@ -62,11 +61,10 @@ func (c *Compaction) check() error {
 	return nil
 }
 
-// MemoryConfig enables long-term memory: which model embeds entries and the
-// vector size it produces.
+// MemoryConfig enables long-term memory: which model embeds entries. The
+// memories index is sized for its vectors (deploy/opensearch/memories.json).
 type MemoryConfig struct {
 	EmbeddingModel string `yaml:"embedding_model"`
-	Dimensions     int    `yaml:"dimensions"`
 	// Preload searches memory before every model call of a user-started run;
 	// off, the agent decides when to search with the load_memory tool.
 	Preload bool `yaml:"preload"`
@@ -95,14 +93,17 @@ type Discover struct {
 	Refresh  time.Duration `yaml:"refresh"`
 }
 
-// LoadModels reads models.yaml and expands ${ENV} references.
-func LoadModels(dir string) (*ModelsConfig, error) {
+// APIs a provider or model may name; "" is chat_completions.
+var apis = []string{"", "chat_completions", "responses"}
+
+// loadModels reads models.yaml and expands ${ENV} references.
+func loadModels(dir string) (*ModelsConfig, error) {
 	raw, err := os.ReadFile(filepath.Join(dir, "models.yaml"))
 	if err != nil {
 		return nil, fmt.Errorf("models.yaml: %w", err)
 	}
 	var cfg ModelsConfig
-	if err := yaml.Unmarshal(raw, &cfg); err != nil {
+	if err := decode(raw, &cfg); err != nil {
 		return nil, fmt.Errorf("models.yaml: %w", err)
 	}
 	if cfg.DefaultModel == "" {
@@ -121,15 +122,25 @@ func LoadModels(dir string) (*ModelsConfig, error) {
 			return nil, fmt.Errorf("models.yaml: provider id %q must be set and contain no /", p.ID)
 		case seen[p.ID]:
 			return nil, fmt.Errorf("models.yaml: duplicate provider %q", p.ID)
+		case !slices.Contains(apis, p.API):
+			return nil, fmt.Errorf("models.yaml: provider %s: api %q is not chat_completions or responses", p.ID, p.API)
 		}
 		seen[p.ID] = true
-		p.BaseURL = os.ExpandEnv(p.BaseURL)
-		expandEnv(p.Headers)
+		// A provider with no base_url here is skipped by the registry, and
+		// its headers are not needed.
+		if p.BaseURL = os.ExpandEnv(p.BaseURL); p.BaseURL != "" {
+			if err := expandEnv(p.Headers); err != nil {
+				return nil, fmt.Errorf("models.yaml: provider %s: %w", p.ID, err)
+			}
+		}
 		if p.Name == "" {
 			p.Name = p.ID
 		}
 		for j := range p.Models {
 			m := &p.Models[j]
+			if !slices.Contains(apis, m.API) {
+				return nil, fmt.Errorf("models.yaml: model %s/%s: api %q is not chat_completions or responses", p.ID, m.ID, m.API)
+			}
 			// Checked by the providers registry; one whose variable is unset
 			// must not quietly become the provider's own URL.
 			if raw := m.BaseURL; raw != "" {

@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"slices"
 
 	"github.com/rs/zerolog"
 	adkagent "google.golang.org/adk/v2/agent"
@@ -19,8 +20,8 @@ import (
 	"google.golang.org/adk/v2/session/compaction"
 	"google.golang.org/adk/v2/tool"
 
+	"agentlite/config"
 	"agentlite/internal/artifacts"
-	"agentlite/internal/config"
 	"agentlite/internal/mcp"
 	"agentlite/internal/providers"
 	"agentlite/internal/refs"
@@ -117,6 +118,28 @@ func (rt *Runtime) Bind(ctx context.Context, d builtin.Dispatcher) error {
 		for name, t := range set {
 			if t.UI() != "" {
 				rt.toolUI[name] = t.UI()
+			}
+		}
+	}
+	return rt.checkTools()
+}
+
+// checkTools refuses a tool an agent lists that nothing serves: not a
+// harness or world tool, not the skills toolset, and not a tool an MCP
+// connector lists. An MCP connector that lists none may serve any name.
+func (rt *Runtime) checkTools() error {
+	mcpMayServe := func(name string) bool {
+		return slices.ContainsFunc(rt.connectors, func(c config.Connector) bool {
+			return c.Type == config.ConnectorMCP && (len(c.MCP.Tools) == 0 || slices.Contains(c.MCP.Tools, name))
+		})
+	}
+	for _, def := range rt.defs {
+		if def.Tools == nil {
+			continue
+		}
+		for _, name := range *def.Tools {
+			if rt.tool(name) == nil && name != skills.ToolsetName && !mcpMayServe(name) {
+				return fmt.Errorf("agent %q: unknown tool %q", def.ID, name)
 			}
 		}
 	}

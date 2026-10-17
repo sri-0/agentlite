@@ -12,6 +12,7 @@ import (
 	"github.com/google/uuid"
 	"google.golang.org/adk/v2/session"
 
+	"agentlite/config"
 	"agentlite/internal/stream"
 	"agentlite/pkg/db/opensearch"
 )
@@ -42,10 +43,14 @@ const (
 // the run. Starting the same message id again returns the existing run.
 func (m *Manager) Start(ctx context.Context, in StartInput) (*Run, error) {
 	if in.AgentID == "" {
-		in.AgentID = DefaultAgent
+		in.AgentID = config.DefaultAgent
 	}
-	if _, ok := m.defs[in.AgentID]; !ok {
+	def, ok := m.defs[in.AgentID]
+	switch {
+	case !ok:
 		return nil, fmt.Errorf("%w: unknown agent %q", ErrInvalid, in.AgentID)
+	case in.ParentID == "" && !def.Primary():
+		return nil, fmt.Errorf("%w: agent %q only runs as a sub-agent", ErrInvalid, in.AgentID)
 	}
 	if in.Text == "" {
 		return nil, fmt.Errorf("%w: a run needs a message", ErrInvalid)
@@ -56,7 +61,7 @@ func (m *Manager) Start(ctx context.Context, in StartInput) (*Run, error) {
 		}
 	}
 	if in.ThreadID == "" { // a new conversation: the thread id is the server's
-		in.ThreadID, in.newThread = uuid.Must(uuid.NewV7()).String(), true
+		in.ThreadID, in.newThread = uuid.NewString(), true
 	}
 	if in.Model == "" {
 		in.Model = m.model
@@ -68,8 +73,8 @@ func (m *Manager) Start(ctx context.Context, in StartInput) (*Run, error) {
 		in.MessageID = uuid.NewString()
 	}
 	run := &Run{
-		ID: uuid.Must(uuid.NewV7()).String(), ThreadID: in.ThreadID, AgentID: in.AgentID, Model: in.Model,
-		TurnID: uuid.Must(uuid.NewV7()).String(), MessageID: in.MessageID, Status: StatusQueued, StartedAt: time.Now(),
+		ID: uuid.NewString(), ThreadID: in.ThreadID, AgentID: in.AgentID, Model: in.Model,
+		TurnID: uuid.NewString(), MessageID: in.MessageID, Status: StatusQueued, StartedAt: time.Now(),
 	}
 	claimed, err := m.claimThread(ctx, in, run.ID)
 	if err != nil {

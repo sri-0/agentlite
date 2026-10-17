@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/coder/websocket"
+	"github.com/google/uuid"
 
 	"agentlite/internal/runs"
 	"agentlite/pkg/db/opensearch"
@@ -181,6 +182,9 @@ func (c *client) subscribe(threadID, after string) {
 func (c *client) allow(ctx context.Context, threadID string) error {
 	if threadID == "" {
 		return fmt.Errorf("%w: threadId is required; a new thread is created with POST /v1/agent/chat", runs.ErrInvalid)
+	}
+	if err := uuid.Validate(threadID); err != nil {
+		return fmt.Errorf("%w: threadId must be a UUID", runs.ErrInvalid)
 	}
 	c.mu.Lock()
 	ok := c.allowed[threadID]

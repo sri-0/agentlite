@@ -1,0 +1,16 @@
+{
+  "mappings": {
+    "dynamic": "strict",
+    "properties": {
+      "id": {"type": "keyword"},
+      "parent_id": {"type": "keyword"},
+      "root_id": {"type": "keyword"},
+      "title": {"type": "text"},
+      "agent_id": {"type": "keyword"},
+      "model": {"type": "keyword"},
+      "connectors": {"type": "keyword"},
+      "created_at": {"type": "date"},
+      "updated_at": {"type": "date"}
+    }
+  }
+}

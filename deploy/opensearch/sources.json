@@ -1,0 +1,21 @@
+{
+  "mappings": {
+    "dynamic": "strict",
+    "properties": {
+      "id": {"type": "keyword"},
+      "root_id": {"type": "keyword"},
+      "number": {"type": "integer"},
+      "thread_id": {"type": "keyword"},
+      "run_id": {"type": "keyword"},
+      "tool": {"type": "keyword"},
+      "tool_call_id": {"type": "keyword"},
+      "system": {"type": "keyword"},
+      "key": {"type": "keyword"},
+      "url": {"type": "keyword"},
+      "title": {"type": "text"},
+      "metadata": {"type": "flat_object"},
+      "retrieved_at": {"type": "date"},
+      "cited_in": {"type": "keyword"}
+    }
+  }
+}
