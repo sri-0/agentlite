@@ -90,6 +90,7 @@ changes nothing. The result is checked as any upload is.
 | PATCH | `/v1/skills/{id}` | change its title, description, category or source (above) |
 | DELETE | `/v1/skills/{id}` | the record and its files; `204`, `404` when there is none |
 | GET | `/v1/skills/{id}/files/{path}` | one file as written, sandboxed (`Content-Security-Policy: sandbox`, `nosniff`: Echo's `Secure` middleware) |
+| PUT | `/v1/skills/{id}/files/{path}` | replace that file with the body, or add it (`Library.WriteFile`); `200` with the skill. A SKILL.md is checked as an upload is, and must keep the skill's name |
 | GET | `/.well-known/agent-skills/index.json` | the discovery index for `npx skills` |
 | GET | `/.well-known/agent-skills/{name}/{path}` | one file, for `npx skills`, sandboxed; the only place a skill is addressed by name |
 

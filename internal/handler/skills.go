@@ -92,6 +92,19 @@ func (h *Handler) UpdateSkill(c *echo.Context) error {
 	return c.JSON(http.StatusOK, s)
 }
 
+// WriteSkillFile replaces one of a skill's files with the body, or adds it.
+func (h *Handler) WriteSkillFile(c *echo.Context) error {
+	body, err := io.ReadAll(c.Request().Body)
+	if err != nil {
+		return err // the body limit's 413 among others
+	}
+	s, err := h.Skills.WriteFile(c.Request().Context(), c.Param("id"), c.Param("*"), body)
+	if err != nil {
+		return err
+	}
+	return c.JSON(http.StatusOK, s)
+}
+
 // DeleteSkill removes a skill from the library.
 func (h *Handler) DeleteSkill(c *echo.Context) error {
 	if err := h.Skills.Delete(c.Request().Context(), c.Param("id")); err != nil {

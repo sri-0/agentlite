@@ -140,15 +140,34 @@ func (l *Library) cleanUp(skill string, err error) {
 
 // Update sets m on a skill.
 func (l *Library) Update(ctx context.Context, id string, m Meta) (*opensearch.Skill, error) {
+	return l.edit(ctx, id, map[string][]byte{}, m)
+}
+
+// WriteFile replaces one of a skill's files, or adds it.
+func (l *Library) WriteFile(ctx context.Context, id, p string, b []byte) (*opensearch.Skill, error) {
+	return l.edit(ctx, id, map[string][]byte{path.Clean(p): b}, Meta{})
+}
+
+// edit saves files and m on the skill with the id, which keeps its other
+// files. A new SKILL.md must keep the skill's name: saved under another, it
+// would be another skill.
+func (l *Library) edit(ctx context.Context, id string, files map[string][]byte, m Meta) (*opensearch.Skill, error) {
 	s, err := l.records.Skill(ctx, id)
 	if err != nil {
 		return nil, err
 	}
-	md, err := l.File(ctx, s, SkillFile)
-	if err != nil {
+	if md, ok := files[SkillFile]; ok {
+		fm, _, err := parse(md)
+		if err != nil {
+			return nil, err
+		}
+		if fm.Name != s.Name {
+			return nil, fmt.Errorf("%w: the name stays %s; upload the skill to add one under another name", ErrInvalid, s.Name)
+		}
+	} else if files[SkillFile], err = l.File(ctx, s, SkillFile); err != nil {
 		return nil, err
 	}
-	return l.Save(ctx, Draft{Files: map[string][]byte{SkillFile: md}, Meta: m, KeepFiles: true})
+	return l.Save(ctx, Draft{Files: files, Meta: m, KeepFiles: true})
 }
 
 // Get fetches a skill by id.

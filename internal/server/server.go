@@ -68,6 +68,7 @@ func New(cfg *config.Config, h *handler.Handler, log zerolog.Logger) *echo.Echo 
 		e.PATCH("/v1/skills/:id", h.UpdateSkill)
 		e.DELETE("/v1/skills/:id", h.DeleteSkill)
 		e.GET("/v1/skills/:id/files/*", h.SkillFile, sandboxed)
+		e.PUT("/v1/skills/:id/files/*", h.WriteSkillFile, middleware.BodyLimit(skills.MaxBytes))
 		// npx skills discovery: the index, and each skill's files by its name next to it.
 		e.GET("/.well-known/agent-skills/index.json", h.SkillsIndex)
 		e.GET("/.well-known/agent-skills/:name/*", h.SkillsIndexFile, sandboxed)
