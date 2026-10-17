@@ -43,8 +43,8 @@ func (h *Handler) GetSkill(c *echo.Context) error {
 
 // CreateSkill adds a skill to the library, replacing any of the same name: a
 // multipart form whose file is a zip of the skill or its SKILL.md, with
-// optional title, description, category and source. A field left out keeps
-// what the skill has; "" clears it, as with UpdateSkill.
+// optional title, description, category and source. An empty field keeps
+// what the skill has.
 func (h *Handler) CreateSkill(c *echo.Context) error {
 	f, _, err := c.Request().FormFile("file")
 	switch {
@@ -62,11 +62,10 @@ func (h *Handler) CreateSkill(c *echo.Context) error {
 	if err != nil {
 		return err
 	}
-	var m skills.Meta
-	if err := c.Bind(&m); err != nil {
-		return err
-	}
-	s, err := h.Skills.Save(c.Request().Context(), skills.Draft{Files: files, Meta: m})
+	s, err := h.Skills.Save(c.Request().Context(), skills.Draft{Files: files, Meta: skills.Meta{
+		Title: skills.Optional(c.FormValue("title")), Description: skills.Optional(c.FormValue("description")),
+		Category: skills.Optional(c.FormValue("category")), Source: skills.Optional(c.FormValue("source")),
+	}})
 	if err != nil {
 		return err
 	}

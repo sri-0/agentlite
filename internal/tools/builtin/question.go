@@ -45,7 +45,8 @@ func question(Deps) (toolx.Tool, error) {
 			}
 			return answers, nil
 		}
-		if err := ctx.RequestConfirmation("Answer the questions.", map[string]any{stream.MetaToolName: Question, stream.MetaArgs: a}); err != nil {
+		request := map[string]any{stream.MetaToolName: Question, stream.MetaArgs: a}
+		if err := ctx.RequestConfirmation("Answer the questions.", request); err != nil {
 			return nil, err
 		}
 		return nil, fmt.Errorf("question: %w", tool.ErrConfirmationRequired)

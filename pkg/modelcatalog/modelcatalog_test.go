@@ -8,22 +8,35 @@ import (
 	"github.com/google/go-cmp/cmp"
 )
 
-// TestParse: LiteLLM's /model/info rows become models with the type their
-// mode names, and capabilities from their supports_* flags.
+// TestParse: both list shapes become models with their type, context window
+// and capabilities.
 func TestParse(t *testing.T) {
-	body := `{"data":[{"model_name":"glm-4.6","model_info":{"mode":"chat","max_input_tokens":200000,"supports_function_calling":true}},
-		{"model_name":"bge-m3","model_info":{"mode":"embedding"}},{"model_name":"sora","model_info":{"mode":"video_generation"}}]}`
-	want := []Model{
-		{ID: "glm-4.6", Type: TypeLLM, ContextLength: 200000, Capabilities: []string{CapToolCalling}},
-		{ID: "bge-m3", Type: TypeEmbedding},
-		{ID: "sora", Type: "video_generation"}, // a type no endpoint takes
+	tests := []struct {
+		endpoint, body string
+		want           []Model
+	}{
+		{"/models", `{"data":[{"id":"openai/gpt-4.1","name":"GPT-4.1","context_length":1047576,
+			"supported_parameters":["tools","reasoning"],"architecture":{"input_modalities":["text","image"]}},
+			{"id":"Qwen/Qwen3-32B","max_model_len":32768}]}`, []Model{
+			{ID: "openai/gpt-4.1", Name: "GPT-4.1", ContextLength: 1047576, SupportedParameters: []string{"tools", "reasoning"},
+				Architecture: Architecture{InputModalities: []string{"text", "image"}}, Capabilities: []string{CapToolCalling, CapReasoning, CapVision}},
+			{ID: "Qwen/Qwen3-32B", ContextLength: 32768, Capabilities: []string{}},
+		}},
+		{"/model/info", `{"data":[{"model_name":"glm-4.6","model_info":{"mode":"chat","max_input_tokens":200000,"supports_function_calling":true}},
+			{"model_name":"bge-m3","model_info":{"mode":"embedding"}},{"model_name":"sora","model_info":{"mode":"video_generation"}}]}`, []Model{
+			{ID: "glm-4.6", Type: TypeLLM, ContextLength: 200000, Capabilities: []string{CapToolCalling}},
+			{ID: "bge-m3", Type: TypeEmbedding},
+			{ID: "sora", Type: "video_generation"}, // a type no endpoint takes
+		}},
 	}
-	got, err := Parse("/model/info", []byte(body))
-	if err != nil {
-		t.Fatal(err)
-	}
-	if diff := cmp.Diff(want, got); diff != "" {
-		t.Errorf("(-want +got):\n%s", diff)
+	for _, tt := range tests {
+		got, err := Parse(tt.endpoint, []byte(tt.body))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if diff := cmp.Diff(tt.want, got); diff != "" {
+			t.Errorf("%s (-want +got):\n%s", tt.endpoint, diff)
+		}
 	}
 }
 
