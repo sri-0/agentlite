@@ -28,7 +28,7 @@ func clientCertificate(certFile, keyFile string, password []byte) (tls.Certifica
 	if block == nil {
 		return tls.Certificate{}, fmt.Errorf("%s: no private key", keyFile)
 	}
-	//nolint:staticcheck // legacy encrypted keys are still issued
+	//lint:ignore SA1019 legacy encrypted keys are still issued
 	encrypted := block.Type == "ENCRYPTED PRIVATE KEY" || x509.IsEncryptedPEMBlock(block)
 	switch {
 	case encrypted && len(password) == 0:
@@ -63,7 +63,8 @@ func decrypt(block *pem.Block, password []byte) ([]byte, error) {
 		// Legacy PEM encryption: deprecated for its padding oracle, which
 		// needs an attacker to probe decryption online; a key file read at
 		// start offers none.
-		return x509.DecryptPEMBlock(block, password) //nolint:staticcheck // see above
+		//lint:ignore SA1019 see above
+		return x509.DecryptPEMBlock(block, password)
 	}
 	key, err := pkcs8.ParsePKCS8PrivateKey(block.Bytes, password)
 	if err != nil {

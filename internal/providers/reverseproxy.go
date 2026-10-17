@@ -5,7 +5,6 @@ import (
 	"io"
 	"net/http"
 	"net/http/httputil"
-	"net/url"
 	"strings"
 )
 
@@ -16,13 +15,9 @@ import (
 // key, when it has one.
 func (r *Registry) Forward(w http.ResponseWriter, req *http.Request, t Target, body []byte) error {
 	req.Body, req.ContentLength = io.NopCloser(bytes.NewReader(body)), int64(len(body))
-	req.Header.Del("Content-Length")
 	return r.proxy.Forward(w, req, t.Client.HTTP.Transport, func(pr *httputil.ProxyRequest) {
-		pr.Out.URL = &url.URL{
-			Scheme: t.BaseURL.Scheme, Host: t.BaseURL.Host,
-			Path: t.BaseURL.Path + strings.TrimPrefix(pr.In.URL.Path, "/v1"), RawQuery: pr.In.URL.RawQuery,
-		}
-		pr.Out.Host = t.BaseURL.Host
+		pr.Out.URL.Path, pr.Out.URL.RawPath = strings.TrimPrefix(pr.Out.URL.Path, "/v1"), ""
+		pr.SetURL(t.BaseURL)
 		if auth := t.Client.Authorization(); auth != "" {
 			pr.Out.Header.Set("Authorization", auth)
 		}

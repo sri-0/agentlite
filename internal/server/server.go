@@ -4,16 +4,15 @@ package server
 import (
 	"context"
 	"errors"
-	"fmt"
 	"log/slog"
 	"net"
 	"net/http"
+	"strconv"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v5"
 	"github.com/labstack/echo/v5/middleware"
-	"github.com/rs/zerolog"
 
 	"agentlite/config"
 	"agentlite/internal/handler"
@@ -24,29 +23,20 @@ import (
 	"agentlite/pkg/s3"
 )
 
-// New wires middleware and routes.
-func New(cfg *config.Config, h *handler.Handler, log zerolog.Logger) *echo.Echo {
+// New wires middleware and routes. Echo logs through slog, which
+// pkg/logging routes to zerolog. Its request logger records each request's
+// real status and id; Recover runs inside it, so a panic is logged, with its
+// stack, as a 500.
+func New(cfg *config.Config, h *handler.Handler) *echo.Echo {
 	e := echo.New()
 	e.Logger = slog.Default()
 	e.HTTPErrorHandler = errorHandler(echo.DefaultHTTPErrorHandler(false))
-	e.Use(middleware.RequestID())
-	e.Use(middleware.Recover())
-	e.Use(middleware.BodyLimit(cfg.MaxBodyMB << 20))
-	e.Use(middleware.CORSWithConfig(middleware.CORSConfig{
-		AllowOrigins: cfg.AllowedOrigins,
-		AllowHeaders: []string{"Content-Type", "Authorization"},
-	}))
-	e.Use(middleware.RequestLoggerWithConfig(middleware.RequestLoggerConfig{
-		LogStatus: true, LogMethod: true, LogURI: true, LogLatency: true,
-		LogValuesFunc: func(c *echo.Context, v middleware.RequestLoggerValues) error {
-			ev := log.Info()
-			if v.Error != nil {
-				ev = log.Error().Err(v.Error)
-			}
-			ev.Str("method", v.Method).Str("uri", v.URI).Int("status", v.Status).Dur("latency", v.Latency).Msg("request")
-			return nil
-		},
-	}))
+	e.Use(middleware.RequestID(), middleware.RequestLogger(), middleware.Recover(),
+		middleware.BodyLimit(cfg.MaxBodyMB<<20),
+		middleware.CORSWithConfig(middleware.CORSConfig{
+			AllowOrigins: cfg.AllowedOrigins,
+			AllowHeaders: []string{"Content-Type", "Authorization"},
+		}))
 
 	// Health, models, agents and connectors.
 	e.GET("/health", h.Health)
@@ -116,7 +106,7 @@ var sandboxed = middleware.SecureWithConfig(middleware.SecureConfig{
 // Run serves until ctx is cancelled, then shuts down gracefully.
 func Run(ctx context.Context, cfg *config.Config, e *echo.Echo) error {
 	start := echo.StartConfig{
-		Address:         fmt.Sprintf("%s:%d", cfg.Host, cfg.Port),
+		Address:         net.JoinHostPort(cfg.Host, strconv.Itoa(cfg.Port)), // IPv6 hosts too
 		HideBanner:      true,
 		GracefulTimeout: 10 * time.Second,
 		BeforeServeFunc: func(s *http.Server) error {

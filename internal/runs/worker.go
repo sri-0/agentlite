@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"runtime/debug"
+	"strings"
 	"time"
 
 	"github.com/ag-ui-protocol/ag-ui/sdks/community/go/pkg/core/events"
@@ -139,7 +140,7 @@ func (m *Manager) settle(sink *appendSink, from, to Status, result, errText stri
 func (m *Manager) record(sink *appendSink, status Status, result, errText string) {
 	ctx, run := sink.ctx, sink.run
 	if len(result) > resultCap {
-		result = result[:resultCap]
+		result = strings.ToValidUTF8(result[:resultCap], "") // not half a character
 	}
 	if err := m.store.update(ctx, run.ID, map[string]string{"result": result, "error": errText}); err != nil {
 		m.logger.Error().Err(err).Str("run", run.ID).Msg("record outcome")
@@ -173,7 +174,8 @@ func (m *Manager) watchControl(ctx context.Context, run *Run, cancel context.Can
 			}
 		}()
 	})
-	err := m.db.Receive(subscribed, m.db.B().Subscribe().Channel(ctlChannel(run.ID)).Build(), func(msg valkey.PubSubMessage) {
+	subscribe := m.db.B().Subscribe().Channel(ctlChannel(run.ID)).Build()
+	err := m.db.Receive(subscribed, subscribe, func(msg valkey.PubSubMessage) {
 		if msg.Message == "cancel" {
 			cancel(ErrCancelled)
 		}

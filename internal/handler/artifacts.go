@@ -24,9 +24,9 @@ type recentArtifact struct {
 // opaque cursor: ?after=<next> fetches the following page.
 func (h *Handler) RecentArtifacts(c *echo.Context) error {
 	ctx := c.Request().Context()
-	limit, _ := echo.QueryParamOr[int](c, "limit", defaultPageSize)
-	if limit <= 0 || limit > maxPageSize {
-		limit = defaultPageSize
+	limit, err := pageSize(c)
+	if err != nil {
+		return err
 	}
 	var after *opensearch.ArtifactKey
 	if v := c.QueryParam("after"); v != "" {

@@ -1,6 +1,7 @@
 package builtin
 
 import (
+	"errors"
 	"fmt"
 
 	"google.golang.org/adk/v2/tool"
@@ -40,7 +41,7 @@ func question(Deps) (toolx.Tool, error) {
 			payload, _ := conf.Payload.(map[string]any)
 			answers, ok := payload["output"].(map[string]any)
 			if !ok {
-				return nil, fmt.Errorf("the user did not answer")
+				return nil, errors.New("the user did not answer")
 			}
 			return answers, nil
 		}

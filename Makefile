@@ -1,4 +1,4 @@
-.PHONY: run dev build vet test tidy up down indices
+.PHONY: run dev build vet lint test tidy up down indices
 
 run:
 	go run ./cmd/server
@@ -15,6 +15,9 @@ build:
 
 vet:
 	go vet ./...
+
+lint: vet
+	go run honnef.co/go/tools/cmd/staticcheck@v0.8.2 ./...
 
 test:
 	go test ./...

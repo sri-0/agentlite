@@ -25,7 +25,7 @@ type Client struct {
 }
 
 // newClient builds the provider's client from its configuration.
-func newClient(p config.Provider) (*Client, error) {
+func newClient(p config.Provider, env transport.Env) (*Client, error) {
 	base, err := parseBaseURL(p.BaseURL)
 	if err != nil {
 		return nil, fmt.Errorf("provider %s: %w", p.ID, err)
@@ -34,7 +34,7 @@ func newClient(p config.Provider) (*Client, error) {
 	if err != nil {
 		return nil, fmt.Errorf("provider %s: %w", p.ID, err)
 	}
-	httpClient, err := transport.New(transport.Config{Headers: p.Headers, TLS: tls, DisableCompression: true})
+	httpClient, err := env.Client(transport.Config{Headers: p.Headers, TLS: tls, DisableCompression: true})
 	if err != nil {
 		return nil, fmt.Errorf("provider %s: %w", p.ID, err)
 	}

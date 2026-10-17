@@ -15,6 +15,16 @@ const (
 	maxPageSize     = 200
 )
 
+// pageSize is ?limit=: defaultPageSize when absent or not positive, and at
+// most maxPageSize.
+func pageSize(c *echo.Context) (int, error) {
+	limit, err := echo.QueryParamOr[int](c, "limit", defaultPageSize)
+	if limit <= 0 {
+		limit = defaultPageSize
+	}
+	return min(limit, maxPageSize), err
+}
+
 type threadItem struct {
 	opensearch.Thread
 	RunStatus string `json:"run_status,omitempty"`
@@ -67,7 +77,10 @@ func (h *Handler) UpdateThread(c *echo.Context) error {
 		Title      string    `json:"title"`
 		Connectors *[]string `json:"connectors"`
 	}
-	if err := c.Bind(&body); err != nil || (body.Title == "" && body.Connectors == nil) {
+	if err := c.Bind(&body); err != nil {
+		return err
+	}
+	if body.Title == "" && body.Connectors == nil {
 		return echo.NewHTTPError(http.StatusBadRequest, "title or connectors is required")
 	}
 	if body.Connectors != nil {
@@ -127,10 +140,13 @@ func (h *Handler) DeleteThread(c *echo.Context) error {
 // cursor to subscribe from: the active turn's start, or "" when idle.
 func (h *Handler) Messages(c *echo.Context) error {
 	ctx := c.Request().Context()
-	before, _ := echo.QueryParamOr[int64](c, "before", 0)
-	limit, _ := echo.QueryParamOr[int](c, "limit", defaultPageSize)
-	if limit <= 0 || limit > maxPageSize {
-		limit = defaultPageSize
+	before, err := echo.QueryParamOr[int64](c, "before", 0)
+	if err != nil {
+		return err
+	}
+	limit, err := pageSize(c)
+	if err != nil {
+		return err
 	}
 	msgs, err := h.Store.Messages(ctx, c.Param("id"), before, limit)
 	if err != nil {

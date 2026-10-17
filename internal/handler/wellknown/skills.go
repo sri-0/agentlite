@@ -4,8 +4,6 @@ import (
 	"net/http"
 
 	"github.com/labstack/echo/v5"
-
-	"agentlite/internal/skills"
 )
 
 // SkillsIndex serves /.well-known/agent-skills/index.json, the skills library
@@ -26,10 +24,5 @@ func (h *Handler) SkillFile(c *echo.Context) error {
 	if err != nil {
 		return err
 	}
-	p := c.Param("*")
-	b, err := h.Skills.File(ctx, s, p)
-	if err != nil {
-		return err
-	}
-	return c.Blob(http.StatusOK, skills.ContentType(p, b), b)
+	return h.Skills.ServeFile(ctx, c.Response(), s, c.Param("*"))
 }

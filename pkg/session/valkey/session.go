@@ -45,7 +45,8 @@ func (s *SessionService) Create(ctx context.Context, req *session.CreateRequest)
 		id = uuid.Must(uuid.NewV7()).String()
 	}
 	key, now := sessionKey(req.AppName, req.UserID, id), time.Now()
-	created, err := s.db.Do(ctx, s.db.B().Hsetnx().Key(key).Field("updated").Value(now.Format(time.RFC3339Nano)).Build()).AsBool()
+	claim := s.db.B().Hsetnx().Key(key).Field("updated").Value(now.Format(time.RFC3339Nano)).Build()
+	created, err := s.db.Do(ctx, claim).AsBool()
 	if err != nil {
 		return nil, fmt.Errorf("session create: %w", err)
 	}
@@ -90,7 +91,9 @@ func (s *SessionService) Get(ctx context.Context, req *session.GetRequest) (*ses
 		return nil, fmt.Errorf("session get: %w", err)
 	}
 	updatedAt, _ := time.Parse(time.RFC3339Nano, updated)
-	sess := &localSession{app: req.AppName, user: req.UserID, id: req.SessionID, state: map[string]any{}, updatedAt: updatedAt}
+	sess := &localSession{
+		app: req.AppName, user: req.UserID, id: req.SessionID, state: map[string]any{}, updatedAt: updatedAt,
+	}
 	for _, r := range res[1:4] { // session, app and user state; their keys carry their prefixes
 		raw, err := r.AsStrMap()
 		if err != nil {

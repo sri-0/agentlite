@@ -53,10 +53,11 @@ alone (`internal/skills/parse.go`), and optional `title`, `description`, `catego
   them). Hidden files and `__MACOSX` are left out; a link is refused, and so is a zip
   with a path that leaves it (`../`, `/`, `\`): `go.mod` sets `godebug
   zipinsecurepath=0`, and `archive/zip` checks it.
-- At most 1000 files and 25 MiB unzipped, as `npx skills` allows; every save is held to
-  them, `write_skill`'s too. A zip's total is checked against each file's stated size
-  before anything is read, and `archive/zip` refuses to read past a stated size, so a zip
-  bomb stops at the limit. The route's body limit is 26 MiB.
+- At most 1000 files, counted across the whole skill after every save (`write_skill` and
+  file edits keep the files they do not give, and those count), and 25 MiB unzipped per
+  upload, as `npx skills` allows. A zip's total is checked against each file's stated
+  size before anything is read, and `archive/zip` refuses to read past a stated size, so
+  a zip bomb stops at the limit. The route's body limit is 26 MiB.
 - SKILL.md's frontmatter is read leniently (`adrg/frontmatter`): fields the spec does
   not have, such as Claude Code's `argument-hint`, are allowed and kept in the file.
   `name` and `description` are checked with adk's `skill.Validate` (lowercase letters,

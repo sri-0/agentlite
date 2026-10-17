@@ -12,7 +12,6 @@ import (
 	"agentlite/internal/runs"
 	"agentlite/internal/tools"
 	"agentlite/pkg/toolx"
-	"agentlite/pkg/transport"
 )
 
 // connectorSets builds one toolset per connector: its MCP server, or its
@@ -45,11 +44,7 @@ func (rt *Runtime) connectorSets() error {
 // buildTools builds a connector's tools on one new client, and records them
 // in rt.world.
 func (rt *Runtime) buildTools(c config.Connector) ([]toolx.Tool, error) {
-	cfg, err := c.HTTP.Transport()
-	if err != nil {
-		return nil, err
-	}
-	client, err := transport.New(cfg)
+	client, err := c.HTTP.Client(rt.transport)
 	if err != nil {
 		return nil, err
 	}

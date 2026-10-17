@@ -113,13 +113,11 @@ func (c *Client) write(ctx context.Context, index, id string, doc any, params op
 
 // errStatus is the HTTP status of an API error, or 0.
 func errStatus(err error) int {
-	var structured *oslib.StructError
-	if errors.As(err, &structured) {
-		return structured.Status
+	if e, ok := errors.AsType[*oslib.StructError](err); ok {
+		return e.Status
 	}
-	var plain *oslib.StringError
-	if errors.As(err, &plain) {
-		return plain.Status
+	if e, ok := errors.AsType[*oslib.StringError](err); ok {
+		return e.Status
 	}
 	return 0
 }

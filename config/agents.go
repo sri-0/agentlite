@@ -1,6 +1,7 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -118,7 +119,7 @@ func (a AgentDef) validate(known map[string]bool) error {
 		return fmt.Errorf("kind %s needs subagents", a.Kind)
 	}
 	if a.Kind == KindLLM && len(a.Subagents) > 0 && a.Tools != nil && !slices.Contains(*a.Tools, "subagent") {
-		return fmt.Errorf("subagents are unreachable without the subagent tool")
+		return errors.New("subagents are unreachable without the subagent tool")
 	}
 	for _, sub := range a.Subagents {
 		if !known[sub] {
@@ -140,7 +141,7 @@ func parseAgentFile(path string) (AgentDef, error) {
 		return AgentDef{}, fmt.Errorf("frontmatter: %w", err)
 	}
 	if def.ID == "" {
-		return AgentDef{}, fmt.Errorf("missing id")
+		return AgentDef{}, errors.New("missing id")
 	}
 	if def.Name == "" {
 		def.Name = def.ID

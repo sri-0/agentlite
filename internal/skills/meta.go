@@ -22,6 +22,15 @@ type Meta struct {
 	Source      *string `json:"source"`
 }
 
+// Optional is a Meta field from a value that may be blank: nil, which keeps
+// what the skill has, when it is.
+func Optional(v string) *string {
+	if v = strings.TrimSpace(v); v == "" {
+		return nil
+	}
+	return &v
+}
+
 // apply sets m's title, category and source on s; the description is
 // SKILL.md's (describe).
 func (m Meta) apply(s *opensearch.Skill) {

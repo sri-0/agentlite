@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"time"
 
 	"github.com/minio/minio-go/v7"
 	"github.com/minio/minio-go/v7/pkg/credentials"
@@ -32,8 +33,13 @@ type Client struct {
 	bucket string
 }
 
+// bucketTimeout bounds the bucket check at start.
+const bucketTimeout = 30 * time.Second
+
 // New connects and creates the bucket if it does not exist.
 func New(ctx context.Context, cfg Config) (*Client, error) {
+	ctx, cancel := context.WithTimeout(ctx, bucketTimeout)
+	defer cancel()
 	mc, err := minio.New(cfg.Endpoint, &minio.Options{
 		Creds: credentials.NewStaticV4(cfg.AccessKey, cfg.SecretKey, ""), Secure: cfg.UseSSL, Region: cfg.Region,
 	})
@@ -77,13 +83,29 @@ func (c *Client) Get(ctx context.Context, key string) (io.ReadCloser, error) {
 	return obj, nil
 }
 
-// DeletePrefix removes every object whose key starts with prefix. The error
-// channel is read to the end: minio's sender blocks until it is.
+// DeletePrefix removes every object whose key starts with prefix; a failed
+// listing is an error too.
 func (c *Client) DeletePrefix(ctx context.Context, prefix string) error {
-	objects := c.mc.ListObjects(ctx, c.bucket, minio.ListObjectsOptions{Prefix: prefix, Recursive: true})
 	var errs []error
-	for e := range c.mc.RemoveObjects(ctx, c.bucket, objects, minio.RemoveObjectsOptions{}) {
-		errs = append(errs, fmt.Errorf("s3 delete %s: %w", e.ObjectName, e.Err))
+	listed := func(yield func(minio.ObjectInfo) bool) {
+		for o := range c.mc.ListObjectsIter(ctx, c.bucket, minio.ListObjectsOptions{Prefix: prefix, Recursive: true}) {
+			if o.Err != nil {
+				errs = append(errs, fmt.Errorf("s3 list %s: %w", prefix, o.Err))
+				return
+			}
+			if !yield(o) {
+				return
+			}
+		}
+	}
+	removed, err := c.mc.RemoveObjectsWithIter(ctx, c.bucket, listed, minio.RemoveObjectsOptions{})
+	if err != nil {
+		return fmt.Errorf("s3 delete %s: %w", prefix, err)
+	}
+	for r := range removed {
+		if r.Err != nil {
+			errs = append(errs, fmt.Errorf("s3 delete %s: %w", r.ObjectName, r.Err))
+		}
 	}
 	return errors.Join(errs...)
 }

@@ -3,11 +3,7 @@
 // three are merged. It imports nothing from agentlite.
 package modelcatalog
 
-import (
-	"maps"
-
-	"dario.cat/mergo"
-)
+import "dario.cat/mergo"
 
 // Model is one model as GET /v1/models serves it. In models.yaml and in a
 // model card, ID is the upstream id (the provider's own name for it); served,
@@ -59,6 +55,13 @@ const (
 	TypeDecision      = "decision"      // typed answers to questions
 )
 
+// Capabilities a model may list.
+const (
+	CapToolCalling = "tool_calling"
+	CapReasoning   = "reasoning"
+	CapVision      = "vision"
+)
+
 // Architecture mirrors the OpenRouter model metadata shape.
 type Architecture struct {
 	InputModalities  []string `yaml:"input_modalities" json:"input_modalities,omitempty"`
@@ -82,7 +85,7 @@ type Pricing struct {
 func Merge(layers ...Model) Model {
 	var out Model
 	for _, l := range layers {
-		l.Benchmarks = maps.Clone(l.Benchmarks)      // never merge into a card's own map
+		// mergo copies maps into out, so no layer's own map changes (TestMerge).
 		_ = mergo.Merge(&out, l, mergo.WithOverride) // Model has no field mergo cannot merge
 	}
 	return out
