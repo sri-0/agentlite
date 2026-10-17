@@ -18,7 +18,7 @@ kind: llm | sequential  # default llm; sequential runs its subagents in order in
 mode: primary | subagent | all   # primary: pickable; subagent: only via the subagent tool; all: both
 tools: [...]            # omitted: harness tools + the thread's connectors; [] : none
 subagents: [...]        # llm: who the subagent tool may run; sequential: the steps
-max_output_tokens
+max_output_tokens       # default: the model's own limit up to 32768, or 8192 when it states none
 ```
 
 No agent names a model. A run uses the model the request names, or
