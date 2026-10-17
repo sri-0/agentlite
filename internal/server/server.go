@@ -19,6 +19,7 @@ import (
 	"agentlite/internal/handler/wellknown"
 	"agentlite/internal/runs"
 	"agentlite/internal/skills"
+	"agentlite/internal/voice"
 	"agentlite/pkg/db/opensearch"
 	"agentlite/pkg/s3"
 )
@@ -75,6 +76,11 @@ func New(cfg *config.Config, h *handler.Handler) *echo.Echo {
 	e.GET("/.well-known/agent-skills/index.json", wk.SkillsIndex)
 	e.GET("/.well-known/agent-skills/:name/*", wk.SkillFile, sandboxed)
 	e.Any("/mcp/:id", h.MCPProxy)
+
+	// The voice prompt: a recording in, its text out (internal/voice).
+	if h.Voice != nil {
+		e.POST("/v1/voice/transcriptions", h.Voice.Handle, middleware.BodyLimit(voice.MaxBytes+1<<20))
+	}
 
 	// Agent chat: a new thread, then the socket.
 	e.POST("/v1/agent/chat", h.StartThread)

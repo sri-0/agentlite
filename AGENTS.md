@@ -61,6 +61,7 @@ internal/
   refs/                references in a message (/name; later @agent, #id), by sigil
   sources/             numbers and stores the sources tools return
   artifacts/           artifact records (OpenSearch) and bodies (S3)
+  voice/               the voice prompt: a recording to text, and its route; apart from the agents
   mcp/                 mcp connectors → adk toolsets
   providers/           provider clients, model resolution and discovery, the pass-through
                        proxy, embeddings
@@ -115,6 +116,7 @@ document-level security, is `not_found`. ARCHITECTURE.md has the frames.
 | GET/POST | `/v1/skills` | the skills library (needs S3), filtered by `?q=&category=&source=`, with category and source counts; `POST` a multipart form: `file` (a skill's zip or its SKILL.md) and optional `title`, `description`, `category`, `source` (SKILLS.md) |
 | GET/PATCH/DELETE | `/v1/skills/{id}` | one skill by its uuid; change its title, description, category or source; remove it and its files |
 | GET/PUT | `/v1/skills/{id}/files/{path}` | one file of a skill, sandboxed; replace or add one |
+| POST | `/v1/voice/transcriptions` | the voice prompt: a multipart `file` (a recording, WAV) in, `{text}` out, by `models.yaml`'s `voice.model`; absent without a `voice` block (MODELS.md) |
 | GET | `/.well-known/agent-skills/index.json`, `/.well-known/agent-skills/{name}/{path}` | the skills discovery index and files `npx skills add <server>` reads (no credentials) |
 | GET | `/.well-known/opencode` | what `opencode auth login <server>` configures: models, exposed MCP servers, skills (docs/OPENCODE.md) |
 | any | `/mcp/{id}` | an MCP connector with `mcp.expose: true`, proxied for clients such as opencode |

@@ -45,6 +45,7 @@ implements it, so imports run one way.
 | `internal/agents` | `runtime.go` (Runtime, running a segment), `build.go` (roster → adk agents and tools), `connectors.go` (a client and toolset per connector), `mcptools.go` (the MCP tool hooks), `compaction.go`, `seed.go` (rebuild a session), `resume.go` (answers → adk responses) |
 | `internal/sources`, `internal/artifacts` | numbering and storing sources; storing artifacts (TOOLS.md) |
 | `internal/providers` | provider clients, model resolution, discovery, the pass-through, embeddings (MODELS.md) |
+| `internal/voice` | the voice prompt: `voice.go` (a recording to text, `POST /v1/voice/transcriptions`); apart from the agents (MODELS.md) |
 | `pkg/toolx`, `pkg/citations`, `pkg/transport`, `pkg/s3`, `pkg/modelcatalog` | the tool wrapper; the source contract; HTTP clients; S3 through minio-go; models and model cards |
 
 ## The life of a run
