@@ -6,6 +6,7 @@ package memory
 import (
 	"context"
 	"fmt"
+	"strings"
 
 	"github.com/rs/zerolog"
 	"go.opentelemetry.io/otel"
@@ -13,7 +14,6 @@ import (
 	"google.golang.org/adk/v2/session"
 	"google.golang.org/genai"
 
-	"agentlite/internal/stream"
 	"agentlite/pkg/db/opensearch"
 )
 
@@ -43,13 +43,13 @@ func New(store *opensearch.Client, embedder Embedder, log zerolog.Logger) *Servi
 func (s *Service) AddSessionToMemory(ctx context.Context, sess session.Session) error {
 	var turn []*session.Event
 	for ev := range sess.Events().All() {
-		if ev.Author == "user" && stream.TextOf(ev.Content) != "" {
+		if ev.Author == "user" && textOf(ev.Content) != "" {
 			turn = turn[:0]
 		}
 		turn = append(turn, ev)
 	}
 	for _, ev := range turn {
-		text := stream.TextOf(ev.Content)
+		text := textOf(ev.Content)
 		if text == "" {
 			continue
 		}
@@ -105,4 +105,18 @@ func (v *threadView) SearchMemory(ctx context.Context, req *memory.SearchRequest
 		})
 	}
 	return resp, nil
+}
+
+// textOf is the content's visible text, without thoughts.
+func textOf(c *genai.Content) string {
+	if c == nil {
+		return ""
+	}
+	var b strings.Builder
+	for _, p := range c.Parts {
+		if p.Text != "" && !p.Thought {
+			b.WriteString(p.Text)
+		}
+	}
+	return b.String()
 }

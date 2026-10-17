@@ -8,7 +8,7 @@ adk defines long-term memory as one interface, `memory.Service`, with two
 methods: `AddSessionToMemory(ctx, session)` stores a finished conversation, and
 `SearchMemory(ctx, {AppName, UserID, Query})` returns the entries that match a
 query. adk ships the tools that use it; agentlite ships one implementation of
-the interface, `internal/memory`, on OpenSearch.
+the interface, `pkg/memory`, on OpenSearch.
 
 There is no identity yet, so every memory belongs to the one adk user
 `default`; memories are not scoped by user until identity exists.
@@ -20,7 +20,7 @@ not a paused one), the runtime calls `AddSessionToMemory` with the thread's adk
 session in a detached goroutine, so storing never delays the answer
 (`internal/agents/runtime.go`, `remember`).
 
-`internal/memory.Service.AddSessionToMemory` takes the session's latest turn (the
+`pkg/memory.Service.AddSessionToMemory` takes the session's latest turn (the
 last user message and everything after it) and, for each text event in it
 (user or model; tool calls and reasoning are skipped), embeds the text with the
 configured embedding model and indexes one document in the OpenSearch
@@ -88,7 +88,7 @@ type Memory interface {
 
 Anything that returns an adk `memory.Service` per thread can stand in: adk's
 in-memory service for tests, a Vertex memory bank, another vector store. Wire it
-in `internal/bootstrap`, where `internal/memory` is built today. The tools and the
+in `internal/bootstrap`, where `pkg/memory` is built today. The tools and the
 storing hook do not change.
 
 ## Known limits
