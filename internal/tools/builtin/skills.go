@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"maps"
 	"slices"
+	"strings"
 
 	"google.golang.org/adk/v2/tool/skilltoolset/skill"
 
@@ -21,6 +22,9 @@ type writeSkillArgs struct {
 	Description  string         `json:"description" jsonschema:"what the skill does and when to use it, at most 1024 characters"`
 	Instructions string         `json:"instructions" jsonschema:"the instructions, in Markdown: the body of SKILL.md"`
 	Files        []skillFileArg `json:"files,omitempty" jsonschema:"the skill's other files"`
+	Title        string         `json:"title,omitempty" jsonschema:"a name to show people, e.g. Incident reports"`
+	Category     string         `json:"category,omitempty" jsonschema:"what kind of skill it is, e.g. Writing; ask the user"`
+	Source       string         `json:"source,omitempty" jsonschema:"where it comes from, e.g. Internal or Open source; ask the user"`
 }
 
 type skillFileArg struct {
@@ -29,7 +33,8 @@ type skillFileArg struct {
 }
 
 // writeSkill creates a library skill, or replaces one's SKILL.md and the
-// files given, after the user approves; its other files are kept.
+// files given, after the user approves; its other files are kept, and so are
+// its title, category and source unless given.
 func writeSkill(d Deps) (toolx.Tool, error) {
 	return toolx.New(toolx.Spec{
 		Name: writeSkillTool,
@@ -60,7 +65,9 @@ func writeSkill(d Deps) (toolx.Tool, error) {
 		if err != nil {
 			return nil, err
 		}
-		if err := d.Skills.SaveSkill(tc, s); err != nil {
+		s.Title, s.Category = strings.TrimSpace(a.Title), strings.TrimSpace(a.Category)
+		s.Source = strings.TrimSpace(a.Source)
+		if err := d.Skills.Save(tc, s); err != nil {
 			return nil, err
 		}
 		return map[string]any{"name": s.Name, "files": slices.Sorted(maps.Keys(files))}, nil

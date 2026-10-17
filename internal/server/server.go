@@ -63,6 +63,7 @@ func New(cfg *config.Config, h *handler.Handler, log zerolog.Logger) *echo.Echo 
 	e.GET("/v1/artifacts", h.RecentArtifacts)
 	e.GET("/v1/skills", h.ListSkills)
 	e.POST("/v1/skills", h.CreateSkill)
+	e.PATCH("/v1/skills/:name", h.UpdateSkill)
 	e.DELETE("/v1/skills/:name", h.DeleteSkill)
 	e.GET("/v1/skills/:name/files/*", h.SkillFile)
 	// npx skills discovery: the index, and each file next to it.

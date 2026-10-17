@@ -2,6 +2,7 @@ package skills
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -9,6 +10,7 @@ import (
 	"path"
 	"slices"
 	"strings"
+	"time"
 	"unicode/utf8"
 
 	"google.golang.org/adk/v2/tool/skilltoolset/skill"
@@ -20,7 +22,7 @@ import (
 type Store interface {
 	SaveSkill(ctx context.Context, s *opensearch.Skill) error
 	Skill(ctx context.Context, name string) (*opensearch.Skill, error)
-	Skills(ctx context.Context) ([]opensearch.Skill, error)
+	Skills(ctx context.Context, f opensearch.SkillFilter) (*opensearch.SkillList, error)
 	DeleteSkill(ctx context.Context, name string) error
 }
 
@@ -53,12 +55,12 @@ func file(s *opensearch.Skill, p string) ([]byte, error) {
 
 // ListFrontmatters lists every skill's name and description.
 func (l *Library) ListFrontmatters(ctx context.Context) ([]*skill.Frontmatter, error) {
-	list, err := l.Skills(ctx)
+	list, err := l.Skills(ctx, opensearch.SkillFilter{})
 	if err != nil {
 		return nil, err
 	}
-	out := make([]*skill.Frontmatter, len(list))
-	for i, s := range list {
+	out := make([]*skill.Frontmatter, len(list.Skills))
+	for i, s := range list.Skills {
 		out[i] = &skill.Frontmatter{Name: s.Name, Description: s.Description}
 	}
 	return out, nil
@@ -119,4 +121,39 @@ func (l *Library) load(ctx context.Context, name string) (*opensearch.Skill, err
 		return nil, fmt.Errorf("%w: %s", skill.ErrSkillNotFound, name)
 	}
 	return s, err
+}
+
+// Save stores a skill, replacing any of the same name. A replaced skill keeps
+// when it was created, and its title, category and source unless s has its
+// own.
+func (l *Library) Save(ctx context.Context, s *opensearch.Skill) error {
+	now := time.Now()
+	s.CreatedAt, s.UpdatedAt = now, now
+	prev, err := l.Skill(ctx, s.Name)
+	switch {
+	case err == nil:
+		if !prev.CreatedAt.IsZero() {
+			s.CreatedAt = prev.CreatedAt
+		}
+		s.Title, s.Category, s.Source = cmp.Or(s.Title, prev.Title), cmp.Or(s.Category, prev.Category),
+			cmp.Or(s.Source, prev.Source)
+	case !errors.Is(err, opensearch.ErrNotFound):
+		return err
+	}
+	return l.SaveSkill(ctx, s)
+}
+
+// Update sets m on a stored skill. It writes the skill it read back whole,
+// so an upload of the same skill at the same moment can be lost; the library
+// is edited by people, one at a time.
+func (l *Library) Update(ctx context.Context, name string, m Meta) (*opensearch.Skill, error) {
+	s, err := l.Skill(ctx, name)
+	if err != nil {
+		return nil, err
+	}
+	if err := m.Apply(s); err != nil {
+		return nil, err
+	}
+	s.UpdatedAt = time.Now()
+	return s, l.SaveSkill(ctx, s)
 }

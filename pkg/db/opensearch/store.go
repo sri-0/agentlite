@@ -174,6 +174,11 @@ func search[T any](ctx context.Context, c *Client, index, query string) ([]T, er
 	if err != nil {
 		return nil, fmt.Errorf("search %s: %w", index, err)
 	}
+	return hits[T](index, resp)
+}
+
+// hits decodes each hit's source.
+func hits[T any](index string, resp *opensearchapi.SearchResp) ([]T, error) {
 	out := make([]T, len(resp.Hits.Hits))
 	for i, h := range resp.Hits.Hits {
 		if err := json.Unmarshal(h.Source, &out[i]); err != nil {

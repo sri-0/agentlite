@@ -13,7 +13,6 @@ import (
 	"path"
 	"slices"
 	"strings"
-	"time"
 
 	"github.com/adrg/frontmatter"
 	"github.com/goccy/go-yaml"
@@ -110,7 +109,7 @@ func New(files map[string][]byte) (*opensearch.Skill, error) {
 	if err != nil {
 		return nil, err
 	}
-	s := &opensearch.Skill{Name: fm.Name, Description: fm.Description, UpdatedAt: time.Now()}
+	s := &opensearch.Skill{Name: fm.Name, Description: fm.Description}
 	for _, p := range slices.Sorted(maps.Keys(files)) {
 		dots := strings.Contains(p, "..") // npx skills refuses an index with ".." in any path
 		if !fs.ValidPath(p) || p == "." || dots {
