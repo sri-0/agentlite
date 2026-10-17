@@ -12,5 +12,5 @@ import (
 type Handler struct {
 	Config   *config.Config
 	Registry *providers.Registry
-	Skills   *skills.Library // nil without S3
+	Skills   *skills.Library
 }

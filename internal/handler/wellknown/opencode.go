@@ -36,9 +36,7 @@ func (h *Handler) Opencode(c *echo.Context) error {
 			cfg.MCP[conn.ID] = opencode.MCP{Type: "remote", URL: base + "/mcp/" + conn.ID}
 		}
 	}
-	if h.Skills != nil {
-		cfg.Skills.URLs = []string{base + "/.well-known/agent-skills/"}
-	}
+	cfg.Skills.URLs = []string{base + "/.well-known/agent-skills/"}
 	return c.JSON(http.StatusOK, opencode.Manifest{
 		Auth:   opencode.Auth{Command: []string{"true"}, Env: "AGENTLITE_TOKEN"},
 		Config: cfg,
