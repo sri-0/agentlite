@@ -83,7 +83,8 @@ func (h *Handler) ThreadArtifacts(c *echo.Context) error {
 	return c.JSON(http.StatusOK, newList(list))
 }
 
-// ArtifactContent serves an artifact's body, from S3 or the record.
+// ArtifactContent serves an artifact's body, from S3 or the record; its
+// route sandboxes it.
 func (h *Handler) ArtifactContent(c *echo.Context) error {
 	ctx := c.Request().Context()
 	rootID, err := h.rootOf(ctx, c.Param("id"))
@@ -99,10 +100,5 @@ func (h *Handler) ArtifactContent(c *echo.Context) error {
 		return err
 	}
 	defer body.Close()
-	// A body is model-written and markdown may carry markup: opened directly
-	// in a browser (or an old html record), nothing in it may run as this
-	// origin or be sniffed into HTML.
-	c.Response().Header().Set("Content-Security-Policy", "sandbox")
-	c.Response().Header().Set("X-Content-Type-Options", "nosniff")
 	return c.Stream(http.StatusOK, artifacts.ContentType(a.Kind), body)
 }

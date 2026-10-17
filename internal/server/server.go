@@ -61,20 +61,30 @@ func New(cfg *config.Config, h *handler.Handler, log zerolog.Logger) *echo.Echo 
 	e.GET("/v1/threads/:id/sources/:n", h.ThreadSource)
 	e.GET("/v1/threads/:id/artifacts", h.ThreadArtifacts)
 	e.GET("/v1/artifacts", h.RecentArtifacts)
-	e.GET("/v1/skills", h.ListSkills)
-	e.POST("/v1/skills", h.CreateSkill)
-	e.PATCH("/v1/skills/:name", h.UpdateSkill)
-	e.DELETE("/v1/skills/:name", h.DeleteSkill)
-	e.GET("/v1/skills/:name/files/*", h.SkillFile)
-	// npx skills discovery: the index, and each file next to it.
-	e.GET("/.well-known/agent-skills/index.json", h.SkillsIndex)
-	e.GET("/.well-known/agent-skills/:name/*", h.SkillFile)
-	e.GET("/v1/threads/:id/artifacts/:artifactId/content", h.ArtifactContent)
+	e.GET("/v1/threads/:id/artifacts/:artifactId/content", h.ArtifactContent, sandboxed)
+	if h.Skills != nil {
+		e.GET("/v1/skills", h.ListSkills)
+		e.POST("/v1/skills", h.CreateSkill, middleware.BodyLimit(skills.MaxBytes+1<<20)) // the zip, and the form around it
+		e.GET("/v1/skills/:id", h.GetSkill)
+		e.PATCH("/v1/skills/:id", h.UpdateSkill)
+		e.DELETE("/v1/skills/:id", h.DeleteSkill)
+		e.GET("/v1/skills/:id/files/*", h.SkillFile, sandboxed)
+		// npx skills discovery: the index, and each skill's files by its name next to it.
+		e.GET("/.well-known/agent-skills/index.json", h.SkillsIndex)
+		e.GET("/.well-known/agent-skills/:name/*", h.SkillsIndexFile, sandboxed)
+	}
 	e.POST("/v1/agent/chat", h.StartThread)
 	e.GET("/v1/agent/chat", h.Chat)
 	h.RegisterProxies(e)
 	return e
 }
+
+// sandboxed serves what users and models wrote (artifact bodies, skill
+// files): opened directly in a browser, nothing in it may run as this origin
+// or be sniffed into HTML.
+var sandboxed = middleware.SecureWithConfig(middleware.SecureConfig{
+	ContentSecurityPolicy: "sandbox", ContentTypeNosniff: "nosniff",
+})
 
 // Run serves until ctx is cancelled, then shuts down gracefully.
 func Run(ctx context.Context, cfg *config.Config, e *echo.Echo) error {

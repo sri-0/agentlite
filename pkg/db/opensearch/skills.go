@@ -11,15 +11,16 @@ import (
 	"github.com/opensearch-project/opensearch-go/v5/opensearchapi"
 )
 
-// IndexSkills is the skills library: one document per skill, its name as id,
-// with every file of the skill in it.
+// IndexSkills is the skills library: one document per skill, a uuid its id.
+// The files themselves are in S3.
 const IndexSkills = "skills"
 
 // Skill is a skill of the library: its name and description, from its
 // SKILL.md, the title, category and source the library adds, and its files,
 // SKILL.md among them.
 type Skill struct {
-	Name        string      `json:"name"`
+	ID          string      `json:"id"`
+	Name        string      `json:"name"` // unique in the library
 	Title       string      `json:"title,omitempty"`
 	Description string      `json:"description"`
 	Category    string      `json:"category,omitempty"` // free-form, e.g. Writing
@@ -31,12 +32,12 @@ type Skill struct {
 
 // SkillFile is one file of a skill.
 type SkillFile struct {
-	Path    string `json:"path"`              // relative to the skill: SKILL.md, references/guide.md
-	Content []byte `json:"content,omitempty"` // base64 in the document
+	Path string `json:"path"` // relative to the skill: SKILL.md, references/guide.md
+	Size int    `json:"size"`
 }
 
 const skillsMapping = `{"mappings":{"properties":{
-	"name":{"type":"keyword"},"title":{"type":"text"},"description":{"type":"text"},
+	"id":{"type":"keyword"},"name":{"type":"keyword"},"title":{"type":"text"},"description":{"type":"text"},
 	"category":{"type":"keyword"},"source":{"type":"keyword"},
 	"files":{"type":"object","enabled":false},"created_at":{"type":"date"},"updated_at":{"type":"date"}}}}`
 
@@ -60,18 +61,30 @@ type SkillList struct {
 	Sources    []Facet
 }
 
-// SaveSkill stores a skill, replacing any of the same name.
+// SaveSkill stores a skill under its id.
 func (c *Client) SaveSkill(ctx context.Context, s *Skill) error {
-	return c.index(ctx, IndexSkills, s.Name, s)
+	return c.index(ctx, IndexSkills, s.ID, s)
 }
 
-// Skill fetches a skill with its files.
-func (c *Client) Skill(ctx context.Context, name string) (*Skill, error) {
-	return get[Skill](ctx, c, IndexSkills, name)
+// Skill fetches a skill by id.
+func (c *Client) Skill(ctx context.Context, id string) (*Skill, error) {
+	return get[Skill](ctx, c, IndexSkills, id)
+}
+
+// SkillNamed fetches the skill with a name; ErrNotFound when there is none.
+func (c *Client) SkillNamed(ctx context.Context, name string) (*Skill, error) {
+	found, err := search[Skill](ctx, c, IndexSkills, fmt.Sprintf(`{"size":1,"query":{"term":{"name":%q}}}`, name))
+	if err != nil {
+		return nil, err
+	}
+	if len(found) == 0 {
+		return nil, ErrNotFound
+	}
+	return &found[0], nil
 }
 
 // Skills lists the library: by name, or best match first when Q is set
-// (every word must match), each skill's files without their content. The
+// (every word must match). The
 // category and source counts come from the same search, each under the other
 // choice only: a category's count follows the chosen source, the source counts
 // follow the chosen category, so every count is what choosing it would show.
@@ -87,8 +100,7 @@ func (c *Client) Skills(ctx context.Context, f SkillFilter) (*SkillList, error) 
 	category, source := term("category", f.Category), term("source", f.Source)
 	body := map[string]any{
 		"size": listCap, "sort": sort, "query": query,
-		"_source": map[string]any{"excludes": []string{"files.content"}},
-		"aggs":    map[string]any{"categories": facet("category", source), "sources": facet("source", category)},
+		"aggs": map[string]any{"categories": facet("category", source), "sources": facet("source", category)},
 	}
 	if chosen := both(category, source); chosen != nil {
 		body["post_filter"] = chosen
@@ -168,15 +180,15 @@ func facets(resp *opensearchapi.SearchResp, name string) ([]Facet, error) {
 }
 
 // DeleteSkill removes a skill; ErrNotFound when there is none.
-func (c *Client) DeleteSkill(ctx context.Context, name string) error {
+func (c *Client) DeleteSkill(ctx context.Context, id string) error {
 	_, err := c.api.Document.Delete(ctx, opensearchapi.DeleteReq{
-		Index: IndexSkills, ID: name, Params: &opensearchapi.DeleteParams{Refresh: "true"},
+		Index: IndexSkills, ID: id, Params: &opensearchapi.DeleteParams{Refresh: "true"},
 	})
 	switch {
 	case errStatus(err) == 404:
 		return ErrNotFound
 	case err != nil:
-		return fmt.Errorf("delete %s/%s: %w", IndexSkills, name, err)
+		return fmt.Errorf("delete %s/%s: %w", IndexSkills, id, err)
 	}
 	return nil
 }

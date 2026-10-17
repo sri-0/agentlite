@@ -4,14 +4,12 @@ import (
 	"errors"
 	"strings"
 	"testing"
-
-	"agentlite/pkg/db/opensearch"
 )
 
-// TestSetDescription: a new description changes that value alone, so what
-// else an author wrote in the frontmatter (Claude Code fields, nested
-// metadata in their order, comments, literals) survives, and so does the body.
-func TestSetDescription(t *testing.T) {
+// TestDescribe: a new description changes that value alone, so what else an
+// author wrote in the frontmatter (Claude Code fields, nested metadata in
+// their order, comments, literals) survives, and so does the body.
+func TestDescribe(t *testing.T) {
 	md := "---\nname: demo\n# shown in the picker\ndescription: Old one.\nargument-hint: \"[file]\"\n" +
 		"metadata:\n  zeta: \"1\"\n  alpha: \"2\"\nmode: 0755\n---\n# Body\n\nUnchanged.\n"
 	for _, tc := range []struct {
@@ -36,15 +34,19 @@ func TestSetDescription(t *testing.T) {
 		{name: "too long", desc: strings.Repeat("x", 1100), err: ErrInvalid},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			files := []opensearch.SkillFile{{Path: SkillFile, Content: []byte(md)}}
-			s := &opensearch.Skill{Name: "demo", Description: "Old one.", Files: files}
-			err := Meta{Description: &tc.desc}.Apply(s)
+			out, err := describe([]byte(md), tc.desc)
+			if err == nil {
+				_, err = check(map[string][]byte{SkillFile: out}) // as Save checks it
+			}
 			if !errors.Is(err, tc.err) {
 				t.Fatalf("err = %v, want %v", err, tc.err)
 			}
-			got := string(s.Files[0].Content)
-			if tc.parsed != "" && s.Description != tc.parsed {
-				t.Errorf("description %q, want %q", s.Description, tc.parsed)
+			if tc.err != nil {
+				return
+			}
+			got := string(out)
+			if fm, _, _ := parse(out); tc.parsed != "" && fm.Description != tc.parsed {
+				t.Errorf("description %q, want %q", fm.Description, tc.parsed)
 			}
 			if tc.unchanged && got != md {
 				t.Errorf("rewritten:\n%s", got)

@@ -1,16 +1,11 @@
 package builtin
 
 import (
-	"errors"
 	"fmt"
-	"maps"
-	"slices"
-	"strings"
 
 	"google.golang.org/adk/v2/tool/skilltoolset/skill"
 
 	"agentlite/internal/skills"
-	"agentlite/pkg/db/opensearch"
 	"agentlite/pkg/toolx"
 )
 
@@ -47,29 +42,25 @@ func writeSkill(d Deps) (toolx.Tool, error) {
 		if err != nil {
 			return nil, fmt.Errorf("%w: %v", skills.ErrInvalid, err)
 		}
-		files := map[string][]byte{}
-		prev, err := d.Skills.Skill(tc, a.Name)
-		switch {
-		case err == nil:
-			for _, f := range prev.Files {
-				files[f.Path] = f.Content
-			}
-		case !errors.Is(err, opensearch.ErrNotFound):
-			return nil, err
-		}
+		files := map[string][]byte{skills.SkillFile: md}
 		for _, f := range a.Files {
 			files[f.Path] = []byte(f.Content)
 		}
-		files[skills.SkillFile] = md
-		s, err := skills.New(files)
+		s, err := d.Skills.Save(tc, skills.Draft{
+			Files: files, Meta: skills.Meta{Title: given(a.Title), Category: given(a.Category), Source: given(a.Source)},
+			KeepFiles: true,
+		})
 		if err != nil {
 			return nil, err
 		}
-		s.Title, s.Category = strings.TrimSpace(a.Title), strings.TrimSpace(a.Category)
-		s.Source = strings.TrimSpace(a.Source)
-		if err := d.Skills.Save(tc, s); err != nil {
-			return nil, err
-		}
-		return map[string]any{"name": s.Name, "files": slices.Sorted(maps.Keys(files))}, nil
+		return map[string]any{"id": s.ID, "name": s.Name, "files": len(s.Files)}, nil
 	})
+}
+
+// given is a detail the model gave; nil keeps what the skill has.
+func given(v string) *string {
+	if v == "" {
+		return nil
+	}
+	return &v
 }

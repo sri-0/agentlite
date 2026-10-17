@@ -76,29 +76,30 @@ func (rt *Runtime) buildLLM(ctx context.Context, def config.AgentDef, run *runs.
 
 // toolsFor resolves an agent's tools for a run. A listed name must be a
 // harness or world tool or, when MCP servers are configured, is taken to be
-// one of their tools. Omitted means every harness tool plus the toolsets of
-// the run's connectors and the skills toolset; the subagent tool only for
-// agents with subagents.
+// one of their tools; skills is the skills library's toolset. Omitted means
+// every harness tool plus the toolsets of the run's connectors and the
+// skills; the subagent tool only for agents with subagents.
 func (rt *Runtime) toolsFor(def config.AgentDef, run *runs.Run) ([]tool.Tool, []tool.Toolset, error) {
 	var fns []tool.Tool
+	var sets []tool.Toolset
 	if def.Tools != nil {
 		var mcpNames []string
 		for _, name := range *def.Tools {
 			switch t := rt.tool(name); {
 			case t != nil:
 				fns = append(fns, t)
+			case name == skillsToolset && rt.skills != nil:
+				sets = append(sets, rt.skills.Toolset())
 			case len(rt.servers) > 0:
 				mcpNames = append(mcpNames, name)
 			default:
 				return nil, nil, fmt.Errorf("unknown tool %q", name)
 			}
 		}
-		if len(mcpNames) == 0 {
-			return fns, nil, nil
-		}
-		var sets []tool.Toolset
-		for _, srv := range rt.servers {
-			sets = append(sets, tool.FilterToolset(srv.Toolset, tool.AllowedToolsPredicate(mcpNames)))
+		if len(mcpNames) > 0 {
+			for _, srv := range rt.servers {
+				sets = append(sets, tool.FilterToolset(srv.Toolset, tool.AllowedToolsPredicate(mcpNames)))
+			}
 		}
 		return fns, sets, nil
 	}
@@ -111,8 +112,15 @@ func (rt *Runtime) toolsFor(def config.AgentDef, run *runs.Run) ([]tool.Tool, []
 		}
 		fns = append(fns, rt.harness[name].ADK())
 	}
-	return fns, append(rt.enabled(run.Connectors), rt.skillset), nil
+	sets = rt.enabled(run.Connectors)
+	if rt.skills != nil {
+		sets = append(sets, rt.skills.Toolset())
+	}
+	return fns, sets, nil
 }
+
+// skillsToolset is how an agent's tools list names the skills library.
+const skillsToolset = "skills"
 
 // toolList names what a sub-agent can call, so the parent delegates only
 // work it can do. A pipeline lists its steps' tools.

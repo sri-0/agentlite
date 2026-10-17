@@ -23,6 +23,7 @@ import (
 	"agentlite/internal/config"
 	"agentlite/internal/mcp"
 	"agentlite/internal/providers"
+	"agentlite/internal/refs"
 	"agentlite/internal/runs"
 	"agentlite/internal/skills"
 	"agentlite/internal/sources"
@@ -46,13 +47,13 @@ type Runtime struct {
 	servers      map[string]*mcp.Server // MCP servers by connector id
 	sources      *sources.Recorder
 	artifacts    *artifacts.Store
-	skills       *skills.Library
+	skills       *skills.Library // nil without S3
+	refs         refs.Resolvers  // what a message's /name, @agent, #id refer to
 	log          zerolog.Logger
 
 	connectors []config.Connector
 	userAgent  string                  // for tools no connector names
 	harness    map[string]toolx.Tool   // always available: subagent, todowrite, …
-	skillset   tool.Toolset            // adk's skill toolset over the library
 	world      map[string]toolx.Tool   // switched on through connectors
 	sets       map[string]tool.Toolset // one per connector
 	mcpTools   mcpTools                // what the mcp connectors ask of individual MCP tools
@@ -66,7 +67,7 @@ type Deps struct {
 	Memory    Memory                 // nil when memory is not configured
 	Servers   map[string]*mcp.Server // MCP servers by connector id
 	Sources   *sources.Recorder
-	Skills    *skills.Library
+	Skills    *skills.Library // nil without S3
 	Artifacts *artifacts.Store
 	Log       zerolog.Logger
 }
@@ -82,6 +83,9 @@ func New(cfg *config.Config, d Deps) *Runtime {
 	}
 	if m := cfg.Models.Memory; m != nil {
 		rt.preload = m.Preload
+	}
+	if d.Skills != nil {
+		rt.refs = refs.Resolvers{'/': d.Skills}
 	}
 	return rt
 }
@@ -101,9 +105,6 @@ func (rt *Runtime) Bind(d builtin.Dispatcher) error {
 		Dispatcher: d, Defs: rt.defs, Artifacts: rt.artifacts, Skills: rt.skills, Log: rt.log,
 	})
 	if err != nil {
-		return err
-	}
-	if rt.skillset, err = rt.skillsToolset(); err != nil {
 		return err
 	}
 	if err := rt.connectorSets(); err != nil {
@@ -127,29 +128,9 @@ type modelChange struct {
 	To   string `json:"to"`
 }
 
-// Seed rebuilds a thread's session from its persisted messages: user text
-// becomes user content (a /name message carries its skill as the library has
-// it now), assistant text and tool calls become model content, tool results
-// become function responses. Reasoning and activities are dropped.
+// Seed rebuilds a thread's session from its persisted messages.
 func (rt *Runtime) Seed(ctx context.Context, threadID, agentID string, history []opensearch.Message) error {
-	resp, err := rt.sessions.Create(ctx, &session.CreateRequest{
-		AppName: rt.appName, UserID: runs.SessionUser, SessionID: threadID,
-	})
-	if err != nil {
-		return err
-	}
-	for _, m := range history {
-		events, err := rt.seedEvents(ctx, m, agentID)
-		if err != nil {
-			return fmt.Errorf("seed %s: %w", m.ID, err)
-		}
-		for _, ev := range events {
-			if err := rt.sessions.AppendEvent(ctx, resp.Session, ev); err != nil {
-				return fmt.Errorf("seed %s: %w", m.ID, err)
-			}
-		}
-	}
-	return nil
+	return seed(ctx, rt.sessions, rt.appName, runs.SessionUser, threadID, agentID, history)
 }
 
 // Run executes one segment: a new user message or the answers to interrupts.

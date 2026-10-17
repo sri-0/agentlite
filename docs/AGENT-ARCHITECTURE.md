@@ -46,9 +46,10 @@ compaction summarizer, and by every sub-agent the run starts.
 - **Harness tools** (`internal/tools/builtin`): `subagent`, `todowrite`, `question`,
   `emit_artifact` (stored; TOOLS.md), `report_progress`, `write_skill` (asks for
   approval; SKILLS.md).
-- **Skills** (SKILLS.md): agents with every harness tool also get adk's skill toolset
-  over the skills library (`list_skills`, `load_skill`, `load_skill_resource`), which
-  lists the skills at the end of the system instruction.
+- **Skills** (SKILLS.md): adk's skill toolset over the skills library (`list_skills`,
+  `load_skill`, `load_skill_resource`), which lists the skills at the end of the system
+  instruction. Agents with no `tools:` list get it; a list names it as `skills`. A
+  skill's files are read as text; nothing runs its scripts.
 - Every function tool is built with `pkg/toolx` (TOOLS.md): it gets the thread its call
   belongs to and records the sources it returns.
 - **Connectors** (`config/default/connectors.yaml`): user-toggled groups of world

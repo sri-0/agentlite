@@ -22,11 +22,11 @@ type skillList struct {
 	Sources    []opensearch.Facet `json:"sources"`
 }
 
-// ListSkills lists the skills library by name, each skill with the paths of
-// its files: every skill, or those ?q= finds in their name, title or
-// description, in ?category= and from ?source=.
+// ListSkills lists the skills library by name, each skill with its files:
+// every skill, or those ?q= finds in their name, title or description, in
+// ?category= and from ?source=.
 func (h *Handler) ListSkills(c *echo.Context) error {
-	got, err := h.Skills.Skills(c.Request().Context(), opensearch.SkillFilter{
+	got, err := h.Skills.List(c.Request().Context(), opensearch.SkillFilter{
 		Q: c.QueryParam("q"), Category: c.QueryParam("category"), Source: c.QueryParam("source"),
 	})
 	if err != nil {
@@ -35,10 +35,19 @@ func (h *Handler) ListSkills(c *echo.Context) error {
 	return c.JSON(http.StatusOK, skillList{list: newList(got.Skills), Categories: got.Categories, Sources: got.Sources})
 }
 
+// GetSkill returns one skill.
+func (h *Handler) GetSkill(c *echo.Context) error {
+	s, err := h.Skills.Get(c.Request().Context(), c.Param("id"))
+	if err != nil {
+		return err
+	}
+	return c.JSON(http.StatusOK, s)
+}
+
 // CreateSkill adds a skill to the library, replacing any of the same name: a
 // multipart form whose file is a zip of the skill or its SKILL.md, with
-// optional title, description, category and source. A replaced skill keeps
-// its title, category and source unless the form sets them.
+// optional title, description, category and source. An empty field keeps
+// what the skill has.
 func (h *Handler) CreateSkill(c *echo.Context) error {
 	f, _, err := c.Request().FormFile("file")
 	switch {
@@ -52,26 +61,23 @@ func (h *Handler) CreateSkill(c *echo.Context) error {
 	if err != nil {
 		return err
 	}
-	s, err := skills.Read(body)
+	files, err := skills.Read(body)
 	if err != nil {
 		return err
 	}
-	field := func(name string) *string { // an empty field keeps what the skill has
+	field := func(name string) *string {
 		if v := strings.TrimSpace(c.FormValue(name)); v != "" {
 			return &v
 		}
 		return nil
 	}
-	m := skills.Meta{
+	s, err := h.Skills.Save(c.Request().Context(), skills.Draft{Files: files, Meta: skills.Meta{
 		Title: field("title"), Description: field("description"), Category: field("category"), Source: field("source"),
-	}
-	if err := m.Apply(s); err != nil {
+	}})
+	if err != nil {
 		return err
 	}
-	if err := h.Skills.Save(c.Request().Context(), s); err != nil {
-		return err
-	}
-	return c.JSON(http.StatusCreated, withoutContent(s))
+	return c.JSON(http.StatusCreated, s)
 }
 
 // UpdateSkill sets a skill's title, description, category or source:
@@ -81,34 +87,51 @@ func (h *Handler) UpdateSkill(c *echo.Context) error {
 	if err := c.Bind(&m); err != nil || m == (skills.Meta{}) {
 		return echo.NewHTTPError(http.StatusBadRequest, "send at least one of title, description, category, source")
 	}
-	s, err := h.Skills.Update(c.Request().Context(), c.Param("name"), m)
+	s, err := h.Skills.Update(c.Request().Context(), c.Param("id"), m)
 	if err != nil {
 		return err
 	}
-	return c.JSON(http.StatusOK, withoutContent(s))
-}
-
-// withoutContent is s as the API returns it: its files' paths only.
-func withoutContent(s *opensearch.Skill) *opensearch.Skill {
-	for i := range s.Files {
-		s.Files[i].Content = nil
-	}
-	return s
+	return c.JSON(http.StatusOK, s)
 }
 
 // DeleteSkill removes a skill from the library.
 func (h *Handler) DeleteSkill(c *echo.Context) error {
-	if err := h.Skills.DeleteSkill(c.Request().Context(), c.Param("name")); err != nil {
+	if err := h.Skills.Delete(c.Request().Context(), c.Param("id")); err != nil {
 		return err
 	}
 	return c.NoContent(http.StatusNoContent)
 }
 
-// SkillFile serves one of a skill's files as written; like an artifact's
-// body, it is sandboxed and never sniffed.
+// SkillFile serves one of a skill's files as written.
 func (h *Handler) SkillFile(c *echo.Context) error {
+	s, err := h.Skills.Get(c.Request().Context(), c.Param("id"))
+	if err != nil {
+		return err
+	}
+	return h.skillFile(c, s)
+}
+
+// SkillsIndex serves the discovery index npx skills reads.
+func (h *Handler) SkillsIndex(c *echo.Context) error {
+	index, err := h.Skills.Index(c.Request().Context())
+	if err != nil {
+		return err
+	}
+	return c.JSON(http.StatusOK, index)
+}
+
+// SkillsIndexFile serves a file of a skill the discovery index names.
+func (h *Handler) SkillsIndexFile(c *echo.Context) error {
+	s, err := h.Skills.Named(c.Request().Context(), c.Param("name"))
+	if err != nil {
+		return err
+	}
+	return h.skillFile(c, s)
+}
+
+func (h *Handler) skillFile(c *echo.Context, s *opensearch.Skill) error {
 	p := c.Param("*")
-	b, err := h.Skills.File(c.Request().Context(), c.Param("name"), p)
+	b, err := h.Skills.File(c.Request().Context(), s, p)
 	if err != nil {
 		return err
 	}
@@ -116,38 +139,5 @@ func (h *Handler) SkillFile(c *echo.Context) error {
 	if ctype == "" {
 		ctype = http.DetectContentType(b)
 	}
-	c.Response().Header().Set("Content-Security-Policy", "sandbox")
-	c.Response().Header().Set("X-Content-Type-Options", "nosniff")
 	return c.Blob(http.StatusOK, ctype, b)
-}
-
-// skillsIndex is the library as npx skills discovers it (v0.1.0 of the
-// discovery draft, github.com/cloudflare/agent-skills-discovery-rfc): each
-// skill with the paths of its files, which it fetches from <name>/<path>
-// next to the index.
-type skillsIndex struct {
-	Skills []skillsIndexEntry `json:"skills"`
-}
-
-type skillsIndexEntry struct {
-	Name        string   `json:"name"`
-	Description string   `json:"description"`
-	Files       []string `json:"files"`
-}
-
-// SkillsIndex serves the discovery index; npx skills sends no credentials.
-func (h *Handler) SkillsIndex(c *echo.Context) error {
-	list, err := h.Skills.Skills(c.Request().Context(), opensearch.SkillFilter{})
-	if err != nil {
-		return err
-	}
-	index := skillsIndex{Skills: make([]skillsIndexEntry, len(list.Skills))}
-	for i, s := range list.Skills {
-		e := skillsIndexEntry{Name: s.Name, Description: s.Description}
-		for _, f := range s.Files {
-			e.Files = append(e.Files, f.Path)
-		}
-		index.Skills[i] = e
-	}
-	return c.JSON(http.StatusOK, index)
 }

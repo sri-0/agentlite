@@ -87,3 +87,14 @@ func (c *Client) DeletePrefix(ctx context.Context, prefix string) error {
 	}
 	return errors.Join(errs...)
 }
+
+// Delete removes objects by key; a missing one is no error.
+func (c *Client) Delete(ctx context.Context, keys ...string) error {
+	var errs []error
+	for _, k := range keys {
+		if err := c.mc.RemoveObject(ctx, c.bucket, k, minio.RemoveObjectOptions{}); err != nil {
+			errs = append(errs, fmt.Errorf("s3 delete %s: %w", k, err))
+		}
+	}
+	return errors.Join(errs...)
+}

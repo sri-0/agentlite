@@ -1,6 +1,3 @@
-// Package skills is the skills library: Agent Skills, each a SKILL.md and any
-// other files (https://agentskills.io/specification), kept in OpenSearch,
-// given to agents through adk's skill toolset and served to npx skills.
 package skills
 
 import (
@@ -9,25 +6,22 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
-	"maps"
 	"path"
-	"slices"
 	"strings"
 
 	"github.com/adrg/frontmatter"
 	"github.com/goccy/go-yaml"
 	"google.golang.org/adk/v2/tool/skilltoolset/skill"
-
-	"agentlite/pkg/db/opensearch"
 )
 
 // SkillFile is the file that defines a skill.
 const SkillFile = "SKILL.md"
 
-// Limits on an uploaded skill, as npx skills has them.
+// Limits on an uploaded skill, as npx skills has them. The upload route's
+// body limit bounds the zip itself.
 const (
 	maxFiles = 1000
-	maxBytes = 25 << 20
+	MaxBytes = 25 << 20
 )
 
 // ErrInvalid is a skill that breaks the spec or the limits.
@@ -35,12 +29,15 @@ var ErrInvalid = errors.New("invalid skill")
 
 var yamlFrontmatter = frontmatter.NewFormat("---", "---", yaml.Unmarshal)
 
-// Read reads an uploaded skill: a zip with SKILL.md at its root or in its one
-// top folder, or SKILL.md alone. Hidden files and macOS's __MACOSX are left
-// out.
-func Read(data []byte) (*opensearch.Skill, error) {
+// Read reads an uploaded skill's files, by path: a zip with SKILL.md at its
+// root or in its one top folder, or SKILL.md alone. Hidden files and macOS's
+// __MACOSX are left out. archive/zip refuses a zip with a path that leaves
+// it (go.mod sets zipinsecurepath=0) and reads no file past its stated size,
+// and the sizes are checked as stated before anything is read, so a zip bomb
+// stops at the limit.
+func Read(data []byte) (map[string][]byte, error) {
 	if !bytes.HasPrefix(data, []byte("PK\x03\x04")) {
-		return New(map[string][]byte{SkillFile: data})
+		return map[string][]byte{SkillFile: data}, nil
 	}
 	zr, err := zip.NewReader(bytes.NewReader(data), int64(len(data)))
 	if err != nil {
@@ -74,19 +71,16 @@ func Read(data []byte) (*opensearch.Skill, error) {
 		if err != nil {
 			return err
 		}
-		if total += info.Size(); total > maxBytes { // archive/zip refuses to read past a file's stated size
-			return fmt.Errorf("%w: more than %d MiB", ErrInvalid, maxBytes>>20)
+		if total += info.Size(); total > MaxBytes {
+			return fmt.Errorf("%w: more than %d MiB", ErrInvalid, MaxBytes>>20)
 		}
 		files[p], err = fs.ReadFile(root, p)
 		return err
 	})
-	if err != nil {
-		if !errors.Is(err, ErrInvalid) {
-			err = fmt.Errorf("%w: %v", ErrInvalid, err)
-		}
-		return nil, err
+	if err != nil && !errors.Is(err, ErrInvalid) {
+		err = fmt.Errorf("%w: %v", ErrInvalid, err)
 	}
-	return New(files)
+	return files, err
 }
 
 // skillRoot is the folder of a zip that holds SKILL.md: its root, or its one
@@ -101,26 +95,23 @@ func skillRoot(zr *zip.Reader) (fs.FS, error) {
 	return nil, fmt.Errorf("%w: the zip needs %s at its root, or exactly one top folder with it", ErrInvalid, SkillFile)
 }
 
-// New builds a skill from its files, keyed by path. Its SKILL.md's frontmatter
-// must meet the spec (adk's skill.Validate); fields the spec does not have,
-// such as Claude Code's, are allowed.
-func New(files map[string][]byte) (*opensearch.Skill, error) {
-	fm, _, err := parse(files[SkillFile])
-	if err != nil {
-		return nil, err
-	}
-	s := &opensearch.Skill{Name: fm.Name, Description: fm.Description}
-	for _, p := range slices.Sorted(maps.Keys(files)) {
+// check checks a skill's files, by path, and returns its frontmatter: every
+// path must be a plain relative one, as an S3 key and a URL take it, and
+// SKILL.md must meet the spec.
+func check(files map[string][]byte) (*skill.Frontmatter, error) {
+	for p := range files {
 		dots := strings.Contains(p, "..") // npx skills refuses an index with ".." in any path
 		if !fs.ValidPath(p) || p == "." || dots {
 			return nil, fmt.Errorf("%w: path %q", ErrInvalid, p)
 		}
-		s.Files = append(s.Files, opensearch.SkillFile{Path: p, Content: files[p]})
 	}
-	return s, nil
+	fm, _, err := parse(files[SkillFile])
+	return fm, err
 }
 
-// parse reads a SKILL.md: its frontmatter, checked, and its body.
+// parse reads a SKILL.md: its frontmatter, checked with adk's skill.Validate,
+// and its body. It is lenient where adk's parser is not: fields the spec does
+// not have, such as Claude Code's, are allowed.
 func parse(md []byte) (*skill.Frontmatter, string, error) {
 	if md == nil {
 		return nil, "", fmt.Errorf("%w: no %s", ErrInvalid, SkillFile)

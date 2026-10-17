@@ -61,6 +61,10 @@ connectors:
     type: mcp
     mcp:
       endpoint: ${OPEN_SLIDE_MCP_URL}
+      # Not skill_read: open-slide's skills are in the skills library
+      # (docs/SKILLS.md), where agents read them as any other skill.
+      tools: [deck_create, deck_current, deck_delete, deck_list, deck_preview_url, deck_read, deck_validate,
+        deck_write, thread_cleanup]
       thread_args: {deck_create: thread_id, deck_list: thread_id, thread_cleanup: thread_id}
       ui: {deck_create: slides, deck_write: slides, deck_preview_url: slides}
       artifacts:
