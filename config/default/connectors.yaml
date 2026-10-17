@@ -14,6 +14,8 @@
 #       thread_args: {tool: arg}   # the harness fills arg with the root thread id
 #       ui: {tool: renderer}       # the UI renderer for the tool's calls
 #       artifacts: {tool: {id: field, title: field, url: field}}   # result → url artifact
+#       expose: true               # publish the server at /mcp/{id} for opencode, as it is
+#                                  # (every tool, no approvals; endpoint only, docs/OPENCODE.md)
 #
 # Each connector reaches its system with an HTTP client of its own:
 #   http:

@@ -6,7 +6,6 @@ package bootstrap
 
 import (
 	"context"
-	"errors"
 	"fmt"
 
 	"github.com/rs/zerolog"
@@ -61,13 +60,13 @@ func New(ctx context.Context) (*App, error) {
 	}
 	app.closers = append(app.closers, stopTracing)
 
-	if app.Registry, err = providers.NewRegistry(cfg.Models, cfg.ModelCardsDir, app.Log); err != nil {
+	if app.Registry, err = providers.NewRegistry(cfg.Models, cfg.ModelCardsDir, cfg.Transport, app.Log); err != nil {
 		return nil, err
 	}
+	app.Registry.Start(ctx) // the first discovery, before the check
 	if err := checkConfiguredModels(cfg.Models, app.Registry); err != nil {
 		return nil, err
 	}
-	app.Registry.Start(ctx)
 	// One client per logical database: runs, sessions and interrupts are kept apart.
 	runsDB, err := app.valkey(cfg.Redis.DBRuns)
 	if err != nil {
@@ -99,7 +98,7 @@ func New(ctx context.Context) (*App, error) {
 	}
 	app.Artifacts = artifacts.New(app.Store, files, app.Sources, app.Log)
 	app.Skills = skills.New(app.Store, files, app.Log)
-	servers, err := mcp.Servers(cfg.Connectors, app.Log)
+	servers, err := mcp.Servers(cfg.Connectors, cfg.Transport, app.Log)
 	if err != nil {
 		return nil, err
 	}
@@ -134,14 +133,14 @@ func (a *App) Close() {
 }
 
 // checkConfiguredModels checks the models models.yaml names: default_model
-// (a run that names none uses it) and memory's embedding model. Each must
-// resolve as the type it is used for, so a mistake fails the start rather
-// than every run or memory; one not listed yet may still come from
-// discovery.
+// (a run that names none uses it) and memory's embedding model. Each must be
+// in the model list after the start's first discovery (declared in
+// models.yaml, or listed by its provider), as the type it is used for, so a
+// mistake fails the start rather than every run or memory.
 func checkConfiguredModels(m *config.ModelsConfig, registry *providers.Registry) error {
 	check := func(id, typ string) error {
-		if _, err := registry.ResolveAs(id, typ); err != nil && !errors.Is(err, providers.ErrUnknownModel) {
-			return fmt.Errorf("models.yaml: %w", err)
+		if _, err := registry.ResolveAs(id, typ); err != nil {
+			return fmt.Errorf("models.yaml: %w (neither declared in models.yaml nor discovered)", err)
 		}
 		return nil
 	}

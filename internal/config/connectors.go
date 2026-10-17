@@ -54,6 +54,9 @@ type MCP struct {
 	UI map[string]string `yaml:"ui"`
 	// Artifacts records, per tool, its result as a url artifact.
 	Artifacts map[string]URLArtifact `yaml:"artifacts"`
+	// Expose publishes the server to clients such as opencode at /mcp/{id},
+	// as it is: every tool, without the harness's approvals or thread args.
+	Expose bool `yaml:"expose"`
 }
 
 // URLArtifact names the fields of a tool's structured result that hold a
@@ -141,6 +144,8 @@ func (c *Connector) check(seen map[string]bool, claimed map[string]string) error
 			return errors.New("mcp needs an endpoint or a command")
 		case c.HTTP.Timeout != 0:
 			return errors.New("an mcp connector takes no timeout: it would cut the session's event stream")
+		case c.MCP.Expose && endpoint == "":
+			return errors.New("mcp.expose needs an endpoint: a command's server cannot be proxied")
 		}
 		c.MCP.Endpoint = endpoint
 		names = c.MCP.hooked()

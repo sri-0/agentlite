@@ -41,7 +41,8 @@ internal/
                        sessions, memory, sources, artifacts, MCP, the runtime and run manager
   config/              env (go-envconfig) + models.yaml, connectors.yaml, agents/*.md
   server/              Echo app: middleware, routes, error → status mapping
-  handler/             REST reads and thread admin; the socket upgrade
+  handler/             REST reads and thread admin; the socket upgrade; handler/wellknown:
+                       /.well-known/opencode and the skills discovery index
   ws/                  the agent chat socket: frames, requests, subscriptions
   runs/                the run lifecycle: Manager (start, answer, cancel, follow), worker,
                        finalizer, queues, event log, run records
@@ -64,9 +65,11 @@ pkg/
   toolx/               the tool wrapper every function tool is built with
   citations/           the source contract: Source, Origin, Recorder, [source:N]
   modelcatalog/        the Model type, provider list parsers, model cards, the merge
-  transport/           HTTP clients for providers, toolsets and MCP servers
+  transport/           HTTP clients for providers, toolsets and MCP servers; the reverse
+                       proxy the pass-through and the MCP proxy share
+  opencode/            what opencode reads from /.well-known/opencode
   s3/                  S3-compatible object storage (minio-go)
-  db/opensearch/       threads, messages, memories (kNN), sources, artifacts
+  db/opensearch/       threads, messages, memories (kNN), sources, artifacts, skills
   db/valkey/           client per logical database
   memory/              adk memory.Service on OpenSearch
   session/valkey/      adk session.Service on Valkey
@@ -107,6 +110,8 @@ document-level security, is `not_found`. ARCHITECTURE.md has the frames.
 | GET/PATCH/DELETE | `/v1/skills/{id}` | one skill by its uuid; change its title, description, category or source; remove it and its files |
 | GET/PUT | `/v1/skills/{id}/files/{path}` | one file of a skill, sandboxed; replace or add one |
 | GET | `/.well-known/agent-skills/index.json`, `/.well-known/agent-skills/{name}/{path}` | the skills discovery index and files `npx skills add <server>` reads (no credentials) |
+| GET | `/.well-known/opencode` | what `opencode auth login <server>` configures: models, exposed MCP servers, skills (docs/OPENCODE.md) |
+| any | `/mcp/{id}` | an MCP connector with `mcp.expose: true`, proxied for clients such as opencode |
 | POST | `/v1/chat/completions`, `/v1/responses`, `/v1/messages`, `/v1/embeddings`, `/v1/decisions`, `/v1/systemone` | pass-through to the provider the body's `model` names, with the model rewritten to the provider's own id; each endpoint takes only models of its types (MODELS.md) |
 
 There is no authentication yet. The `Authorization` header on `POST /v1/agent/chat`
@@ -115,12 +120,14 @@ started or resumed over the socket carry none yet.
 
 ## Configuration
 
-Environment (`internal/config/config.go`): `PORT`, `HOST`, `APP_NAME`, `CONFIG_DIR`,
+Environment (`internal/config/config.go`): `PORT`, `HOST`, `APP_NAME`, `APP_URL` (this
+server as clients reach it), `CONFIG_DIR`,
 `LOG_LEVEL`, `LOG_JSON`, `ALLOWED_ORIGINS` (CORS and the socket's browser origins), `MAX_BODY_MB`
 (the largest request body, default 32), `REDIS_HOST/PORT/USER/PASS`,
 `REDIS_DB_RUNS/SESSIONS/HITL` (default 1/2/3), `OPENSEARCH_URL/USERNAME/PASSWORD`,
 `S3_ENDPOINT/ACCESS_KEY/SECRET_KEY/BUCKET/REGION/USE_SSL` (required: artifact bodies and
-skill files), `MODEL_CARDS_DIR` (a checkout of the model cards), `OTEL_EXPORTER_OTLP_ENDPOINT`,
+skill files), `TRANSPORT_SENSITIVE_HEADERS` (a caller's headers a forward drops),
+`MODEL_CARDS_DIR` (a checkout of the model cards), `OTEL_EXPORTER_OTLP_ENDPOINT`,
 plus what the YAML references (
 `LITELLM_BASE_URL`, `*_API_KEY`, `OPEN_SLIDE_MCP_URL`, …). `${VAR}` expands in `base_url`,
 headers and MCP endpoints.
@@ -132,7 +139,7 @@ headers and MCP endpoints.
   an optional per-model `base_url` and `api`. A provider with an empty `base_url` is skipped.
 - `connectors.yaml`: `user_agent` and `connectors[]` (`id, name, description, icon, type:
   tools | mcp, tools[], mcp: {endpoint | command, tools, require_confirmation, thread_args,
-  ui, artifacts}, http: {headers, user_agent, timeout, forward, tls}`). A tool belongs to
+  ui, artifacts, expose}, http: {headers, user_agent, timeout, forward, tls}`). A tool belongs to
   one connector at most. The development MCP server is open-slide-mcp
   (`~/code/open-slide-mcp`, `make run`, `:8090/mcp`).
 - `agents/*.md`: frontmatter `id, name, description, kind, mode, tools, subagents,

@@ -11,6 +11,7 @@ import (
 	"github.com/sethvargo/go-envconfig"
 
 	"agentlite/pkg/s3"
+	"agentlite/pkg/transport"
 )
 
 // Env holds everything read from environment variables.
@@ -22,6 +23,9 @@ type Env struct {
 	LogLevel       string   `env:"LOG_LEVEL, default=info"`
 	LogJSON        bool     `env:"LOG_JSON, default=false"`
 	AllowedOrigins []string `env:"ALLOWED_ORIGINS, default=http://localhost:3000"`
+	// AppURL is this server as clients reach it (through any gateway in
+	// front): the base of the URLs /.well-known/opencode hands out.
+	AppURL string `env:"APP_URL, default=http://localhost:8000"`
 	// MaxBodyMB is the largest request body the server accepts; the
 	// pass-through reads one whole to find its model.
 	MaxBodyMB int64 `env:"MAX_BODY_MB, default=32"`
@@ -30,6 +34,9 @@ type Env struct {
 	OpenSearch OpenSearch `env:", prefix=OPENSEARCH_"`
 	// S3 keeps artifact bodies and skill files; OpenSearch keeps their records.
 	S3 s3.Config `env:", prefix=S3_"`
+	// Transport is how requests to upstreams are made, e.g. the headers a
+	// forward drops.
+	Transport transport.Env `env:", prefix=TRANSPORT_"`
 	// ModelCardsDir is a checkout of the model cards (one Markdown file per
 	// model); empty means no cards.
 	ModelCardsDir string `env:"MODEL_CARDS_DIR"`

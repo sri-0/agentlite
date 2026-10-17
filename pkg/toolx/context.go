@@ -37,15 +37,6 @@ type Thread struct {
 	RunID  string
 }
 
-// Identity headers, sent by clients built with Headers (see Context).
-const (
-	HeaderThread     = "X-Thread-ID"
-	HeaderRootThread = "X-Root-Thread-ID"
-	HeaderRun        = "X-Run-ID"
-	HeaderAgent      = "X-Agent-ID"
-	HeaderTool       = "X-Tool-Name"
-)
-
 type (
 	runKey  struct{}
 	callKey struct{}
@@ -67,9 +58,20 @@ func RunFrom(ctx context.Context) Run {
 	return r
 }
 
-// Headers returns the identity headers for a request made with ctx: the
-// user's Authorization and the thread and run, and, from a tool's Context,
-// the agent and tool. It fits transport.Config.ContextHeaders.
+// Run headers: the thread, run, agent and tool a tool call's requests are
+// made for, so a downstream system can scope, audit or authorise by thread.
+const (
+	HeaderThread     = "X-Thread-ID"
+	HeaderRootThread = "X-Root-Thread-ID"
+	HeaderRun        = "X-Run-ID"
+	HeaderAgent      = "X-Agent-ID"
+	HeaderTool       = "X-Tool-Name"
+)
+
+// Headers returns the headers a request made with ctx carries when its
+// connector forwards identity: the user's Authorization and the run headers,
+// the agent and tool only from a tool's Context. It fits
+// transport.Config.ContextHeaders.
 func Headers(ctx context.Context) http.Header {
 	h := http.Header{}
 	if r := RunFrom(ctx); r.Thread.ID != "" {

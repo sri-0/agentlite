@@ -16,6 +16,7 @@ import (
 
 	"agentlite/internal/config"
 	"agentlite/pkg/modelcatalog"
+	"agentlite/pkg/transport"
 )
 
 // Errors Resolve and ResolveAs return. None falls back to another provider
@@ -34,8 +35,9 @@ const (
 
 // Registry holds every provider and the models each serves.
 type Registry struct {
-	providers []*provider // in models.yaml order
-	cardsDir  string      // MODEL_CARDS_DIR; "" means no cards
+	providers []*provider   // in models.yaml order
+	cardsDir  string        // MODEL_CARDS_DIR; "" means no cards
+	proxy     transport.Env // how pass-through requests are forwarded
 	log       zerolog.Logger
 
 	mu    sync.RWMutex // guards each provider's discovered and models, and cards
@@ -62,8 +64,8 @@ type Target struct {
 
 // NewRegistry builds a client per provider and the model lists from
 // models.yaml and the model cards; Start adds what discovery finds.
-func NewRegistry(cfg *config.ModelsConfig, cardsDir string, log zerolog.Logger) (*Registry, error) {
-	r := &Registry{cardsDir: cardsDir, log: log}
+func NewRegistry(cfg *config.ModelsConfig, cardsDir string, proxy transport.Env, log zerolog.Logger) (*Registry, error) {
+	r := &Registry{cardsDir: cardsDir, proxy: proxy, log: log}
 	for _, p := range cfg.Providers {
 		if p.BaseURL == "" {
 			log.Warn().Str("provider", p.ID).Msg("provider has no base_url in this environment; skipped")
@@ -150,9 +152,17 @@ func (r *Registry) provider(id string) *provider {
 	return nil
 }
 
-// Start runs discovery for every provider that configures it, once now and
-// then on its refresh interval, until ctx ends. Each pass reloads the cards.
+// Start runs discovery for every provider that configures it: once for all
+// of them together before it returns, so the start sees their models, then
+// on each one's refresh interval until ctx ends. Each pass reloads the cards.
 func (r *Registry) Start(ctx context.Context) {
+	var first sync.WaitGroup
+	for _, p := range r.providers {
+		if p.client.Config.Discover != nil {
+			first.Go(func() { r.discoverOnce(ctx, p) })
+		}
+	}
+	first.Wait()
 	for _, p := range r.providers {
 		if p.client.Config.Discover != nil {
 			go r.discoverLoop(ctx, p)
@@ -166,20 +176,25 @@ func (r *Registry) discoverLoop(ctx context.Context, p *provider) {
 		refresh = defaultRefresh
 	}
 	for {
-		models, err := discover(ctx, p.client)
-		if err != nil {
-			r.log.Warn().Err(err).Str("provider", p.client.Config.ID).Msg("model discovery failed; keeping the last listing")
-		} else {
-			r.loadCards()
-			r.rebuild(p, models)
-			r.log.Info().Str("provider", p.client.Config.ID).Int("models", len(models)).Msg("models discovered")
-		}
 		select {
 		case <-ctx.Done():
 			return
 		case <-time.After(refresh):
 		}
+		r.discoverOnce(ctx, p)
 	}
+}
+
+// discoverOnce lists a provider's models; on failure it keeps the last list.
+func (r *Registry) discoverOnce(ctx context.Context, p *provider) {
+	models, err := discover(ctx, p.client)
+	if err != nil {
+		r.log.Warn().Err(err).Str("provider", p.client.Config.ID).Msg("model discovery failed; keeping the last listing")
+		return
+	}
+	r.loadCards()
+	r.rebuild(p, models)
+	r.log.Info().Str("provider", p.client.Config.ID).Int("models", len(models)).Msg("models discovered")
 }
 
 // discover fetches the provider's model list.

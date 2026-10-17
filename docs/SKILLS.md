@@ -145,14 +145,15 @@ tells the model to load a skill named that way if it still needs it.
 into a local agent; `-s <name>` picks one. The CLI reads
 `/.well-known/agent-skills/index.json`. agentlite serves the draft's per-file form
 (v0.1.0 of [the discovery draft](https://github.com/cloudflare/agent-skills-discovery-rfc),
-no `$schema`): each skill's name, description and file paths, each file fetched from
-`/.well-known/agent-skills/<name>/<path>` (`internal/skills/index.go`). The CLI sends
-no credentials.
+no `$schema`): each skill's name, description, file paths and `version` (its
+`updated_at`), each file fetched from `/.well-known/agent-skills/<name>/<path>`
+(`internal/skills/index.go`). The CLI sends no credentials.
 
 The draft's v0.2.0 serves each skill as one archive with a digest instead. It is not
 used: it needs an archive built for every skill on every listing, and the CLI's tar
 reader ignores PAX headers, so long file names arrive cut short. The CLI reads both
-forms. opencode's remote skills (`skills.urls`) read the same per-file shape.
+forms. opencode's remote skills (`skills.urls`) read the same per-file shape; newer
+opencode releases use `version` to download a changed skill again (OPENCODE.md).
 
 ## MCP servers that expose skills
 
@@ -178,3 +179,4 @@ the server replaces them in place.
 | `internal/refs/refs.go` | references in a message, by sigil |
 | `internal/tools/builtin/write_skill.go` | `write_skill` |
 | `internal/handler/skills.go` | the API |
+| `internal/handler/wellknown/skills.go` | the discovery index and its files |
