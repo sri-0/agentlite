@@ -1,6 +1,6 @@
 // Package artifacts stores what agents publish: the record in OpenSearch and
-// the body in S3, or in the record itself when S3 is not configured. A url
-// artifact has no body; it points at a page the UI embeds.
+// the body in S3. A url artifact has no body; it points at a page the UI
+// embeds.
 package artifacts
 
 import (
@@ -11,7 +11,6 @@ import (
 	"maps"
 	"regexp"
 	"slices"
-	"strings"
 	"time"
 
 	"github.com/rs/zerolog"
@@ -41,12 +40,12 @@ func ContentType(kind string) string { return contentTypes[kind] }
 // Store keeps artifacts.
 type Store struct {
 	records *opensearch.Client
-	bodies  *s3.Client // nil keeps bodies in the records
+	bodies  *s3.Client
 	sources *sources.Recorder
 	log     zerolog.Logger
 }
 
-// New returns a store; bodies may be nil.
+// New returns a store.
 func New(records *opensearch.Client, bodies *s3.Client, sources *sources.Recorder, log zerolog.Logger) *Store {
 	return &Store{records: records, bodies: bodies, sources: sources, log: log}
 }
@@ -84,13 +83,8 @@ func (s *Store) Save(ctx context.Context, a *opensearch.Artifact, body string) e
 	}
 	if a.Kind != KindURL {
 		a.Size = len(body)
-		if s.bodies != nil {
-			if err := s.bodies.Put(ctx, key(a), contentTypes[a.Kind], []byte(body)); err != nil {
-				return err
-			}
-			a.Stored = opensearch.StoredS3
-		} else {
-			a.Stored, a.Content = opensearch.StoredInline, body
+		if err := s.bodies.Put(ctx, key(a), contentTypes[a.Kind], []byte(body)); err != nil {
+			return err
 		}
 	}
 	// On a conflict a later version, saved at the same moment, is already the
@@ -121,24 +115,15 @@ func Summary(a *opensearch.Artifact) map[string]any {
 
 // Body opens an artifact's body; opensearch.ErrNotFound for a url artifact.
 func (s *Store) Body(ctx context.Context, a *opensearch.Artifact) (io.ReadCloser, error) {
-	switch a.Stored {
-	case opensearch.StoredS3:
-		if s.bodies == nil {
-			return nil, fmt.Errorf("artifact %s is in S3, which is not configured", a.ID)
-		}
-		return s.bodies.Get(ctx, key(a))
-	case opensearch.StoredInline:
-		return io.NopCloser(strings.NewReader(a.Content)), nil
+	if a.Kind == KindURL {
+		return nil, opensearch.ErrNotFound
 	}
-	return nil, opensearch.ErrNotFound
+	return s.bodies.Get(ctx, key(a))
 }
 
 // Delete removes a conversation's bodies; the records and counters are
 // deleted with the thread's documents.
 func (s *Store) Delete(ctx context.Context, rootID string) error {
-	if s.bodies == nil {
-		return nil
-	}
 	return s.bodies.DeletePrefix(ctx, "artifacts/"+rootID+"/")
 }
 

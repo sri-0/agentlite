@@ -13,9 +13,9 @@ import (
 	"github.com/minio/minio-go/v7/pkg/credentials"
 )
 
-// Config locates the store. An empty Endpoint means no store.
+// Config locates the store.
 type Config struct {
-	Endpoint  string `env:"ENDPOINT"` // host:port
+	Endpoint  string `env:"ENDPOINT, required"` // host:port
 	AccessKey string `env:"ACCESS_KEY"`
 	SecretKey string `env:"SECRET_KEY"`
 	Bucket    string `env:"BUCKET, default=agentlite"`

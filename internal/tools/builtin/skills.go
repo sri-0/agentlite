@@ -1,15 +1,32 @@
 package builtin
 
 import (
+	"context"
 	"fmt"
 
+	"google.golang.org/adk/v2/tool"
+	"google.golang.org/adk/v2/tool/skilltoolset"
 	"google.golang.org/adk/v2/tool/skilltoolset/skill"
 
 	"agentlite/internal/skills"
 	"agentlite/pkg/toolx"
 )
 
-// writeSkillTool names the tool that writes a skill; adk's skill toolset reads them.
+// SkillsToolset is adk's skill toolset over the library: list_skills,
+// load_skill and load_skill_resource, and before each model call the skills'
+// names and descriptions at the end of the system instruction. Go's adk has
+// no tool that runs a skill's scripts.
+func SkillsToolset(ctx context.Context, lib *skills.Library) (tool.Toolset, error) {
+	return skilltoolset.New(ctx, skilltoolset.Config{Name: Skills, Source: lib, SystemInstruction: skillsInstruction})
+}
+
+// skillsInstruction replaces adk's own, which says scripts can be run.
+const skillsInstruction = `You can use skills: instructions (a SKILL.md) and other files for specialised tasks, kept in a library. available_skills lists each skill's name and what it is for, not its instructions.
+1. If a skill fits the task, you MUST call load_skill with its name before doing the task, then follow its instructions exactly.
+2. Read the files its instructions point to with load_skill_resource. A skill's scripts are for reading only: nothing can run them.
+3. A user message that names a skill as /<name> carries its instructions in a <skill_content> block: follow them without loading the skill again. In an earlier message the block may be gone: load the skill if you still need it.`
+
+// writeSkillTool names the tool that writes a skill to the library.
 const writeSkillTool = "write_skill"
 
 type writeSkillArgs struct {

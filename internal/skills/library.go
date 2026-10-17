@@ -1,8 +1,9 @@
 // Package skills is the skills library: Agent Skills, each a SKILL.md and any
 // other files (https://agentskills.io/specification). A skill's record is in
 // OpenSearch, a uuid its id and its name unique; its files are in S3 at
-// skills/<id>/<path>. Agents read the library through adk's skill toolset and
-// /name, and npx skills installs from it. Nothing runs a skill's scripts.
+// skills/<id>/<path>. Agents read the library through adk's skill toolset
+// (builtin.SkillsToolset) and /name, and npx skills installs from it. Nothing
+// runs a skill's scripts.
 package skills
 
 import (
@@ -15,14 +16,11 @@ import (
 	"mime"
 	"net/http"
 	"path"
-	"regexp"
 	"slices"
 	"time"
 
 	"github.com/google/uuid"
 	"github.com/rs/zerolog"
-	"google.golang.org/adk/v2/tool"
-	"google.golang.org/adk/v2/tool/skilltoolset"
 	"google.golang.org/adk/v2/tool/skilltoolset/skill"
 
 	"agentlite/pkg/db/opensearch"
@@ -40,19 +38,12 @@ var (
 type Library struct {
 	records *opensearch.Client
 	files   *s3.Client
-	toolset tool.Toolset
 	log     zerolog.Logger
 }
 
 // New returns the library over its records and files.
-func New(ctx context.Context, records *opensearch.Client, files *s3.Client, log zerolog.Logger) (*Library, error) {
-	l := &Library{records: records, files: files, log: log}
-	ts, err := skilltoolset.New(ctx, skilltoolset.Config{Name: ToolsetName, Source: l, SystemInstruction: instruction})
-	if err != nil {
-		return nil, err
-	}
-	l.toolset = ts
-	return l, nil
+func New(records *opensearch.Client, files *s3.Client, log zerolog.Logger) *Library {
+	return &Library{records: records, files: files, log: log}
 }
 
 // Draft is a skill to save: its files and the details it is filed with.
@@ -175,15 +166,8 @@ func (l *Library) Get(ctx context.Context, id string) (*opensearch.Skill, error)
 	return l.records.Skill(ctx, id)
 }
 
-// validName is what a skill's name may be (adk's skill.Validate checks the
-// same): a word such as /usr is no skill, and needs no lookup.
-var validName = regexp.MustCompile(`^[a-z0-9]+(-[a-z0-9]+)*$`)
-
 // Named fetches a skill by name; ErrNotFound when there is none.
 func (l *Library) Named(ctx context.Context, name string) (*opensearch.Skill, error) {
-	if len(name) > 64 || !validName.MatchString(name) {
-		return nil, fmt.Errorf("%w: %s", ErrNotFound, name)
-	}
 	s, err := l.records.SkillNamed(ctx, name)
 	if errors.Is(err, opensearch.ErrNotFound) {
 		return nil, fmt.Errorf("%w: %s", ErrNotFound, name)

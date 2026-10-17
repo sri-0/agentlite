@@ -18,7 +18,6 @@ import (
 
 	"agentlite/internal/config"
 	"agentlite/internal/runs"
-	"agentlite/internal/skills"
 	"agentlite/internal/tools/builtin"
 )
 
@@ -97,10 +96,8 @@ func (rt *Runtime) toolsFor(def config.AgentDef, run *runs.Run) ([]tool.Tool, []
 			switch t := rt.tool(name); {
 			case t != nil:
 				fns = append(fns, t)
-			case name == skills.ToolsetName:
-				if rt.skills != nil { // without S3 there is no library
-					sets = append(sets, rt.skills.Toolset())
-				}
+			case name == builtin.Skills:
+				sets = append(sets, rt.skillset)
 			case len(rt.servers) > 0:
 				mcpNames = append(mcpNames, name)
 			default:
@@ -123,11 +120,7 @@ func (rt *Runtime) toolsFor(def config.AgentDef, run *runs.Run) ([]tool.Tool, []
 		}
 		fns = append(fns, rt.harness[name].ADK())
 	}
-	sets = rt.enabled(run.Connectors)
-	if rt.skills != nil {
-		sets = append(sets, rt.skills.Toolset())
-	}
-	return fns, sets, nil
+	return fns, append(rt.enabled(run.Connectors), rt.skillset), nil
 }
 
 // toolList names what a sub-agent can call, so the parent delegates only

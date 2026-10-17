@@ -28,8 +28,7 @@ type Env struct {
 
 	Redis      Redis      `env:", prefix=REDIS_"`
 	OpenSearch OpenSearch `env:", prefix=OPENSEARCH_"`
-	// S3 keeps artifact bodies and skill files. Without S3_ENDPOINT artifact
-	// bodies stay in OpenSearch and there is no skills library.
+	// S3 keeps artifact bodies and skill files; OpenSearch keeps their records.
 	S3 s3.Config `env:", prefix=S3_"`
 	// ModelCardsDir is a checkout of the model cards (one Markdown file per
 	// model); empty means no cards.

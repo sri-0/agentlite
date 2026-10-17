@@ -27,7 +27,7 @@ services:
       timeout: 3s
       retries: 10
 
-  minio: # artefact bodies, when S3_ENDPOINT=localhost:9000; console on :9001
+  minio: # artefact bodies and skill files (S3_ENDPOINT=localhost:9000); console on :9001
     image: minio/minio:latest
     pull_policy: missing
     command: server /data --console-address :9001

@@ -61,18 +61,16 @@ func New(cfg *config.Config, h *handler.Handler, log zerolog.Logger) *echo.Echo 
 	e.GET("/v1/threads/:id/artifacts", h.ThreadArtifacts)
 	e.GET("/v1/artifacts", h.RecentArtifacts)
 	e.GET("/v1/threads/:id/artifacts/:artifactId/content", h.ArtifactContent, sandboxed)
-	if h.Skills != nil {
-		e.GET("/v1/skills", h.ListSkills)
-		e.POST("/v1/skills", h.CreateSkill, middleware.BodyLimit(skills.MaxBytes+1<<20)) // the zip, and the form around it
-		e.GET("/v1/skills/:id", h.GetSkill)
-		e.PATCH("/v1/skills/:id", h.UpdateSkill)
-		e.DELETE("/v1/skills/:id", h.DeleteSkill)
-		e.GET("/v1/skills/:id/files/*", h.SkillFile, sandboxed)
-		e.PUT("/v1/skills/:id/files/*", h.WriteSkillFile, middleware.BodyLimit(skills.MaxBytes))
-		// npx skills discovery: the index, and each skill's files by its name next to it.
-		e.GET("/.well-known/agent-skills/index.json", h.SkillsIndex)
-		e.GET("/.well-known/agent-skills/:name/*", h.SkillsIndexFile, sandboxed)
-	}
+	e.GET("/v1/skills", h.ListSkills)
+	e.POST("/v1/skills", h.CreateSkill, middleware.BodyLimit(skills.MaxBytes+1<<20)) // the zip, and the form around it
+	e.GET("/v1/skills/:id", h.GetSkill)
+	e.PATCH("/v1/skills/:id", h.UpdateSkill)
+	e.DELETE("/v1/skills/:id", h.DeleteSkill)
+	e.GET("/v1/skills/:id/files/*", h.SkillFile, sandboxed)
+	e.PUT("/v1/skills/:id/files/*", h.WriteSkillFile, middleware.BodyLimit(skills.MaxBytes))
+	// npx skills discovery: the index, and each skill's files by its name next to it.
+	e.GET("/.well-known/agent-skills/index.json", h.SkillsIndex)
+	e.GET("/.well-known/agent-skills/:name/*", h.SkillsIndexFile, sandboxed)
 	e.POST("/v1/agent/chat", h.StartThread)
 	e.GET("/v1/agent/chat", h.Chat)
 	h.RegisterProxies(e)

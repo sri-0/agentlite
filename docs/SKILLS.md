@@ -26,9 +26,8 @@ The record is one document per skill in the OpenSearch index `skills`
 | `files` (object, not indexed) | every file, `SKILL.md` among them: `path` and `size` |
 | `created_at`, `updated_at` (date) | |
 
-The files are in S3 (`S3_ENDPOINT`; MinIO in `docker-compose.yaml`) at
-`skills/<id>/<path>`, in the bucket artifact bodies use. Without S3 there is no skills
-library: no routes, no toolset, no `write_skill`.
+The files are in S3 (`S3_ENDPOINT`, required; MinIO in `docker-compose.yaml`) at
+`skills/<id>/<path>`, in the bucket artifact bodies use.
 
 Categories and sources are values on the skills, not records of their own: the list to
 choose from is the values the library has (a terms aggregation), and a new one exists
@@ -97,7 +96,7 @@ changes nothing. The result is checked as any upload is.
 ## Agents
 
 The library is an adk `skill.Source` (`internal/skills/source.go`), and agents get
-adk's skill toolset over it (`skilltoolset`, `Library.Toolset`): `list_skills`,
+adk's skill toolset over it (`skilltoolset`, `builtin.SkillsToolset`): `list_skills`,
 `load_skill` (a skill's instructions) and `load_skill_resource` (one of its files), and
 before each model call the list of skills, names and descriptions, at the end of the
 system instruction. The toolset is a tool like any other: an agent with no `tools:`
@@ -133,9 +132,8 @@ message, and the turn starts with an activity that shows it:
   `load_skill_resource`. The activity is `skill` (`{id, name, title, description}`), and
   the UI shows it as the skill loaded, linking to its page (AG-UI-RENDERING.md).
 - The message itself goes to the model and is stored as typed. A `/word` that is no
-  skill stays plain text, and one that cannot be a skill's name (`/usr/bin`) is not looked
-  up; a skill that cannot be read (the store is down) fails the turn rather than sending
-  it without the skill.
+  skill (`/usr/bin`) stays plain text; a skill that cannot be read (the store is down)
+  fails the turn rather than sending it without the skill.
 
 A session rebuilt from history (`Runtime.Seed`, when the adk session is gone from
 Valkey) has the messages as typed, without the skills' instructions; the instruction
@@ -174,8 +172,8 @@ the server replaces them in place.
 | `internal/skills/parse.go` | reading an upload, checking SKILL.md |
 | `internal/skills/meta.go` | a skill's details, rewriting SKILL.md's description |
 | `internal/skills/source.go` | the library as an adk `skill.Source` |
-| `internal/skills/agents.go` | adk's skill toolset and its instruction; `/name` |
+| `internal/skills/resolve.go` | `/name` |
 | `internal/skills/index.go` | the discovery index for `npx skills` |
 | `internal/refs/refs.go` | references in a message, by sigil |
-| `internal/tools/builtin/skills.go` | `write_skill` |
+| `internal/tools/builtin/skills.go` | adk's skill toolset and its instruction; `write_skill` |
 | `internal/handler/skills.go` | the API |

@@ -183,10 +183,9 @@ OpenSearch indices: `threads`, `messages` (events stored unindexed), `memories`
 skills library, one record per skill; its files are in S3; SKILLS.md).
 Every write refreshes the index, so a read after a save sees it.
 
-S3 (`S3_ENDPOINT`, MinIO in `docker-compose.yaml`): artifact bodies at
+S3 (`S3_ENDPOINT`, required; MinIO in `docker-compose.yaml`): artifact bodies at
 `artifacts/{root}/{artifact id}/{version}`, and skill files at `skills/{skill id}/{path}`.
-Without it artifact bodies stay in the `artifacts` records, and there is no skills
-library.
+OpenSearch keeps only their records.
 
 ## Configuration
 

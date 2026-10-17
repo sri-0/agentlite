@@ -21,6 +21,7 @@ import (
 const (
 	Subagent = "subagent" // sub-agent dispatch; offered only to agents with subagents
 	Question = "question" // answered by the user, not approved
+	Skills   = "skills"   // the skills library's toolset (SkillsToolset), by its name in a tools list
 )
 
 // Dispatcher starts, follows and stops child runs; runs.Manager implements it.
@@ -36,16 +37,13 @@ type Deps struct {
 	Dispatcher Dispatcher
 	Defs       map[string]config.AgentDef
 	Artifacts  *artifacts.Store
-	Skills     *skills.Library // nil: no write_skill
+	Skills     *skills.Library
 	Log        zerolog.Logger
 }
 
 // All builds every builtin tool, keyed by name.
 func All(d Deps) (map[string]toolx.Tool, error) {
-	builders := []func(Deps) (toolx.Tool, error){subagent, todoWrite, question, reportProgress, emitArtifact}
-	if d.Skills != nil {
-		builders = append(builders, writeSkill)
-	}
+	builders := []func(Deps) (toolx.Tool, error){subagent, todoWrite, question, reportProgress, emitArtifact, writeSkill}
 	out := make(map[string]toolx.Tool, len(builders))
 	for _, build := range builders {
 		t, err := build(d)

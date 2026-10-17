@@ -12,9 +12,8 @@ import (
 // IndexArtifacts holds the artifacts conversations published.
 const IndexArtifacts = "artifacts"
 
-// Artifact is a published document or an embedded page. Its body is in S3
-// (Stored "s3"), in Content (Stored "inline", when S3 is not configured), or
-// nowhere for a url artifact, which only points at a page.
+// Artifact is a published document or an embedded page. Its body is in S3,
+// or nowhere for a url artifact, which only points at a page.
 type Artifact struct {
 	ID        string    `json:"id"` // as the agent names it; unique within a conversation
 	RootID    string    `json:"root_id"`
@@ -25,23 +24,15 @@ type Artifact struct {
 	Language  string    `json:"language,omitempty"`
 	URL       string    `json:"url,omitempty"` // kind url: the page to embed
 	Size      int       `json:"size"`
-	Stored    string    `json:"stored,omitempty"`
-	Content   string    `json:"content,omitempty"`
 	Version   int       `json:"version"`
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
 }
 
-// Where an artifact's body is kept.
-const (
-	StoredS3     = "s3"
-	StoredInline = "inline"
-)
-
 const artifactsMapping = `{"mappings":{"properties":{
 	"id":{"type":"keyword"},"root_id":{"type":"keyword"},"thread_id":{"type":"keyword"},"run_id":{"type":"keyword"},
 	"title":{"type":"text"},"kind":{"type":"keyword"},"language":{"type":"keyword"},"url":{"type":"keyword"},
-	"size":{"type":"long"},"stored":{"type":"keyword"},"content":{"type":"text","index":false},
+	"size":{"type":"long"},
 	"version":{"type":"integer"},"created_at":{"type":"date"},"updated_at":{"type":"date"}}}}`
 
 func artifactID(rootID, id string) string { return rootID + ":" + id }
@@ -54,7 +45,7 @@ func (c *Client) SaveArtifact(ctx context.Context, a *Artifact) error {
 		opensearchapi.IndexParams{Version: &a.Version, VersionType: opensearchapi.VersionTypeExternal})
 }
 
-// Artifact fetches one artifact of a conversation, body included when inline.
+// Artifact fetches one artifact of a conversation.
 func (c *Client) Artifact(ctx context.Context, rootID, id string) (*Artifact, error) {
 	return get[Artifact](ctx, c, IndexArtifacts, artifactID(rootID, id))
 }
@@ -72,13 +63,12 @@ func (a *Artifact) Key() ArtifactKey {
 	return ArtifactKey{UpdatedAt: a.UpdatedAt.UnixMilli(), RootID: a.RootID, ID: a.ID}
 }
 
-// RecentArtifacts lists artifacts across every conversation, without
-// bodies: up to limit, after the given one (nil: from the newest).
+// RecentArtifacts lists artifacts across every conversation: up to limit,
+// after the given one (nil: from the newest).
 func (c *Client) RecentArtifacts(ctx context.Context, after *ArtifactKey, limit int) ([]Artifact, error) {
 	q := map[string]any{
-		"size":    limit,
-		"sort":    []any{map[string]any{"updated_at": "desc"}, map[string]any{"root_id": "asc"}, map[string]any{"id": "asc"}},
-		"_source": map[string]any{"excludes": []string{"content"}},
+		"size": limit,
+		"sort": []any{map[string]any{"updated_at": "desc"}, map[string]any{"root_id": "asc"}, map[string]any{"id": "asc"}},
 	}
 	if after != nil {
 		q["search_after"] = []any{after.UpdatedAt, after.RootID, after.ID}
@@ -90,8 +80,8 @@ func (c *Client) RecentArtifacts(ctx context.Context, after *ArtifactKey, limit 
 	return search[Artifact](ctx, c, IndexArtifacts, string(body))
 }
 
-// Artifacts lists a conversation's artifacts, newest first, without bodies.
+// Artifacts lists a conversation's artifacts, newest first.
 func (c *Client) Artifacts(ctx context.Context, rootID string) ([]Artifact, error) {
 	return search[Artifact](ctx, c, IndexArtifacts, fmt.Sprintf(`{"size":%d,"sort":[{"updated_at":"desc"}],
-		"_source":{"excludes":["content"]},"query":{"term":{"root_id":%q}}}`, listCap, rootID))
+		"query":{"term":{"root_id":%q}}}`, listCap, rootID))
 }

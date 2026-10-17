@@ -83,8 +83,7 @@ func (h *Handler) ThreadArtifacts(c *echo.Context) error {
 	return c.JSON(http.StatusOK, newList(list))
 }
 
-// ArtifactContent serves an artifact's body, from S3 or the record; its
-// route sandboxes it.
+// ArtifactContent serves an artifact's body from S3; its route sandboxes it.
 func (h *Handler) ArtifactContent(c *echo.Context) error {
 	ctx := c.Request().Context()
 	rootID, err := h.rootOf(ctx, c.Param("id"))
