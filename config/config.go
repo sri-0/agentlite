@@ -27,9 +27,7 @@ type Env struct {
 	LogLevel       zerolog.Level `env:"LOG_LEVEL, default=info"`
 	LogJSON        bool          `env:"LOG_JSON, default=false"`
 	AllowedOrigins []string      `env:"ALLOWED_ORIGINS, default=http://localhost:3000"` // CORS; * allows any
-	// SocketOrigins are the browser pages that may open the agent chat
-	// socket; * allows any. Clients that are not browsers send no origin.
-	SocketOrigins []string `env:"SOCKET_ALLOWED_ORIGINS, default=http://localhost:3000"`
+	WS             WS            `env:", prefix=WS_"`
 	// AppURL is this server as clients reach it (through any gateway in
 	// front): the base of the URLs /.well-known/opencode hands out.
 	AppURL string `env:"APP_URL, default=http://localhost:8000"`
@@ -47,6 +45,14 @@ type Env struct {
 	// ModelCardsDir is a checkout of the model cards (one Markdown file per
 	// model); empty means no cards.
 	ModelCardsDir string `env:"MODEL_CARDS_DIR"`
+}
+
+// WS is the agent chat socket's configuration (WS_*).
+type WS struct {
+	// AllowedOrigins are the browser pages that may open the socket, as
+	// coder/websocket's OriginPatterns; * allows any. Clients that are not
+	// browsers send no origin.
+	AllowedOrigins []string `env:"ALLOWED_ORIGINS, default=http://localhost:3000"`
 }
 
 // Config is the full configuration: environment plus the files in ConfigDir.
@@ -100,8 +106,8 @@ func (e Env) check() error {
 	switch {
 	case e.LogLevel == zerolog.NoLevel:
 		return errors.New("LOG_LEVEL is empty; set debug, info, warn or error")
-	case len(e.AllowedOrigins) == 0 || len(e.SocketOrigins) == 0:
-		return errors.New("ALLOWED_ORIGINS and SOCKET_ALLOWED_ORIGINS need at least one origin, or *")
+	case len(e.AllowedOrigins) == 0 || len(e.WS.AllowedOrigins) == 0:
+		return errors.New("ALLOWED_ORIGINS and WS_ALLOWED_ORIGINS need at least one origin, or *")
 	case e.MaxBodyMB <= 0:
 		return errors.New("MAX_BODY_MB must be positive")
 	case err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "":

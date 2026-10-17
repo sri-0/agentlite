@@ -183,8 +183,8 @@ func (c *client) allow(ctx context.Context, threadID string) error {
 	if threadID == "" {
 		return fmt.Errorf("%w: threadId is required; a new thread is created with POST /v1/agent/chat", runs.ErrInvalid)
 	}
-	if err := uuid.Validate(threadID); err != nil {
-		return fmt.Errorf("%w: threadId must be a UUID", runs.ErrInvalid)
+	if id, err := uuid.Parse(threadID); err != nil || id.Version() != 7 {
+		return fmt.Errorf("%w: threadId must be a UUIDv7", runs.ErrInvalid)
 	}
 	c.mu.Lock()
 	ok := c.allowed[threadID]

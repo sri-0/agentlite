@@ -61,7 +61,7 @@ func (m *Manager) Start(ctx context.Context, in StartInput) (*Run, error) {
 		}
 	}
 	if in.ThreadID == "" { // a new conversation: the thread id is the server's
-		in.ThreadID, in.newThread = uuid.NewString(), true
+		in.ThreadID, in.newThread = uuid.Must(uuid.NewV7()).String(), true
 	}
 	if in.Model == "" {
 		in.Model = m.model
@@ -70,11 +70,11 @@ func (m *Manager) Start(ctx context.Context, in StartInput) (*Run, error) {
 		return nil, fmt.Errorf("%w: %v", ErrInvalid, err)
 	}
 	if in.MessageID == "" {
-		in.MessageID = uuid.NewString()
+		in.MessageID = uuid.Must(uuid.NewV7()).String()
 	}
 	run := &Run{
-		ID: uuid.NewString(), ThreadID: in.ThreadID, AgentID: in.AgentID, Model: in.Model,
-		TurnID: uuid.NewString(), MessageID: in.MessageID, Status: StatusQueued, StartedAt: time.Now(),
+		ID: uuid.Must(uuid.NewV7()).String(), ThreadID: in.ThreadID, AgentID: in.AgentID, Model: in.Model,
+		TurnID: uuid.Must(uuid.NewV7()).String(), MessageID: in.MessageID, Status: StatusQueued, StartedAt: time.Now(),
 	}
 	claimed, err := m.claimThread(ctx, in, run.ID)
 	if err != nil {

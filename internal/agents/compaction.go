@@ -82,7 +82,7 @@ func (w *compactionWatch) start() {
 	w.mu.Lock()
 	defer w.mu.Unlock()
 	w.settle()
-	w.id, w.started, w.written = "compaction:"+uuid.NewString(), time.Now(), false
+	w.id, w.started, w.written = "compaction:"+uuid.Must(uuid.NewV7()).String(), time.Now(), false
 	w.emit(compactionActivity{Status: "running"})
 }
 

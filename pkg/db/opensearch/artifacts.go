@@ -4,6 +4,7 @@ import (
 	"context"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/opensearch-project/opensearch-go/v5/opensearchapi"
 )
 
@@ -27,7 +28,11 @@ type Artifact struct {
 	UpdatedAt time.Time `json:"updated_at"`
 }
 
-func artifactID(rootID, id string) string { return rootID + ":" + id }
+// artifactID is an artifact's document id: a name-based UUID of its
+// conversation and the name the agent gave it.
+func artifactID(rootID, id string) string {
+	return uuid.NewSHA1(uuid.NameSpaceURL, []byte(rootID+"\x00"+id)).String()
+}
 
 // SaveArtifact stores a version of an artifact under its conversation. The
 // record only moves forward: when a later version is already stored, it is
@@ -58,19 +63,19 @@ func (a *Artifact) Key() ArtifactKey {
 // RecentArtifacts lists artifacts across every conversation: up to limit,
 // after the given one (nil: from the newest).
 func (c *Client) RecentArtifacts(ctx context.Context, after *ArtifactKey, limit int) ([]Artifact, error) {
-	body := opensearchapi.SearchBody{Size: new(limit), Sort: sortBy("-updated_at", "root_id", "id")}
-	if after != nil {
-		body.SearchAfter = []opensearchapi.FieldValue{
-			opensearchapi.NewFieldValueFromFloat64(float64(after.UpdatedAt)),
-			opensearchapi.NewFieldValueFromString(after.RootID), opensearchapi.NewFieldValueFromString(after.ID),
-		}
+	q := map[string]any{
+		"size": limit,
+		"sort": []any{map[string]any{"updated_at": "desc"}, map[string]any{"root_id": "asc"}, map[string]any{"id": "asc"}},
 	}
-	return search[Artifact](ctx, c, indexArtifacts, body)
+	if after != nil {
+		q["search_after"] = []any{after.UpdatedAt, after.RootID, after.ID}
+	}
+	return search[Artifact](ctx, c, indexArtifacts, q)
 }
 
 // Artifacts lists a conversation's artifacts, newest first.
 func (c *Client) Artifacts(ctx context.Context, rootID string) ([]Artifact, error) {
-	return search[Artifact](ctx, c, indexArtifacts, opensearchapi.SearchBody{
-		Size: new(listCap), Sort: sortBy("-updated_at"), Query: new(term("root_id", rootID)),
+	return search[Artifact](ctx, c, indexArtifacts, map[string]any{
+		"size": listCap, "sort": []any{map[string]any{"updated_at": "desc"}}, "query": map[string]any{"term": map[string]any{"root_id": rootID}},
 	})
 }

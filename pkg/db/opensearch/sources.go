@@ -3,13 +3,12 @@ package opensearch
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
-	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/opensearch-project/opensearch-go/v5/opensearchapi"
 )
 
@@ -37,16 +36,10 @@ type Source struct {
 }
 
 // SourceKeyID is the document id of a source with an identity (its system
-// and key or URL): one per conversation, so recording it twice collides
-// instead of numbering it twice.
+// and key or URL): a name-based UUID, one per conversation, so recording it
+// twice collides instead of numbering it twice.
 func SourceKeyID(rootID, identity string) string {
-	sum := sha256.Sum256([]byte(identity))
-	return rootID + ":k:" + hex.EncodeToString(sum[:16])
-}
-
-// SourceNumberID is the document id of a source without an identity.
-func SourceNumberID(rootID string, number int) string {
-	return fmt.Sprintf("%s:n:%d", rootID, number)
+	return uuid.NewSHA1(uuid.NameSpaceURL, []byte(rootID+"\x00"+identity)).String()
 }
 
 // SaveSource stores a new source, at once searchable for the citations that
@@ -63,8 +56,8 @@ func (c *Client) SourceByID(ctx context.Context, id string) (*Source, error) {
 
 // Sources lists a conversation's sources by number.
 func (c *Client) Sources(ctx context.Context, rootID string) ([]Source, error) {
-	return search[Source](ctx, c, indexSources, opensearchapi.SearchBody{
-		Size: new(listCap), Sort: sortBy("number"), Query: new(term("root_id", rootID)),
+	return search[Source](ctx, c, indexSources, map[string]any{
+		"size": listCap, "sort": []any{map[string]any{"number": "asc"}}, "query": map[string]any{"term": map[string]any{"root_id": rootID}},
 	})
 }
 
@@ -81,8 +74,10 @@ func (c *Client) Source(ctx context.Context, rootID string, number int) (*Source
 }
 
 func (c *Client) sourcesNumbered(ctx context.Context, rootID string, numbers []int) ([]Source, error) {
-	return search[Source](ctx, c, indexSources, opensearchapi.SearchBody{
-		Size: new(len(numbers)), Query: new(allOf(term("root_id", rootID), oneOf("number", numbers))),
+	return search[Source](ctx, c, indexSources, map[string]any{
+		"size": len(numbers), "query": map[string]any{"bool": map[string]any{"filter": []any{
+			map[string]any{"term": map[string]any{"root_id": rootID}}, map[string]any{"terms": map[string]any{"number": numbers}},
+		}}},
 	})
 }
 

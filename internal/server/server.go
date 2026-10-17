@@ -47,11 +47,14 @@ func New(cfg *config.Config, h *handler.Handler, log zerolog.Logger) *echo.Echo 
 		},
 	}))
 
+	// Health, models, agents and connectors.
 	e.GET("/health", h.Health)
 	e.GET("/v1/models", h.Models)
 	e.GET("/v1/agents", h.Agents)
 	e.GET("/v1/connectors", h.Connectors)
 	e.GET("/v1/connectors/:id", h.Connector)
+
+	// Threads and what each conversation recorded.
 	e.GET("/v1/threads", h.Threads)
 	thread := e.Group("/v1/threads/:id", uuidID)
 	thread.GET("", h.Thread)
@@ -64,6 +67,8 @@ func New(cfg *config.Config, h *handler.Handler, log zerolog.Logger) *echo.Echo 
 	thread.GET("/artifacts", h.ThreadArtifacts)
 	thread.GET("/artifacts/:artifactId/content", h.ArtifactContent, sandboxed)
 	e.GET("/v1/artifacts", h.RecentArtifacts)
+
+	// The skills library.
 	e.GET("/v1/skills", h.ListSkills)
 	e.POST("/v1/skills", h.CreateSkill, middleware.BodyLimit(skills.MaxBytes+1<<20)) // the zip, and the form around it
 	skill := e.Group("/v1/skills/:id", uuidID)
@@ -72,23 +77,29 @@ func New(cfg *config.Config, h *handler.Handler, log zerolog.Logger) *echo.Echo 
 	skill.DELETE("", h.DeleteSkill)
 	skill.GET("/files/*", h.SkillFile, sandboxed)
 	skill.PUT("/files/*", h.WriteSkillFile, middleware.BodyLimit(skills.MaxBytes))
+
 	// What opencode and npx skills set themselves up from (docs/OPENCODE.md).
 	wk := &wellknown.Handler{Config: cfg, Registry: h.Registry, Skills: h.Skills}
 	e.GET("/.well-known/opencode", wk.Opencode)
 	e.GET("/.well-known/agent-skills/index.json", wk.SkillsIndex)
 	e.GET("/.well-known/agent-skills/:name/*", wk.SkillFile, sandboxed)
 	e.Any("/mcp/:id", h.MCPProxy)
+
+	// Agent chat: a new thread, then the socket.
 	e.POST("/v1/agent/chat", h.StartThread)
 	e.GET("/v1/agent/chat", h.Chat)
+
+	// Pass-through to the providers (/v1/chat/completions and the rest).
 	h.RegisterProxies(e)
 	return e
 }
 
-// uuidID refuses an :id that is not a UUID before any handler sees it.
+// uuidID refuses an :id that is not a UUIDv7, the ids the server makes,
+// before any handler sees it.
 func uuidID(next echo.HandlerFunc) echo.HandlerFunc {
 	return func(c *echo.Context) error {
-		if err := uuid.Validate(c.Param("id")); err != nil {
-			return echo.NewHTTPError(http.StatusBadRequest, "id must be a UUID")
+		if id, err := uuid.Parse(c.Param("id")); err != nil || id.Version() != 7 {
+			return echo.NewHTTPError(http.StatusBadRequest, "id must be a UUIDv7")
 		}
 		return next(c)
 	}

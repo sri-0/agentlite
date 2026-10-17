@@ -136,8 +136,9 @@ func (c *Client) SaveMessage(ctx context.Context, m *Message) error {
 
 // Threads lists root threads, newest first; the list is capped at threadsCap.
 func (c *Client) Threads(ctx context.Context) ([]Thread, error) {
-	return search[Thread](ctx, c, indexThreads, opensearchapi.SearchBody{
-		Size: new(threadsCap), Sort: sortBy("-updated_at"), Query: new(not(exists("parent_id"))),
+	return search[Thread](ctx, c, indexThreads, map[string]any{
+		"size": threadsCap, "sort": []any{map[string]any{"updated_at": "desc"}},
+		"query": map[string]any{"bool": map[string]any{"must_not": map[string]any{"exists": map[string]any{"field": "parent_id"}}}},
 	})
 }
 
@@ -154,11 +155,33 @@ func (c *Client) ThreadTitles(ctx context.Context, ids []string) (map[string]str
 	if len(ids) == 0 {
 		return titles, nil
 	}
-	found, err := search[Thread](ctx, c, indexThreads, opensearchapi.SearchBody{Size: new(len(ids)), Query: new(oneOf("id", ids))}, "id", "title")
+	found, err := search[Thread](ctx, c, indexThreads, map[string]any{
+		"size": len(ids), "_source": []string{"id", "title"}, "query": map[string]any{"ids": map[string]any{"values": ids}},
+	})
 	for _, t := range found {
 		titles[t.ID] = t.Title
 	}
 	return titles, err
+}
+
+// search runs a query and decodes each hit's source. The query is marshalled
+// once, so every value in it is JSON-escaped.
+func search[T any](ctx context.Context, c *Client, index string, query any) ([]T, error) {
+	body, err := json.Marshal(query)
+	if err != nil {
+		return nil, err
+	}
+	resp, err := c.api.Search(ctx, &opensearchapi.SearchReq{Indices: []string{index}, BodyReader: bytes.NewReader(body)})
+	if err != nil {
+		return nil, fmt.Errorf("search %s: %w", index, err)
+	}
+	out := make([]T, len(resp.Hits.Hits))
+	for i, h := range resp.Hits.Hits {
+		if err := json.Unmarshal(h.Source, &out[i]); err != nil {
+			return nil, fmt.Errorf("search %s: %w", index, err)
+		}
+	}
+	return out, nil
 }
 
 // get fetches one document by id; ErrNotFound when there is none.
@@ -184,9 +207,9 @@ func (c *Client) DeleteThread(ctx context.Context, rootID string) error {
 	for _, d := range []struct{ index, field string }{
 		{indexMessages, "root_id"}, {indexMemories, "thread_id"}, {indexThreads, "root_id"},
 	} {
+		q, _ := json.Marshal(map[string]any{"query": map[string]any{"term": map[string]any{d.field: rootID}}})
 		_, err := c.api.DeleteByQuery(ctx, &opensearchapi.DeleteByQueryReq{
-			Indices: []string{d.index}, Body: &opensearchapi.DeleteByQueryBody{Query: new(term(d.field, rootID))},
-			Params: &opensearchapi.DeleteByQueryParams{Refresh: "true"},
+			Indices: []string{d.index}, BodyReader: bytes.NewReader(q), Params: &opensearchapi.DeleteByQueryParams{Refresh: "true"},
 		})
 		if err != nil {
 			return fmt.Errorf("delete %s: %w", d.index, err)
@@ -197,9 +220,11 @@ func (c *Client) DeleteThread(ctx context.Context, rootID string) error {
 
 // SubThreads lists the ids of a conversation's sub-agent threads.
 func (c *Client) SubThreads(ctx context.Context, rootID string) ([]string, error) {
-	found, err := search[Thread](ctx, c, indexThreads, opensearchapi.SearchBody{
-		Size: new(listCap), Query: new(allOf(term("root_id", rootID), exists("parent_id"))),
-	}, "id")
+	found, err := search[Thread](ctx, c, indexThreads, map[string]any{
+		"size": listCap, "_source": []string{"id"}, "query": map[string]any{"bool": map[string]any{"filter": []any{
+			map[string]any{"term": map[string]any{"root_id": rootID}}, map[string]any{"exists": map[string]any{"field": "parent_id"}},
+		}}},
+	})
 	ids := make([]string, len(found))
 	for i, t := range found {
 		ids[i] = t.ID
@@ -210,11 +235,13 @@ func (c *Client) SubThreads(ctx context.Context, rootID string) ([]string, error
 // Messages returns up to limit messages of a thread with seq below before
 // (0 means from the newest), in ascending seq order.
 func (c *Client) Messages(ctx context.Context, threadID string, before int64, limit int) ([]Message, error) {
-	q := term("thread_id", threadID)
+	filter := []any{map[string]any{"term": map[string]any{"thread_id": threadID}}}
 	if before > 0 {
-		q = allOf(q, below("seq", before))
+		filter = append(filter, map[string]any{"range": map[string]any{"seq": map[string]any{"lt": before}}})
 	}
-	out, err := search[Message](ctx, c, indexMessages, opensearchapi.SearchBody{Size: new(limit), Sort: sortBy("-seq"), Query: &q})
+	out, err := search[Message](ctx, c, indexMessages, map[string]any{
+		"size": limit, "sort": []any{map[string]any{"seq": "desc"}}, "query": map[string]any{"bool": map[string]any{"filter": filter}},
+	})
 	if err != nil {
 		return nil, err
 	}

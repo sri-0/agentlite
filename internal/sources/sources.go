@@ -11,6 +11,8 @@ import (
 	"fmt"
 	"time"
 
+	"github.com/google/uuid"
+
 	"agentlite/pkg/citations"
 	"agentlite/pkg/db/opensearch"
 )
@@ -47,7 +49,7 @@ func (r *Recorder) Add(ctx context.Context, from citations.Origin, s citations.S
 		return 0, err
 	}
 	if !keyed {
-		id = opensearch.SourceNumberID(from.RootID, n)
+		id = uuid.Must(uuid.NewV7()).String()
 	}
 	err = r.store.SaveSource(ctx, &opensearch.Source{
 		ID: id, RootID: from.RootID, Number: n,

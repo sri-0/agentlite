@@ -68,7 +68,7 @@ func (c *Client) Skill(ctx context.Context, id string) (*Skill, error) {
 
 // SkillNamed fetches the skill with a name; ErrNotFound when there is none.
 func (c *Client) SkillNamed(ctx context.Context, name string) (*Skill, error) {
-	found, err := search[Skill](ctx, c, indexSkills, opensearchapi.SearchBody{Size: new(1), Query: new(term("name", name))})
+	found, err := search[Skill](ctx, c, indexSkills, map[string]any{"size": 1, "query": map[string]any{"term": map[string]any{"name": name}}})
 	if err != nil {
 		return nil, err
 	}
@@ -81,7 +81,11 @@ func (c *Client) SkillNamed(ctx context.Context, name string) (*Skill, error) {
 // AllSkills lists the whole library by name, without counts: what agents and
 // npx skills see. Fields, when given, are the only ones fetched.
 func (c *Client) AllSkills(ctx context.Context, fields ...string) ([]Skill, error) {
-	return search[Skill](ctx, c, indexSkills, opensearchapi.SearchBody{Size: new(listCap), Sort: sortBy("name")}, fields...)
+	q := map[string]any{"size": listCap, "sort": []any{map[string]any{"name": "asc"}}}
+	if len(fields) > 0 {
+		q["_source"] = fields
+	}
+	return search[Skill](ctx, c, indexSkills, q)
 }
 
 // Skills lists the library: by name, or best match first when Q is set
@@ -91,10 +95,12 @@ func (c *Client) AllSkills(ctx context.Context, fields ...string) ([]Skill, erro
 // what choosing it would show. The library is small (listCap), so they are
 // counted here from every skill Q matches.
 func (c *Client) Skills(ctx context.Context, f SkillFilter) (*SkillList, error) {
-	body := opensearchapi.SearchBody{Size: new(listCap), Sort: sortBy("name")}
+	body := map[string]any{"size": listCap, "sort": []any{map[string]any{"name": "asc"}}}
 	if q := strings.TrimSpace(f.Q); q != "" {
-		body.Query = new(anyOf(prefixMatch(q, "name", 1), prefixMatch(q, "title", 2), prefixMatch(q, "description", 1)))
-		body.Sort = sortBy("-_score", "name")
+		body["query"] = map[string]any{"multi_match": map[string]any{
+			"query": q, "fields": []string{"name", "title^2", "description"}, "type": "bool_prefix", "operator": "and",
+		}}
+		body["sort"] = []any{"_score", map[string]any{"name": "asc"}}
 	}
 	matched, err := search[Skill](ctx, c, indexSkills, body)
 	if err != nil {

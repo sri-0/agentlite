@@ -29,8 +29,9 @@ func (c *Client) SaveMemory(ctx context.Context, m *Memory) error {
 // SearchMemories returns the k entries nearest to the vector, leaving out the
 // entries of one thread (the one asking, whose turns are already in context).
 func (c *Client) SearchMemories(ctx context.Context, vector []float32, k int, excludeThread string) ([]Memory, error) {
-	knn := opensearchapi.CommonQueryDSLKNNQuery{Vector: vector, K: new(k), Filter: new(not(term("thread_id", excludeThread)))}
-	return search[Memory](ctx, c, indexMemories, opensearchapi.SearchBody{
-		Size: new(k), Query: &query{KNN: map[string]opensearchapi.CommonQueryDSLKNNQuery{"embedding": knn}},
-	}, "id", "thread_id", "author", "text", "created_at")
+	notThread := map[string]any{"bool": map[string]any{"must_not": map[string]any{"term": map[string]any{"thread_id": excludeThread}}}}
+	return search[Memory](ctx, c, indexMemories, map[string]any{
+		"size": k, "_source": map[string]any{"excludes": []string{"embedding"}},
+		"query": map[string]any{"knn": map[string]any{"embedding": map[string]any{"vector": vector, "k": k, "filter": notThread}}},
+	})
 }

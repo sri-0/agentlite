@@ -103,9 +103,10 @@ re-executed, because tools have side effects.
 ## Threads
 
 A thread is a conversation: a root thread the user started, or a child thread a
-`subagent` call started for a sub-agent (`parent_id`, `root_id`). Ids are UUIDv4, like
-every id the server makes, and always the server's; a path or frame whose thread or
-skill id is not a UUID gets 400. Each thread has:
+`subagent` call started for a sub-agent (`parent_id`, `root_id`). Ids are UUIDv7, like
+every id the server makes (adk's event ids too), and always the server's; a path or frame
+whose thread or skill id is not a UUIDv7 gets 400. Documents that must not be stored twice
+(a conversation's sources and artifacts) have name-based UUIDs instead. Each thread has:
 
 - one **event log** in Valkey (`thread:{id}:log`), the live channel and the
   source the finalizer folds from, trimmed to 24 h after each run;
@@ -188,8 +189,8 @@ needs no rights beyond reading and writing documents: each index's mapping is a 
 in `deploy/opensearch`, applied with `make indices` (curl: it creates a missing index,
 and adds new fields to an existing one; a changed type needs a reindex). Mappings are
 `"dynamic": "strict"`, so a field missing from them fails the write instead of being
-guessed. Queries are built with opensearch-go's typed query DSL
-(`pkg/db/opensearch/query.go`). Writes a read follows at once refresh the index;
+guessed. Each operation writes its query out in full next to the call that sends it.
+Writes a read follows at once refresh the index;
 memories, which nothing reads back straight away, do not.
 
 S3 (`S3_ENDPOINT`, required; MinIO in `docker-compose.yaml`): artifact bodies at
@@ -202,7 +203,7 @@ Environment (`config/config.go`; each storage package declares its own settings,
 such as `valkey.Config`): `PORT`, `HOST`, `APP_NAME`, `APP_URL`
 (this server as clients reach it, through any gateway), `CONFIG_DIR`, `LOG_LEVEL`
 (debug, info, warn or error; empty or unknown fails the start), `LOG_JSON`, `ALLOWED_ORIGINS` (CORS),
-`SOCKET_ALLOWED_ORIGINS` (the page origins a browser may open the socket from; `*`
+`WS_ALLOWED_ORIGINS` (the page origins a browser may open the socket from; `*`
 allows any, and clients that send no `Origin` are not checked),
 `MAX_BODY_MB` (the largest request body, default 32), `REDIS_HOST`,
 `REDIS_PORT`, `REDIS_USER`, `REDIS_PASS`, `REDIS_DB_RUNS`, `REDIS_DB_SESSIONS`,
