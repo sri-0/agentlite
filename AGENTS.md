@@ -120,7 +120,8 @@ started or resumed over the socket carry none yet.
 
 ## Configuration
 
-Environment (`internal/config/config.go`): `PORT`, `HOST`, `APP_NAME`, `CONFIG_DIR`,
+Environment (`internal/config/config.go`): `PORT`, `HOST`, `APP_NAME`, `APP_URL` (this
+server as clients reach it), `CONFIG_DIR`,
 `LOG_LEVEL`, `LOG_JSON`, `ALLOWED_ORIGINS` (CORS and the socket's browser origins), `MAX_BODY_MB`
 (the largest request body, default 32), `REDIS_HOST/PORT/USER/PASS`,
 `REDIS_DB_RUNS/SESSIONS/HITL` (default 1/2/3), `OPENSEARCH_URL/USERNAME/PASSWORD`,

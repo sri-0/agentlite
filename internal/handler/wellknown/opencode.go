@@ -15,7 +15,7 @@ import (
 // Clients prove who they are with their certificate (mutual TLS), so there is
 // no token: the login command, true, succeeds and prints none.
 func (h *Handler) Opencode(c *echo.Context) error {
-	base, app := h.Config.PublicURL, h.Config.AppName
+	base, app := h.Config.AppURL, h.Config.AppName
 	provider := opencode.Provider{
 		NPM: "@ai-sdk/openai-compatible", Name: app,
 		Options: opencode.Options{BaseURL: base + "/v1"}, Models: map[string]opencode.Model{},
@@ -28,7 +28,8 @@ func (h *Handler) Opencode(c *echo.Context) error {
 	cfg := opencode.Config{Provider: map[string]opencode.Provider{app: provider}, MCP: map[string]opencode.MCP{}}
 	// models.yaml's default, which opencode refuses unless its provider lists
 	// it: discovery may not have listed it yet.
-	if def := h.Config.Models.DefaultModel; hasModel(provider, def) {
+	def := h.Config.Models.DefaultModel
+	if _, ok := provider.Models[def]; ok {
 		cfg.Model = app + "/" + def
 	}
 	for _, conn := range h.Config.Connectors {
@@ -41,9 +42,4 @@ func (h *Handler) Opencode(c *echo.Context) error {
 		Auth:   opencode.Auth{Command: []string{"true"}, Env: "AGENTLITE_TOKEN"},
 		Config: cfg,
 	})
-}
-
-func hasModel(p opencode.Provider, id string) bool {
-	_, ok := p.Models[id]
-	return ok
 }

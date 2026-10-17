@@ -129,9 +129,11 @@ providers:
 ## Credentials
 
 Every call to a provider carries that provider's credentials: its `api_key_env` key,
-its headers and its client certificate. The pass-through drops the caller's
-`Authorization`, which is the internal user's JWT, and sends the provider's key
-instead, so a user's token never reaches a provider.
+its headers and its client certificate. The pass-through drops the caller's sensitive
+headers (`transport.Forward`, the same list the MCP proxy drops: `Authorization`, which is
+the internal user's JWT, `Cookie`, `X-Api-Key`, `X-Forwarded-Client-Cert` and the run
+headers) and sends the provider's key instead, so a user's token never reaches a
+provider.
 
 The development provider `openrouter` takes its base URL from `OPENROUTER_BASE_URL`;
 unset (production) it is skipped like any provider without a base URL, so a model id

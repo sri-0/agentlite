@@ -10,10 +10,14 @@ import (
 	"agentlite/pkg/transport"
 )
 
-// TestForwardKeepsWhoseCallItIs: an exposed server learns whose call it is
-// from agentlite alone, so a client cannot set the identity headers, nor send
-// its Authorization to a connector that does not forward the user's. The
-// connector's own headers and the MCP session still go through.
+// TestForwardKeepsWhoseCallItIs: an exposed server learns which run a call
+// is in from agentlite alone, so a client cannot set the run headers, nor
+// send its Authorization to a connector that does not forward the user's.
+// The connector's own headers and the MCP session still go through.
+var runHeaders = []string{
+	transport.HeaderThread, transport.HeaderRootThread, transport.HeaderRun, transport.HeaderAgent, transport.HeaderTool,
+}
+
 func TestForwardKeepsWhoseCallItIs(t *testing.T) {
 	var got *http.Request
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -30,7 +34,7 @@ func TestForwardKeepsWhoseCallItIs(t *testing.T) {
 	for _, forward := range []bool{false, true} {
 		srv := &Server{endpoint: endpoint, client: client, forward: forward}
 		req := httptest.NewRequest(http.MethodPost, "/mcp/slides?x=1", strings.NewReader(`{}`))
-		for _, h := range identity {
+		for _, h := range runHeaders {
 			req.Header.Set(h, "spoofed")
 		}
 		req.Header.Set("Authorization", "Bearer user")
@@ -43,7 +47,7 @@ func TestForwardKeepsWhoseCallItIs(t *testing.T) {
 		if got.URL.Path != "/mcp" || got.URL.RawQuery != "key=k" {
 			t.Errorf("forward=%v: sent to %s", forward, got.URL)
 		}
-		for _, h := range identity {
+		for _, h := range runHeaders {
 			if v := got.Header.Get(h); v != "" {
 				t.Errorf("forward=%v: %s reached the server: %q", forward, h, v)
 			}

@@ -26,7 +26,7 @@ at login, and again on every start (`internal/handler/wellknown/opencode.go`, it
 ```
 
 opencode puts `config` under the user's own configuration, so a user's settings win.
-The URLs start with `PUBLIC_URL` (default `http://localhost:8000`): this server as clients
+The URLs start with `APP_URL` (default `http://localhost:8000`): this server as clients
 reach it, through whatever gateway is in front.
 
 ## Login
@@ -64,11 +64,13 @@ handler. It publishes the server as it is:
 - every tool, whatever `mcp.tools` allows the agents;
 - no harness hooks: no `require_confirmation`, `thread_args`, `ui` or `artifacts`; tool
   approval is whatever opencode's own `permission` settings say;
-- no thread or run identity: the headers through which agentlite tells a server whose
-  call it is (`X-Thread-ID`, `X-Root-Thread-ID`, `X-Run-ID`, `X-Agent-ID`,
-  `X-Tool-Name`) are removed from the client's requests, so only agentlite sets them.
-  The client's `Authorization` reaches the server only when the connector forwards the
-  user's (`http.forward`, TOOLS.md). The client's other headers go through.
+- no run: like every forward (`transport.Forward`, which the model pass-through uses
+  too), it drops the client's sensitive headers: its credentials (`Authorization`,
+  `Cookie`, `X-Api-Key`, `X-Forwarded-Client-Cert`) and the run headers through which
+  agentlite tells a server which run a call is in (`X-Thread-ID`, `X-Root-Thread-ID`,
+  `X-Run-ID`, `X-Agent-ID`, `X-Tool-Name`), so only agentlite sets those. The client's
+  `Authorization`, the user's, goes on only when the connector forwards the user's
+  identity (`http.forward`, TOOLS.md). The client's other headers go through.
 
 Only a server reached over HTTP can be exposed: a connector with a `command` (stdio) and
 `expose` fails the start. Any other id is a `404`.

@@ -7,6 +7,7 @@ import (
 	"google.golang.org/adk/v2/agent"
 
 	"agentlite/pkg/citations"
+	"agentlite/pkg/transport"
 )
 
 // Context is what a tool's function receives: adk's tool context (the call
@@ -37,15 +38,6 @@ type Thread struct {
 	RunID  string
 }
 
-// Identity headers, sent by clients built with Headers (see Context).
-const (
-	HeaderThread     = "X-Thread-ID"
-	HeaderRootThread = "X-Root-Thread-ID"
-	HeaderRun        = "X-Run-ID"
-	HeaderAgent      = "X-Agent-ID"
-	HeaderTool       = "X-Tool-Name"
-)
-
 type (
 	runKey  struct{}
 	callKey struct{}
@@ -67,22 +59,23 @@ func RunFrom(ctx context.Context) Run {
 	return r
 }
 
-// Headers returns the identity headers for a request made with ctx: the
-// user's Authorization and the thread and run, and, from a tool's Context,
-// the agent and tool. It fits transport.Config.ContextHeaders.
+// Headers returns the headers a request made with ctx carries when its
+// connector forwards identity: the user's Authorization and the run headers
+// (transport.HeaderThread, …), the agent and tool only from a tool's Context.
+// It fits transport.Config.ContextHeaders.
 func Headers(ctx context.Context) http.Header {
 	h := http.Header{}
 	if r := RunFrom(ctx); r.Thread.ID != "" {
-		h.Set(HeaderThread, r.Thread.ID)
-		h.Set(HeaderRootThread, r.Thread.RootID)
-		h.Set(HeaderRun, r.Thread.RunID)
+		h.Set(transport.HeaderThread, r.Thread.ID)
+		h.Set(transport.HeaderRootThread, r.Thread.RootID)
+		h.Set(transport.HeaderRun, r.Thread.RunID)
 		if r.Authorization != "" {
 			h.Set("Authorization", r.Authorization)
 		}
 	}
 	if c, ok := ctx.Value(callKey{}).(caller); ok {
-		h.Set(HeaderAgent, c.agent)
-		h.Set(HeaderTool, c.tool)
+		h.Set(transport.HeaderAgent, c.agent)
+		h.Set(transport.HeaderTool, c.tool)
 	}
 	return h
 }

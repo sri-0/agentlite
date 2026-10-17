@@ -189,8 +189,8 @@ OpenSearch keeps only their records.
 
 ## Configuration
 
-Environment (`internal/config/config.go`): `PORT`, `HOST`, `APP_NAME`,
-`CONFIG_DIR`, `LOG_LEVEL`, `LOG_JSON`, `ALLOWED_ORIGINS` (CORS, and the page origins a
+Environment (`internal/config/config.go`): `PORT`, `HOST`, `APP_NAME`, `APP_URL`
+(this server as clients reach it, through any gateway), `CONFIG_DIR`, `LOG_LEVEL`, `LOG_JSON`, `ALLOWED_ORIGINS` (CORS, and the page origins a
 browser may open the socket from; clients that send no `Origin` are not checked),
 `MAX_BODY_MB` (the largest request body, default 32), `REDIS_HOST`,
 `REDIS_PORT`, `REDIS_USER`, `REDIS_PASS`, `REDIS_DB_RUNS`, `REDIS_DB_SESSIONS`,
