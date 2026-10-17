@@ -207,8 +207,8 @@ in `deploy/opensearch`, applied with `make indices` (curl: it creates a missing 
 and adds new fields to an existing one; a changed type needs a reindex). Mappings are
 `"dynamic": "strict"`, so a field missing from them fails the write instead of being
 guessed. Each operation writes its query out in full next to the call that sends it.
-Writes a read follows at once refresh the index;
-memories, which nothing reads back straight away, do not.
+Writes a read follows at once refresh the index; a memory write, in the background,
+waits for the next refresh, so a thread delete just after it still finds it.
 
 S3 (`S3_ENDPOINT`, required; MinIO in `docker-compose.yaml`): artifact bodies at
 `artifacts/{root}/{artifact id}/{version}`, and skill files at `skills/{skill id}/{path}`.
