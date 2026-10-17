@@ -29,7 +29,6 @@ import (
 	"agentlite/internal/sources"
 	"agentlite/internal/stream"
 	"agentlite/internal/tools/builtin"
-	"agentlite/internal/tools/builtin/skilltools"
 	"agentlite/pkg/db/opensearch"
 	"agentlite/pkg/modelcatalog"
 	"agentlite/pkg/toolx"
@@ -107,7 +106,7 @@ func (rt *Runtime) Bind(ctx context.Context, d builtin.Dispatcher) error {
 	if err != nil {
 		return err
 	}
-	if rt.skillset, err = skilltools.Toolset(ctx, rt.skills); err != nil {
+	if rt.skillset, err = rt.skills.Toolset(ctx); err != nil {
 		return err
 	}
 	if err := rt.connectorSets(); err != nil {

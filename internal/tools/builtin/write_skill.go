@@ -1,4 +1,4 @@
-package skilltools
+package builtin
 
 import (
 	"fmt"
@@ -9,8 +9,8 @@ import (
 	"agentlite/pkg/toolx"
 )
 
-// writeName names the tool that writes a skill to the library.
-const writeName = "write_skill"
+// writeSkillTool names the tool that writes a skill to the library.
+const writeSkillTool = "write_skill"
 
 type writeSkillArgs struct {
 	Name         string         `json:"name" jsonschema:"lowercase letters, digits and single hyphens, at most 64 characters"`
@@ -27,12 +27,12 @@ type skillFileArg struct {
 	Content string `json:"content" jsonschema:"the file's full text"`
 }
 
-// Write is write_skill: it creates a library skill, or replaces one's
-// SKILL.md and the files given, after the user approves; its other files are
-// kept, and so are its title, category and source unless given.
-func Write(lib *skills.Library) (toolx.Tool, error) {
+// writeSkill creates a library skill, or replaces one's SKILL.md and the
+// files given, after the user approves; its other files are kept, and so are
+// its title, category and source unless given.
+func writeSkill(d Deps) (toolx.Tool, error) {
 	return toolx.New(toolx.Spec{
-		Name: writeName,
+		Name: writeSkillTool,
 		Description: "Create a skill in the skills library, or change one, after the user approves. " +
 			"Write the whole skill in one call: its instructions, and any other files it has in files. " +
 			"An existing skill keeps the other files you do not give.",
@@ -47,7 +47,7 @@ func Write(lib *skills.Library) (toolx.Tool, error) {
 			files[f.Path] = []byte(f.Content)
 		}
 		files[skills.SkillFile] = md // the instructions, not a file of that path
-		s, err := lib.Save(tc, skills.Draft{
+		s, err := d.Skills.Save(tc, skills.Draft{
 			Files: files, Meta: skills.Meta{Title: given(a.Title), Category: given(a.Category), Source: given(a.Source)},
 			KeepFiles: true,
 		})

@@ -96,7 +96,7 @@ changes nothing. The result is checked as any upload is.
 ## Agents
 
 The library is an adk `skill.Source` (`internal/skills/source.go`), and agents get
-adk's skill toolset over it (`skilltoolset`, `skilltools.Toolset`): `list_skills`,
+adk's skill toolset over it (`skilltoolset`, `Library.Toolset`): `list_skills`,
 `load_skill` (a skill's instructions) and `load_skill_resource` (one of its files), and
 before each model call the list of skills, names and descriptions, at the end of the
 system instruction. The toolset is a tool like any other: an agent with no `tools:`
@@ -111,7 +111,7 @@ list gets it with the rest, and an agent with a list gets it by naming `skills`
 - Every call has the run's context. OpenSearch is read as the service today; once it
   is read with the user's credentials, the listing holds only the skills they may see.
 
-`write_skill` (a harness tool, `internal/tools/builtin/skilltools`) creates a skill or
+`write_skill` (a harness tool, `internal/tools/builtin/write_skill.go`) creates a skill or
 changes one after the user approves (HITL.md): `name`, `description`, `instructions`
 (SKILL.md is built from them with adk's `skill.Build`), any other files as
 `{path, content}`, and optionally `title`, `category` and `source`, which the tool tells
@@ -172,9 +172,9 @@ the server replaces them in place.
 | `internal/skills/parse.go` | reading an upload, checking SKILL.md |
 | `internal/skills/meta.go` | a skill's details, rewriting SKILL.md's description |
 | `internal/skills/source.go` | the library as an adk `skill.Source` |
+| `internal/skills/toolset.go` | adk's skill toolset and its instruction |
 | `internal/skills/resolve.go` | `/name` |
 | `internal/skills/index.go` | the discovery index for `npx skills` |
 | `internal/refs/refs.go` | references in a message, by sigil |
-| `internal/tools/builtin/skilltools/toolset.go` | adk's skill toolset and its instruction |
-| `internal/tools/builtin/skilltools/write_skill.go` | `write_skill` |
+| `internal/tools/builtin/write_skill.go` | `write_skill` |
 | `internal/handler/skills.go` | the API |

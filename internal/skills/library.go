@@ -2,8 +2,8 @@
 // other files (https://agentskills.io/specification). A skill's record is in
 // OpenSearch, a uuid its id and its name unique; its files are in S3 at
 // skills/<id>/<path>. Agents read the library through adk's skill toolset
-// (internal/tools/builtin/skilltools) and /name, and npx skills installs from
-// it. Nothing runs a skill's scripts.
+// (Toolset) and /name, and npx skills installs from it. Nothing runs a
+// skill's scripts.
 package skills
 
 import (

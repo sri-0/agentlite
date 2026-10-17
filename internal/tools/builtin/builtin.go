@@ -14,7 +14,6 @@ import (
 	"agentlite/internal/config"
 	"agentlite/internal/runs"
 	"agentlite/internal/skills"
-	"agentlite/internal/tools/builtin/skilltools"
 	"agentlite/pkg/toolx"
 )
 
@@ -54,6 +53,3 @@ func All(d Deps) (map[string]toolx.Tool, error) {
 	}
 	return out, nil
 }
-
-// writeSkill is skilltools' write_skill.
-func writeSkill(d Deps) (toolx.Tool, error) { return skilltools.Write(d.Skills) }
