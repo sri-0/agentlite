@@ -1,0 +1,16 @@
+{
+  "mappings": {
+    "dynamic": "strict",
+    "properties": {
+      "id": {"type": "keyword"},
+      "name": {"type": "keyword"},
+      "title": {"type": "text"},
+      "description": {"type": "text"},
+      "category": {"type": "keyword"},
+      "source": {"type": "keyword"},
+      "files": {"type": "object", "enabled": false},
+      "created_at": {"type": "date"},
+      "updated_at": {"type": "date"}
+    }
+  }
+}

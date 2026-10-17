@@ -3,13 +3,12 @@ package config
 import (
 	"errors"
 	"fmt"
+	"io/fs"
 	"maps"
 	"os"
 	"path/filepath"
 	"slices"
 	"strings"
-
-	"github.com/goccy/go-yaml"
 )
 
 // ConnectorsConfig is config/default/connectors.yaml: the systems a user can
@@ -76,17 +75,17 @@ func (m *MCP) hooked() []string {
 
 const defaultUserAgent = "agentlite/1.0"
 
-// LoadConnectors reads connectors.yaml; a missing file means no connectors.
-func LoadConnectors(dir string) (ConnectorsConfig, error) {
+// loadConnectors reads connectors.yaml; a missing file means no connectors.
+func loadConnectors(dir string) (ConnectorsConfig, error) {
 	cfg := ConnectorsConfig{UserAgent: defaultUserAgent}
 	raw, err := os.ReadFile(filepath.Join(dir, "connectors.yaml"))
-	if os.IsNotExist(err) {
+	if errors.Is(err, fs.ErrNotExist) {
 		return cfg, nil
 	}
 	if err != nil {
 		return ConnectorsConfig{}, fmt.Errorf("connectors.yaml: %w", err)
 	}
-	if err := yaml.Unmarshal(raw, &cfg); err != nil {
+	if err := decode(raw, &cfg); err != nil {
 		return ConnectorsConfig{}, fmt.Errorf("connectors.yaml: %w", err)
 	}
 	if cfg.UserAgent == "" {
@@ -102,8 +101,11 @@ func LoadConnectors(dir string) (ConnectorsConfig, error) {
 		if c.HTTP.UserAgent == "" {
 			c.HTTP.UserAgent = cfg.UserAgent
 		}
-		expandEnv(c.HTTP.Headers)
-		if err := c.check(seen, claimed); err != nil {
+		err := expandEnv(c.HTTP.Headers)
+		if err == nil {
+			err = c.check(seen, claimed)
+		}
+		if err != nil {
 			return ConnectorsConfig{}, fmt.Errorf("connectors.yaml: connector %q: %w", c.ID, err)
 		}
 	}

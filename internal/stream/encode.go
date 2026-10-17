@@ -162,7 +162,7 @@ func (e *Encoder) delta(s *step, p *genai.Part) {
 	if p.Thought {
 		if s.reasoning == "" {
 			e.closeText(s)
-			s.reasoning = uuid.NewString()
+			s.reasoning = uuid.Must(uuid.NewV7()).String()
 			e.send(events.NewReasoningStartEvent(s.reasoning))
 			e.send(events.NewReasoningMessageStartEvent(s.reasoning, "reasoning"))
 		}
@@ -171,7 +171,7 @@ func (e *Encoder) delta(s *step, p *genai.Part) {
 	}
 	if s.text == "" {
 		e.closeReasoning(s)
-		s.text = uuid.NewString()
+		s.text = uuid.Must(uuid.NewV7()).String()
 		s.buf.Reset()
 		e.send(events.NewTextMessageStartEvent(s.text, events.WithRole("assistant")))
 	}
@@ -274,7 +274,7 @@ func (e *Encoder) results(ev *session.Event) {
 			continue
 		}
 		body, _ := json.Marshal(fr.Response)
-		e.send(events.NewToolCallResultEvent(uuid.NewString(), fr.ID, string(body)))
+		e.send(events.NewToolCallResultEvent(uuid.Must(uuid.NewV7()).String(), fr.ID, string(body)))
 		switch fr.Name {
 		case ToolTodoWrite:
 			e.send(Activity("tasks", ActivityTaskList, fr.Response))

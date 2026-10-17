@@ -8,7 +8,7 @@ import (
 
 	"github.com/rs/zerolog"
 
-	"agentlite/internal/config"
+	"agentlite/config"
 	"agentlite/pkg/modelcatalog"
 	"agentlite/pkg/transport"
 )

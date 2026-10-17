@@ -10,7 +10,7 @@ import (
 	"github.com/valkey-io/valkey-go"
 	"google.golang.org/adk/v2/session"
 
-	"agentlite/internal/config"
+	"agentlite/config"
 	"agentlite/internal/hitl"
 	"agentlite/internal/stream"
 	"agentlite/pkg/db/opensearch"
@@ -91,10 +91,5 @@ func New(cfg *config.Config, db valkey.Client, interrupts *hitl.Store, sink Sink
 	}
 }
 
-const (
-	// SessionUser is adk's required user id; agentlite has no identity yet.
-	SessionUser = "default"
-
-	// DefaultAgent answers when no agent is named.
-	DefaultAgent = "assistant"
-)
+// SessionUser is adk's required user id; agentlite has no identity yet.
+const SessionUser = "default"

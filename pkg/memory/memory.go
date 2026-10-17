@@ -5,9 +5,8 @@ package memory
 
 import (
 	"context"
-	"crypto/sha1"
-	"encoding/hex"
 	"fmt"
+	"strings"
 
 	"github.com/rs/zerolog"
 	"go.opentelemetry.io/otel"
@@ -15,7 +14,6 @@ import (
 	"google.golang.org/adk/v2/session"
 	"google.golang.org/genai"
 
-	"agentlite/internal/stream"
 	"agentlite/pkg/db/opensearch"
 )
 
@@ -33,37 +31,34 @@ type Service struct {
 	log      zerolog.Logger
 }
 
-// New prepares the index for vectors of the embedder's size.
-func New(ctx context.Context, store *opensearch.Client, embedder Embedder, dimensions int, log zerolog.Logger) (*Service, error) {
-	if err := store.EnsureMemoryIndex(ctx, dimensions); err != nil {
-		return nil, err
-	}
-	return &Service{store: store, embedder: embedder, log: log}, nil
+// New returns the memory; the memories index is created with the others
+// (deploy/opensearch), sized for the embedding model.
+func New(store *opensearch.Client, embedder Embedder, log zerolog.Logger) *Service {
+	return &Service{store: store, embedder: embedder, log: log}
 }
 
 // AddSessionToMemory stores the text turns of the session's latest turn: the
-// last user message and everything after it. Ids are derived from the event,
-// so storing a turn twice overwrites rather than duplicates.
+// last user message and everything after it. Each memory has its event's id
+// (a UUIDv7), so storing a turn twice overwrites rather than duplicates.
 func (s *Service) AddSessionToMemory(ctx context.Context, sess session.Session) error {
 	var turn []*session.Event
 	for ev := range sess.Events().All() {
-		if ev.Author == "user" && stream.TextOf(ev.Content) != "" {
+		if ev.Author == "user" && textOf(ev.Content) != "" {
 			turn = turn[:0]
 		}
 		turn = append(turn, ev)
 	}
 	for _, ev := range turn {
-		text := stream.TextOf(ev.Content)
+		text := textOf(ev.Content)
 		if text == "" {
 			continue
 		}
-		id := memoryID(sess.ID(), ev.ID)
 		vector, err := s.embedder.Embed(ctx, text)
 		if err != nil {
 			return fmt.Errorf("embed: %w", err)
 		}
 		if err := s.store.SaveMemory(ctx, &opensearch.Memory{
-			ID: id, ThreadID: sess.ID(), Author: ev.Author, Text: text, Embedding: vector, CreatedAt: ev.Timestamp,
+			ID: ev.ID, ThreadID: sess.ID(), Author: ev.Author, Text: text, Embedding: vector, CreatedAt: ev.Timestamp,
 		}); err != nil {
 			return err
 		}
@@ -112,7 +107,16 @@ func (v *threadView) SearchMemory(ctx context.Context, req *memory.SearchRequest
 	return resp, nil
 }
 
-func memoryID(sessionID, eventID string) string {
-	sum := sha1.Sum([]byte(sessionID + ":" + eventID))
-	return hex.EncodeToString(sum[:])
+// textOf is the content's visible text, without thoughts.
+func textOf(c *genai.Content) string {
+	if c == nil {
+		return ""
+	}
+	var b strings.Builder
+	for _, p := range c.Parts {
+		if p.Text != "" && !p.Thought {
+			b.WriteString(p.Text)
+		}
+	}
+	return b.String()
 }

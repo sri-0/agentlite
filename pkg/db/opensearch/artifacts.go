@@ -2,15 +2,14 @@ package opensearch
 
 import (
 	"context"
-	"encoding/json"
-	"fmt"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/opensearch-project/opensearch-go/v5/opensearchapi"
 )
 
-// IndexArtifacts holds the artifacts conversations published.
-const IndexArtifacts = "artifacts"
+// indexArtifacts holds the artifacts conversations published.
+const indexArtifacts = "artifacts"
 
 // Artifact is a published document or an embedded page. Its body is in S3,
 // or nowhere for a url artifact, which only points at a page.
@@ -29,25 +28,23 @@ type Artifact struct {
 	UpdatedAt time.Time `json:"updated_at"`
 }
 
-const artifactsMapping = `{"mappings":{"properties":{
-	"id":{"type":"keyword"},"root_id":{"type":"keyword"},"thread_id":{"type":"keyword"},"run_id":{"type":"keyword"},
-	"title":{"type":"text"},"kind":{"type":"keyword"},"language":{"type":"keyword"},"url":{"type":"keyword"},
-	"size":{"type":"long"},
-	"version":{"type":"integer"},"created_at":{"type":"date"},"updated_at":{"type":"date"}}}}`
-
-func artifactID(rootID, id string) string { return rootID + ":" + id }
+// artifactID is an artifact's document id: a name-based UUID of its
+// conversation and the name the agent gave it.
+func artifactID(rootID, id string) string {
+	return uuid.NewSHA1(uuid.NameSpaceURL, []byte(rootID+"\x00"+id)).String()
+}
 
 // SaveArtifact stores a version of an artifact under its conversation. The
 // record only moves forward: when a later version is already stored, it is
 // kept and ErrConflict returned.
 func (c *Client) SaveArtifact(ctx context.Context, a *Artifact) error {
-	return c.write(ctx, IndexArtifacts, artifactID(a.RootID, a.ID), a,
-		opensearchapi.IndexParams{Version: &a.Version, VersionType: opensearchapi.VersionTypeExternal})
+	return c.write(ctx, indexArtifacts, artifactID(a.RootID, a.ID), a,
+		opensearchapi.IndexParams{Version: &a.Version, VersionType: opensearchapi.VersionTypeExternal, Refresh: "true"})
 }
 
 // Artifact fetches one artifact of a conversation.
 func (c *Client) Artifact(ctx context.Context, rootID, id string) (*Artifact, error) {
-	return get[Artifact](ctx, c, IndexArtifacts, artifactID(rootID, id))
+	return get[Artifact](ctx, c, indexArtifacts, artifactID(rootID, id))
 }
 
 // ArtifactKey is an artifact's place in RecentArtifacts' order: newest
@@ -73,15 +70,12 @@ func (c *Client) RecentArtifacts(ctx context.Context, after *ArtifactKey, limit 
 	if after != nil {
 		q["search_after"] = []any{after.UpdatedAt, after.RootID, after.ID}
 	}
-	body, err := json.Marshal(q)
-	if err != nil {
-		return nil, err
-	}
-	return search[Artifact](ctx, c, IndexArtifacts, string(body))
+	return search[Artifact](ctx, c, indexArtifacts, q)
 }
 
 // Artifacts lists a conversation's artifacts, newest first.
 func (c *Client) Artifacts(ctx context.Context, rootID string) ([]Artifact, error) {
-	return search[Artifact](ctx, c, IndexArtifacts, fmt.Sprintf(`{"size":%d,"sort":[{"updated_at":"desc"}],
-		"query":{"term":{"root_id":%q}}}`, listCap, rootID))
+	return search[Artifact](ctx, c, indexArtifacts, map[string]any{
+		"size": listCap, "sort": []any{map[string]any{"updated_at": "desc"}}, "query": map[string]any{"term": map[string]any{"root_id": rootID}},
+	})
 }

@@ -17,7 +17,7 @@ import (
 	"google.golang.org/adk/v2/tool"
 	"google.golang.org/adk/v2/tool/mcptoolset"
 
-	"agentlite/internal/config"
+	"agentlite/config"
 	"agentlite/pkg/toolx"
 	"agentlite/pkg/transport"
 )

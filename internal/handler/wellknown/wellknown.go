@@ -3,7 +3,7 @@
 package wellknown
 
 import (
-	"agentlite/internal/config"
+	"agentlite/config"
 	"agentlite/internal/providers"
 	"agentlite/internal/skills"
 )

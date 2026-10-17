@@ -72,7 +72,7 @@ func subagent(d Deps) (toolx.Tool, error) {
 		childThread := uuid.Must(uuid.NewV7()).String()
 		run, err := d.Dispatcher.Start(ctx, runs.StartInput{
 			ThreadID: childThread, ParentID: ctx.SessionID(), AgentID: a.SubagentType, Model: parentRun.Model,
-			Connectors: parentRun.Connectors, MessageID: uuid.NewString(), Text: a.Prompt,
+			Connectors: parentRun.Connectors, MessageID: uuid.Must(uuid.NewV7()).String(), Text: a.Prompt,
 			Authorization: toolx.RunFrom(ctx).Authorization, // the child acts for the same user
 		})
 		if err != nil {
