@@ -54,7 +54,10 @@ first, merged field by field with `dario.cat/mergo` (`modelcatalog.Merge`):
    `azure/gpt-4.1-mini` finds the card `openai/gpt-4.1-mini`; an exact id or alias
    always wins, and a segment two cards share finds neither: use `aliases`);
 2. **what the provider reports** (discovery: OpenAI `/models`, which OpenRouter and
-   vLLM extend, or LiteLLM `/model/info`), refreshed on `discover.refresh`;
+   vLLM extend, or LiteLLM `/model/info`): listed once during the start, every
+   provider at once, then refreshed in the background on `discover.refresh`. A failed
+   listing keeps the last one. Requests (`/v1/models` among them) read the list held in
+   memory and never call a provider;
 3. **its `models.yaml` entry**, declared by upstream id.
 
 A later layer replaces a field it sets and leaves the rest; it cannot clear a
@@ -97,10 +100,10 @@ picker take `llm` models only, so it stays out of them.
 A type no endpoint takes (LiteLLM's `video_generation` or `ocr`) is kept as reported
 and refused everywhere. A run on a model that is not an `llm` is refused when it is
 queued (`400`), and memory refuses an embedding model of another type.
-`default_model` and `memory.embedding_model` must be declared in models.yaml, under
-their provider's `models`, as an `llm` and an `embedding` model: discovery runs after the
-start and may never list them, so the server refuses to start otherwise. A declared
-model is always in the list.
+`default_model` and `memory.embedding_model` must be in the list after the start's
+first discovery, declared in models.yaml or listed by their provider, as an `llm` and an
+`embedding` model: the server refuses to start otherwise. Declaring them keeps them
+listed even when their provider is down at the start.
 
 `models.yaml` entries, and only they, may also set where a model's requests go
 (a card's `base_url` or `api` is ignored: cards come from another repository and are

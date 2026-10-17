@@ -26,7 +26,7 @@ func (h *Handler) Opencode(c *echo.Context) error {
 		}
 	}
 	cfg := opencode.Config{
-		Model:    app + "/" + h.Config.Models.DefaultModel, // declared in models.yaml, so always listed
+		Model:    app + "/" + h.Config.Models.DefaultModel, // checked at the start to be listed
 		Provider: map[string]opencode.Provider{app: provider}, MCP: map[string]opencode.MCP{},
 	}
 	for _, conn := range h.Config.Connectors {

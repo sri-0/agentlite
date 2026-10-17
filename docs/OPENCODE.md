@@ -47,9 +47,9 @@ must exist there (macOS and Linux have `true`).
   `tool_call` is set when its capabilities are known, so a model without tool calls
   says so; opencode assumes it has them otherwise. `limit` is set only when both the
   context window and the maximum output are known, since opencode needs both.
-- **`model`**, opencode's default, is models.yaml's `default_model`, which models.yaml
-  declares (checked at start), so the provider always lists it: opencode refuses a
-  default its provider does not list.
+- **`model`**, opencode's default, is models.yaml's `default_model`, which the start
+  checks is in the list (MODELS.md): opencode refuses a default its provider does not
+  list.
 
 ## MCP servers
 

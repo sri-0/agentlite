@@ -63,10 +63,10 @@ func New(ctx context.Context) (*App, error) {
 	if app.Registry, err = providers.NewRegistry(cfg.Models, cfg.ModelCardsDir, cfg.Transport, app.Log); err != nil {
 		return nil, err
 	}
+	app.Registry.Start(ctx) // the first discovery, before the check
 	if err := checkConfiguredModels(cfg.Models, app.Registry); err != nil {
 		return nil, err
 	}
-	app.Registry.Start(ctx)
 	// One client per logical database: runs, sessions and interrupts are kept apart.
 	runsDB, err := app.valkey(cfg.Redis.DBRuns)
 	if err != nil {
@@ -134,13 +134,13 @@ func (a *App) Close() {
 
 // checkConfiguredModels checks the models models.yaml names: default_model
 // (a run that names none uses it) and memory's embedding model. Each must be
-// declared in models.yaml, as the type it is used for: discovery runs after
-// the start and may never list it. So a mistake fails the start rather than
-// every run or memory, and the default is always in the model list.
+// in the model list after the start's first discovery (declared in
+// models.yaml, or listed by its provider), as the type it is used for, so a
+// mistake fails the start rather than every run or memory.
 func checkConfiguredModels(m *config.ModelsConfig, registry *providers.Registry) error {
 	check := func(id, typ string) error {
 		if _, err := registry.ResolveAs(id, typ); err != nil {
-			return fmt.Errorf("models.yaml: %w (declare it in its provider's models)", err)
+			return fmt.Errorf("models.yaml: %w (neither declared in models.yaml nor discovered)", err)
 		}
 		return nil
 	}
