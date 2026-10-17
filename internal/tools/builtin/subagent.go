@@ -59,7 +59,7 @@ type progressLine struct {
 // does, with its worker slot given back meanwhile.
 func subagent(d Deps) (toolx.Tool, error) {
 	return toolx.New(toolx.Spec{
-		Name:        stream.ToolSubagent,
+		Name:        Subagent,
 		Description: "Delegate a self-contained task to a sub-agent and get its result. Several subagent calls in one turn run in parallel.",
 	}, func(ctx toolx.Context, a subagentArgs) (map[string]any, error) {
 		parent := d.Defs[ctx.AgentName()]
@@ -86,9 +86,7 @@ func subagent(d Deps) (toolx.Tool, error) {
 		sink.Emit(events.NewSubagentStartedEvent(run.ID, a.SubagentType, events.WithSubagentDescription(a.Description), events.WithParentToolCall(ctx.FunctionCallID(), "")))
 		card.emit()
 
-		resume := runs.Yield(ctx)
 		final, err := follow(ctx, d.Dispatcher, childThread, run.ID, card)
-		resume()
 		switch {
 		case err != nil:
 			// The user cancelled the parent: the child goes too. On a server

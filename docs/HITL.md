@@ -46,10 +46,10 @@ user answers over the socket:
    {type: "answer", requestId, threadId, interruptId, approved, justification} | {…, output}
    │
    ├─ ws (internal/ws/conn.go) ─► Manager.Answer (internal/runs/answer.go): the run
-   │  must be paused and the interrupt pending on that thread; hitl.Decide marks
-   │  the record resolved with a compare-and-set on it (SET … IFEQ the JSON just
-   │  read), then adds it to the decided set before taking it out of the pending
-   │  one, so whoever sees none pending finds every answer decided
+   │  must be paused and the interrupt pending on that thread; hitl.Decide, one
+   │  Lua script, takes it out of the pending set, marks the record resolved and
+   │  adds it to the decided set, so whoever sees none pending finds every answer
+   │  decided
    ├─ more interrupts still pending: ack, and the run stays paused
    ├─ the last one answered: the run is moved back to queued (a compare-and-set
    │  on awaiting_input, so two last answers cannot both resume it), every
@@ -112,7 +112,7 @@ thread and interrupt, and the second answer gets `not_paused`.
   cancelled while it is pausing is closed as cancelled, not left paused.
 - **Durability.** The child's pause is durable: it survives a server restart and
   can be answered afterwards from its own thread. The parent's wait is a running
-  run that has given its worker slot back. A shutdown ends the parent's turn as cancelled
+  run that holds its worker slot. A shutdown ends the parent's turn as cancelled
   but leaves the child alone, so its request stays answerable; its result just
   no longer reaches the parent. (opencode keeps neither across a restart.)
 
@@ -170,5 +170,6 @@ client that wants them without folding the stream.
   connector pauses as described.
 - Two clients answering the same interrupt at the same moment: one wins, the
   other gets `not_paused` and changes nothing. An answer and a cancel at the same
-  moment: one wins too, by the same compare-and-set on the record and on the run's
-  status, so an interrupt is never both answered and cancelled.
+  moment: one wins too. Both take the interrupt out of the pending set first, and
+  only the one that removed it writes the record; the run's status moves by a
+  compare-and-set. So an interrupt is never both answered and cancelled.

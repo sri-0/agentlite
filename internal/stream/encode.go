@@ -14,22 +14,10 @@ import (
 	"google.golang.org/genai"
 )
 
-// Tool names other packages key on: the encoder turns todowrite and
-// emit_artifact into activities, the user answers a question rather than
-// approving it, and only agents with subagents get subagent.
+// Tool names the encoder turns into activities.
 const (
 	ToolTodoWrite    = "todowrite"
 	ToolEmitArtifact = "emit_artifact"
-	ToolQuestion     = "question"
-	ToolSubagent     = "subagent"
-)
-
-// Interrupt metadata: the paused tool call's name and arguments, and the
-// request a confirmation carries (a question's questions).
-const (
-	MetaToolName = "toolName"
-	MetaArgs     = "args"
-	MetaRequest  = "request"
 )
 
 // Encoder turns one run segment's adk events into AG-UI events. Every model
@@ -226,7 +214,7 @@ func (e *Encoder) call(ev *session.Event, fc *genai.FunctionCall) {
 		hint, payload := confirmation(fc.Args["toolConfirmation"])
 		in := interrupt(fc.ID, ReasonConfirmation, original, hint)
 		if payload != nil {
-			in.Metadata[MetaRequest] = payload
+			in.Metadata["request"] = payload
 		}
 		e.interrupts = append(e.interrupts, in)
 		return
@@ -239,7 +227,7 @@ func (e *Encoder) call(ev *session.Event, fc *genai.FunctionCall) {
 func interrupt(id, reason string, call *genai.FunctionCall, message string) types.Interrupt {
 	return types.Interrupt{
 		ID: id, Reason: reason, ToolCallID: call.ID, Message: message,
-		Metadata: types.Metadata{MetaToolName: call.Name, MetaArgs: call.Args},
+		Metadata: types.Metadata{"toolName": call.Name, "args": call.Args},
 	}
 }
 

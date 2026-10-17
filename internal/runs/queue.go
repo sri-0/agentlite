@@ -2,7 +2,6 @@ package runs
 
 import (
 	"context"
-	"fmt"
 	"strconv"
 	"sync"
 	"time"
@@ -20,8 +19,8 @@ const (
 	workerGroup = "workers"
 	finalGroup  = "finalizers"
 	staleAfter  = 2 * leaseTTL // longer than a dead worker's lease survives
-	// maxInFlight is how many entries one consumer executes at once. A parent
-	// waiting on a sub-agent gives its slot back (Yield).
+	// maxInFlight is how many entries one consumer handles at once. A parent
+	// waiting on a sub-agent (even one paused for the user) holds a slot.
 	maxInFlight = 32
 	ackTimeout  = 5 * time.Second
 )
@@ -45,36 +44,17 @@ func (q *queue) enqueue(ctx context.Context, fields map[string]string) error {
 	return q.db.Do(ctx, cmd.Build()).Error()
 }
 
-// createGroup makes the queue's consumer group if it is missing, reading
-// from the stream's start: handled entries are deleted, so only requests
-// waiting for a consumer are there.
-func (q *queue) createGroup(ctx context.Context) error {
-	err := q.db.Do(ctx, q.db.B().XgroupCreate().Key(q.key).Group(q.group).Id("0").Mkstream().Build()).Error()
-	if err != nil && !valkey.IsValkeyBusyGroup(err) {
-		return fmt.Errorf("queue %s: create group: %w", q.key, err)
-	}
-	return nil
-}
-
-type slotKey struct{}
-
-// Yield gives the caller's worker slot back while it waits on other runs, so
-// parents waiting on their sub-agents never fill an agent's slots; the
-// returned func takes a slot again before the caller goes on.
-func Yield(ctx context.Context) (resume func()) {
-	slots, ok := ctx.Value(slotKey{}).(chan struct{})
-	if !ok {
-		return func() {}
-	}
-	<-slots
-	return func() { slots <- struct{}{} }
-}
-
 // consume runs handler for every entry until ctx ends, up to maxInFlight at
 // a time, and returns once the entries in flight have finished. A nil return
 // acknowledges the entry; an error leaves it pending, and pending entries
 // older than staleAfter are retried whenever the queue is idle.
 func (q *queue) consume(ctx context.Context, handler func(context.Context, map[string]string) error) {
+	// The group reads from the stream's start: handled entries are deleted, so
+	// what is there is waiting, even if it arrived before the group existed.
+	if err := q.db.Do(ctx, q.db.B().XgroupCreate().Key(q.key).Group(q.group).Id("0").Mkstream().Build()).Error(); err != nil && !valkey.IsValkeyBusyGroup(err) {
+		q.log.Error().Err(err).Str("queue", q.key).Msg("create consumer group")
+		return
+	}
 	slots := make(chan struct{}, maxInFlight)
 	var inFlight sync.WaitGroup
 	defer inFlight.Wait()
@@ -86,7 +66,7 @@ func (q *queue) consume(ctx context.Context, handler func(context.Context, map[s
 		}
 		inFlight.Go(func() {
 			defer func() { <-slots }()
-			q.handle(context.WithValue(ctx, slotKey{}, slots), x, handler)
+			q.handle(ctx, x, handler)
 		})
 	}
 	q.reclaim(ctx, dispatch)

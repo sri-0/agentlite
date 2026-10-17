@@ -11,6 +11,7 @@ import (
 
 	"agentlite/internal/runs"
 	"agentlite/internal/stream"
+	"agentlite/internal/tools/builtin"
 )
 
 // content is the user message, with what its references (/name) resolve to
@@ -40,7 +41,7 @@ func (rt *Runtime) content(ctx context.Context, threadID string, in runs.Input) 
 		approved, _ := payload["approved"].(bool)
 		justification, _ := payload["justification"].(string)
 		// question takes its answer as its result, so adk must call it again.
-		confirmed := approved || original.Name == stream.ToolQuestion
+		confirmed := approved || original.Name == builtin.Question
 		c.Parts = append(c.Parts, &genai.Part{FunctionResponse: &genai.FunctionResponse{
 			ID: entry.InterruptID, Name: call.Name, Response: map[string]any{"confirmed": confirmed, "payload": payload},
 		}})
