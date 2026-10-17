@@ -66,6 +66,11 @@ func (s *Service) AddSessionToMemory(ctx context.Context, sess session.Session) 
 	return nil
 }
 
+// Forget deletes what was remembered of a thread.
+func (s *Service) Forget(ctx context.Context, threadID string) error {
+	return s.store.DeleteMemories(ctx, threadID)
+}
+
 // ForThread is the memory as one thread sees it: searches skip the thread's
 // own turns, which the model already has in context.
 func (s *Service) ForThread(threadID string) memory.Service {

@@ -10,6 +10,7 @@ import (
 
 	"github.com/coder/websocket"
 	"github.com/google/uuid"
+	"github.com/rs/zerolog"
 
 	"agentlite/internal/runs"
 	"agentlite/pkg/db/opensearch"
@@ -21,6 +22,10 @@ const (
 	// requestTimeout bounds a run, answer or cancel. Requests outlive the
 	// socket: a client that disconnects mid-request still gets it completed.
 	requestTimeout = 30 * time.Second
+	// A client that stops reading, or vanished without closing, is dropped:
+	// a frame not written in writeTimeout, or no pong within pingEvery.
+	writeTimeout = 10 * time.Second
+	pingEvery    = 30 * time.Second
 )
 
 // Threads looks a thread up as the user sees it. With OpenSearch
@@ -37,6 +42,7 @@ type client struct {
 	ctx     context.Context // the socket's lifetime
 	runs    *runs.Manager
 	threads Threads
+	log     zerolog.Logger
 
 	mu      sync.Mutex
 	subs    map[string]*subscription // thread id → its live subscription
@@ -45,19 +51,30 @@ type client struct {
 
 type subscription struct{ cancel context.CancelFunc }
 
-// Serve reads frames until the socket closes. Every frame names a thread the
-// socket must be let in to (see allow). Each thread has at most one
-// subscription; a new subscribe on the same thread replaces it. Runs,
-// answers and cancels are handled off the read loop, so a slow one never
-// holds up the frames behind it.
-func Serve(ctx context.Context, conn *websocket.Conn, m *runs.Manager, threads Threads) {
-	ctx, cancel := context.WithCancel(ctx)
+// Serve reads frames until the socket closes, or ctx ends (the server
+// shutting down: the socket closes as going away, and the client reconnects).
+// Every frame names a thread the socket must be let in to (see allow). Each
+// thread has at most one subscription; a new subscribe on the same thread
+// replaces it. Runs, answers and cancels are handled off the read loop, so a
+// slow one never holds up the frames behind it.
+func Serve(ctx context.Context, conn *websocket.Conn, m *runs.Manager, threads Threads, log zerolog.Logger) {
+	// The socket's own lifetime: coder/websocket drops the connection when a
+	// read's context ends, which must not happen before the close is sent.
+	sock, cancel := context.WithCancel(context.WithoutCancel(ctx))
 	defer cancel()
 	defer conn.CloseNow()
-	c := &client{conn: conn, ctx: ctx, runs: m, threads: threads, subs: map[string]*subscription{}, allowed: map[string]bool{}}
+	go func() {
+		select {
+		case <-ctx.Done():
+			conn.Close(websocket.StatusGoingAway, "server shutting down")
+		case <-sock.Done():
+		}
+	}()
+	c := &client{conn: conn, ctx: sock, runs: m, threads: threads, log: log, subs: map[string]*subscription{}, allowed: map[string]bool{}}
 	conn.SetReadLimit(readLimit)
+	go c.ping(cancel)
 	for {
-		_, data, err := conn.Read(ctx)
+		_, data, err := conn.Read(sock)
 		if err != nil {
 			return
 		}
@@ -93,7 +110,7 @@ func (c *client) request(f ClientFrame, handle func(context.Context, ClientFrame
 		ack, err = handle(ctx, f)
 	}
 	if err != nil {
-		c.sendError(f, code(err), err.Error())
+		c.fail(f, err)
 		return
 	}
 	ack.Type, ack.RequestID = FrameAck, f.RequestID
@@ -142,7 +159,7 @@ func (c *client) subscribe(threadID, after string) {
 		defer c.drop(threadID, sub)
 		fail := func(err error) {
 			if subCtx.Err() == nil { // a replaced or ended subscription has nothing to report
-				c.sendError(ClientFrame{ThreadID: threadID}, code(err), err.Error())
+				c.fail(ClientFrame{ThreadID: threadID}, err)
 			}
 		}
 		if err := c.allow(subCtx, threadID); err != nil {
@@ -220,14 +237,49 @@ func (c *client) drop(threadID string, sub *subscription) {
 	}
 }
 
-// send writes one frame; coder/websocket serialises concurrent writes.
+// send writes one frame; coder/websocket serialises concurrent writes. A
+// write that does not finish in writeTimeout closes the socket.
 func (c *client) send(f ServerFrame) bool {
 	raw, _ := json.Marshal(f)
-	return c.conn.Write(c.ctx, websocket.MessageText, raw) == nil
+	ctx, cancel := context.WithTimeout(c.ctx, writeTimeout)
+	defer cancel()
+	return c.conn.Write(ctx, websocket.MessageText, raw) == nil
 }
 
 func (c *client) sendError(f ClientFrame, code, msg string) {
 	c.send(ServerFrame{Type: FrameError, RequestID: f.RequestID, ThreadID: f.ThreadID, Code: code, Message: msg})
+}
+
+// fail reports an error to the client. An internal one is logged, and the
+// client gets no more than that it happened.
+func (c *client) fail(f ClientFrame, err error) {
+	code, msg := code(err), err.Error()
+	if code == CodeInternal {
+		c.log.Error().Err(err).Str("thread", f.ThreadID).Str("frame", f.Type).Msg("socket request failed")
+		msg = "internal error"
+	}
+	c.sendError(f, code, msg)
+}
+
+// ping checks the client is still there; when it is not, cancel ends the
+// socket.
+func (c *client) ping(cancel context.CancelFunc) {
+	t := time.NewTicker(pingEvery)
+	defer t.Stop()
+	for {
+		select {
+		case <-c.ctx.Done():
+			return
+		case <-t.C:
+			ctx, done := context.WithTimeout(c.ctx, pingEvery)
+			err := c.conn.Ping(ctx)
+			done()
+			if err != nil {
+				cancel()
+				return
+			}
+		}
+	}
 }
 
 // code names a service error for the client.

@@ -17,12 +17,6 @@ import (
 	"agentlite/pkg/toolx"
 )
 
-// Tool names other packages key on.
-const (
-	Subagent = "subagent" // sub-agent dispatch; offered only to agents with subagents
-	Question = "question" // answered by the user, not approved
-)
-
 // Dispatcher starts, follows and stops child runs; runs.Manager implements it.
 type Dispatcher interface {
 	Start(ctx context.Context, in runs.StartInput) (*runs.Run, error)

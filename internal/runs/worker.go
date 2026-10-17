@@ -33,24 +33,11 @@ func (m *Manager) execute(ctx context.Context, fields map[string]string) error {
 	}
 	bg := context.WithoutCancel(ctx) // closing writes must land even during shutdown
 	if run.Status != StatusQueued {
-		// Reclaimed while running: if the thread lease still names the run, its
-		// worker is alive and the run is just long; otherwise the worker died.
-		// Never re-execute either way, tools have side effects.
-		active, err := m.store.active(ctx, run.ThreadID)
-		m.logger.Debug().Str("run", run.ID).Str("status", string(run.Status)).Err(err).Msg("run delivered again")
-		if err == nil && active != nil && active.ID == run.ID {
-			return nil
-		}
-		if run.Status == StatusRunning {
-			const msg = "run was interrupted by a restart"
-			sink := m.sinkFor(bg, run)
-			sink.Emit(events.NewRunErrorEvent(msg, events.WithRunID(run.ID)))
-			m.settle(sink, StatusError, "", msg)
-		}
+		m.redelivered(bg, run)
 		return nil
 	}
-	if err := m.store.update(ctx, run.ID, map[string]string{"status": string(StatusRunning)}); err != nil {
-		return err
+	if started, err := m.store.transition(ctx, run.ID, StatusQueued, StatusRunning); !started || err != nil {
+		return err // not started: cancelled while queued
 	}
 	run.Status = StatusRunning
 
@@ -70,21 +57,55 @@ func (m *Manager) execute(ctx context.Context, fields map[string]string) error {
 	}
 	sink := m.sinkFor(bg, run)
 	result, err := m.runEngine(runCtx, in, sink)
-	cancel(nil) // stop refreshing the lease before settle may persist it
-	if result.Status == StatusAwaitingInput && m.store.cancelRequested(bg, run.ID) {
-		return m.closeCancelled(bg, run) // cancelled while it was pausing; the pause is never announced
-	}
+	cancel(nil) // stop refreshing the lease before settle holds it for the pause
 	errText := ""
 	if err != nil {
 		errText = err.Error()
 	}
 	if result.Status == StatusAwaitingInput {
+		cancelled, err := m.store.cancelRequested(bg, run.ID)
+		if err != nil {
+			m.logger.Error().Err(err).Str("run", run.ID).Msg("read cancel flag")
+		}
+		if cancelled { // cancelled while it was pausing; the pause is never announced
+			_, err := m.closeCancelled(bg, run, StatusRunning)
+			return err
+		}
 		if err := m.hitl.Add(bg, run.ThreadID, run.ID, result.Interrupts); err != nil {
-			m.logger.Error().Err(err).Str("run", run.ID).Msg("record interrupts")
+			// A pause whose interrupts are not recorded could never be answered.
+			result.Status, errText, sink.pause = StatusError, fmt.Sprintf("record interrupts: %v", err), nil
+			sink.Emit(events.NewRunErrorEvent(errText, events.WithRunID(run.ID)))
 		}
 	}
-	m.settle(sink, result.Status, result.Text, errText)
+	m.settle(sink, StatusRunning, result.Status, result.Text, errText)
 	return nil
+}
+
+// redelivered handles a request whose run is no longer queued: cancelled
+// before a worker took it, still running on another worker, or left running
+// by a worker that died. A run is never executed twice: tools have side
+// effects.
+func (m *Manager) redelivered(ctx context.Context, run *Run) {
+	if run.Status != StatusRunning {
+		return
+	}
+	active, err := m.store.active(ctx, run.ThreadID)
+	switch {
+	case err != nil:
+		m.logger.Error().Err(err).Str("run", run.ID).Msg("redelivered run")
+	case active != nil && active.ID == run.ID:
+		// Its worker is alive (it keeps the lease): the run is just long.
+	case active != nil:
+		// The thread has moved on; its log belongs to the newer run now.
+		if _, err := m.store.transition(ctx, run.ID, StatusRunning, StatusError); err != nil {
+			m.logger.Error().Err(err).Str("run", run.ID).Msg("close interrupted run")
+		}
+	default:
+		const msg = "run was interrupted by a restart"
+		sink := m.sinkFor(ctx, run)
+		sink.Emit(events.NewRunErrorEvent(msg, events.WithRunID(run.ID)))
+		m.settle(sink, StatusRunning, StatusError, "", msg)
+	}
 }
 
 // runEngine turns a panic in a run into a failed run instead of a dead process.
@@ -100,21 +121,32 @@ func (m *Manager) runEngine(ctx context.Context, in Input, sink stream.Sink) (re
 	return m.runtime.Run(ctx, in, sink)
 }
 
-// settle records the segment's outcome, announces a held pause now that it is
+// settle moves the run from its current status to the segment's outcome and
+// records it (see record). A run that moved meanwhile is left as it is.
+func (m *Manager) settle(sink *appendSink, from, to Status, result, errText string) {
+	if moved, err := m.store.transition(sink.ctx, sink.run.ID, from, to); !moved || err != nil {
+		m.logger.Error().Err(err).Str("run", sink.run.ID).Str("from", string(from)).Str("to", string(to)).Msg("settle run")
+		return
+	}
+	m.record(sink, to, result, errText)
+}
+
+// record stores the segment's outcome, announces a held pause now that it is
 // recorded, and tells the finalizer. The thread stays owned until the
 // finalizer has persisted the turn, so a client never sees the thread idle
-// without its answer; the lease expires on its own if the finalizer never runs.
-func (m *Manager) settle(sink *appendSink, status Status, result, errText string) {
+// without its answer; the lease expires on its own if the finalizer never
+// runs. A paused run keeps it as long as its record.
+func (m *Manager) record(sink *appendSink, status Status, result, errText string) {
 	ctx, run := sink.ctx, sink.run
 	if len(result) > resultCap {
 		result = result[:resultCap]
 	}
-	if err := m.store.update(ctx, run.ID, map[string]string{"status": string(status), "result": result, "error": errText}); err != nil {
+	if err := m.store.update(ctx, run.ID, map[string]string{"result": result, "error": errText}); err != nil {
 		m.logger.Error().Err(err).Str("run", run.ID).Msg("record outcome")
 	}
 	if status == StatusAwaitingInput {
-		if err := m.store.persistLease(ctx, run.ThreadID); err != nil {
-			m.logger.Error().Err(err).Str("run", run.ID).Msg("persist lease")
+		if err := m.store.holdLease(ctx, run.ThreadID, runTTL); err != nil {
+			m.logger.Error().Err(err).Str("run", run.ID).Msg("hold lease for the pause")
 		}
 	}
 	sink.announcePause()
@@ -124,37 +156,58 @@ func (m *Manager) settle(sink *appendSink, status Status, result, errText string
 	}
 }
 
+// watchControl cancels the run when the user asks. A cancel published before
+// the subscription was live is caught by the flag Cancel sets first.
 func (m *Manager) watchControl(ctx context.Context, run *Run, cancel context.CancelCauseFunc) {
-	m.db.Receive(ctx, m.db.B().Subscribe().Channel(ctlChannel(run.ID)).Build(), func(msg valkey.PubSubMessage) {
+	subscribed := valkey.WithOnSubscriptionHook(ctx, func(s valkey.PubSubSubscription) {
+		if s.Kind != "subscribe" {
+			return
+		}
+		go func() { // not on the client's reader
+			requested, err := m.store.cancelRequested(ctx, run.ID)
+			if err != nil && ctx.Err() == nil {
+				m.logger.Error().Err(err).Str("run", run.ID).Msg("read cancel flag")
+			}
+			if requested {
+				cancel(ErrCancelled)
+			}
+		}()
+	})
+	err := m.db.Receive(subscribed, m.db.B().Subscribe().Channel(ctlChannel(run.ID)).Build(), func(msg valkey.PubSubMessage) {
 		if msg.Message == "cancel" {
 			cancel(ErrCancelled)
 		}
 	})
+	if err != nil && ctx.Err() == nil {
+		m.logger.Error().Err(err).Str("run", run.ID).Msg("cancel subscription lost")
+	}
 }
 
+// keepLease holds the thread for the run while it executes, from the
+// queued run's longer lease down to leaseTTL.
 func (m *Manager) keepLease(ctx context.Context, threadID string) {
 	t := time.NewTicker(leaseRefresh)
 	defer t.Stop()
 	for {
+		if err := m.store.holdLease(ctx, threadID, leaseTTL); err != nil && ctx.Err() == nil {
+			m.logger.Error().Err(err).Str("thread", threadID).Msg("refresh lease")
+		}
 		select {
 		case <-ctx.Done():
 			return
 		case <-t.C:
-			if err := m.store.refreshLease(ctx, threadID); err != nil {
-				m.logger.Error().Err(err).Str("thread", threadID).Msg("refresh lease")
-			}
 		}
 	}
 }
 
 // appendSink writes a run's events to the thread log. Its context outlives
 // the run, so the closing events of a cancelled run or a shutdown still land.
-// The event that announces a pause is held until settle has recorded the
+// The event that announces a pause is held until record has stored the
 // pause: a client may answer the moment it sees the interrupt, and must find
 // the run waiting.
 type appendSink struct {
 	ctx    context.Context
-	log    Log
+	log    *valkeyLog
 	run    *Run
 	logger zerolog.Logger
 	pause  stream.Event
@@ -185,17 +238,27 @@ func (a *appendSink) append(e stream.Event) {
 	}
 }
 
-// StartWorkers runs the worker and finalizer loops in this process until ctx
-// ends; Stop then waits for the runs they are executing to settle.
-func (m *Manager) StartWorkers(ctx context.Context) {
+// StartWorkers creates the queues' consumer groups, then runs the worker and
+// finalizer loops in this process until ctx ends; Stop then waits for the
+// runs they are executing to settle. A group made before any request can
+// arrive starts at the stream's beginning, so no request is skipped.
+func (m *Manager) StartWorkers(ctx context.Context) error {
+	queues := []*queue{{db: m.db, key: doneKey, group: finalGroup}}
 	for id := range m.defs {
-		m.consume(ctx, &queue{db: m.db, key: requestsKey + id, group: workerGroup, consumer: m.consumerName(), log: m.logger}, m.execute)
+		queues = append(queues, &queue{db: m.db, key: requestsKey + id, group: workerGroup})
 	}
-	m.consume(ctx, &queue{db: m.db, key: doneKey, group: finalGroup, consumer: m.consumerName(), log: m.logger}, m.finalize)
-}
-
-func (m *Manager) consume(ctx context.Context, q *queue, handler func(context.Context, map[string]string) error) {
-	m.workers.Go(func() { q.consume(ctx, handler) })
+	for _, q := range queues {
+		q.consumer, q.log = m.consumerName(), m.logger
+		if err := q.createGroup(ctx); err != nil {
+			return err
+		}
+		handler := m.execute
+		if q.key == doneKey {
+			handler = m.finalize
+		}
+		m.workers.Go(func() { q.consume(ctx, handler) })
+	}
+	return nil
 }
 
 // Stop waits for the worker loops to finish their current entries.

@@ -107,7 +107,7 @@ func (m *Manager) prepare(ctx context.Context, in StartInput, run *Run) error {
 	if err != nil {
 		return err
 	}
-	if err := m.sink.SaveMessage(ctx, userMessage(thread, in, seq)); err != nil {
+	if err := m.history.SaveMessage(ctx, userMessage(thread, in, seq)); err != nil {
 		return err
 	}
 	if run.TurnSeq, err = m.store.nextSeq(ctx, in.ThreadID); err != nil {
@@ -117,7 +117,7 @@ func (m *Manager) prepare(ctx context.Context, in StartInput, run *Run) error {
 		return err
 	}
 	run.SegmentFrom = run.TurnFrom
-	if err := m.store.save(ctx, run); err != nil {
+	if err := m.store.create(ctx, run); err != nil {
 		return err
 	}
 	fields := map[string]string{"message": in.Text}
@@ -148,7 +148,11 @@ func (m *Manager) claimThread(ctx context.Context, in StartInput, runID string) 
 		case active != nil && !active.Status.Terminal(), time.Now().After(deadline):
 			return nil, ErrBusy
 		}
-		time.Sleep(finalizePoll)
+		select {
+		case <-time.After(finalizePoll):
+		case <-ctx.Done():
+			return nil, ctx.Err()
+		}
 	}
 }
 
@@ -188,7 +192,7 @@ func (m *Manager) upsertThread(ctx context.Context, in StartInput) (thread *open
 		thread.Title = title(in.Text)
 	}
 	thread.AgentID, thread.Model, thread.UpdatedAt = in.AgentID, in.Model, now
-	return thread, previousModel, m.sink.SaveThread(ctx, thread)
+	return thread, previousModel, m.history.SaveThread(ctx, thread)
 }
 
 func title(text string) string {

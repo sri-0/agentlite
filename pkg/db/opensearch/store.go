@@ -207,13 +207,21 @@ func (c *Client) DeleteThread(ctx context.Context, rootID string) error {
 	for _, d := range []struct{ index, field string }{
 		{indexMessages, "root_id"}, {indexMemories, "thread_id"}, {indexThreads, "root_id"},
 	} {
-		q, _ := json.Marshal(map[string]any{"query": map[string]any{"term": map[string]any{d.field: rootID}}})
-		_, err := c.api.DeleteByQuery(ctx, &opensearchapi.DeleteByQueryReq{
-			Indices: []string{d.index}, BodyReader: bytes.NewReader(q), Params: &opensearchapi.DeleteByQueryParams{Refresh: "true"},
-		})
-		if err != nil {
-			return fmt.Errorf("delete %s: %w", d.index, err)
+		if err := c.deleteWhere(ctx, d.index, d.field, rootID); err != nil {
+			return err
 		}
+	}
+	return nil
+}
+
+// deleteWhere deletes an index's documents whose field holds value.
+func (c *Client) deleteWhere(ctx context.Context, index, field, value string) error {
+	q, _ := json.Marshal(map[string]any{"query": map[string]any{"term": map[string]any{field: value}}})
+	_, err := c.api.DeleteByQuery(ctx, &opensearchapi.DeleteByQueryReq{
+		Indices: []string{index}, BodyReader: bytes.NewReader(q), Params: &opensearchapi.DeleteByQueryParams{Refresh: "true"},
+	})
+	if err != nil {
+		return fmt.Errorf("delete %s: %w", index, err)
 	}
 	return nil
 }

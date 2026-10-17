@@ -5,6 +5,7 @@ import (
 
 	"google.golang.org/adk/v2/tool"
 
+	"agentlite/internal/stream"
 	"agentlite/pkg/toolx"
 )
 
@@ -30,7 +31,7 @@ type questionArgs struct {
 // with the user's answers as the confirmation's output.
 func question(Deps) (toolx.Tool, error) {
 	return toolx.New(toolx.Spec{
-		Name: Question,
+		Name: stream.ToolQuestion,
 		Description: "Ask the user one to four multiple-choice questions when you need a decision only they can make. " +
 			"The answers arrive as the tool result: one list per question, empty for one the user skipped. " +
 			"skipped: true means the user skipped them all: go on with your best judgement and say what you assumed.",
@@ -43,7 +44,7 @@ func question(Deps) (toolx.Tool, error) {
 			}
 			return answers, nil
 		}
-		if err := ctx.RequestConfirmation("Answer the questions.", map[string]any{"toolName": "question", "args": a}); err != nil {
+		if err := ctx.RequestConfirmation("Answer the questions.", map[string]any{stream.MetaToolName: stream.ToolQuestion, stream.MetaArgs: a}); err != nil {
 			return nil, err
 		}
 		return nil, fmt.Errorf("question: %w", tool.ErrConfirmationRequired)

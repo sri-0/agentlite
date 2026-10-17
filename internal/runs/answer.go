@@ -1,6 +1,7 @@
 package runs
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -26,18 +27,13 @@ func (m *Manager) Answer(ctx context.Context, threadID, interruptID string, d hi
 	if run == nil || run.Status != StatusAwaitingInput {
 		return nil, ErrNotPaused
 	}
-	rec, err := m.hitl.Get(ctx, interruptID)
-	if errors.Is(err, hitl.ErrNotFound) || err == nil && rec.ThreadID != threadID {
+	remaining, err := m.hitl.Decide(ctx, threadID, interruptID, d)
+	switch {
+	case errors.Is(err, hitl.ErrNotFound):
 		return nil, fmt.Errorf("%w: interrupt %s", ErrNotFound, interruptID)
-	}
-	if err != nil {
-		return nil, err
-	}
-	remaining, err := m.hitl.Decide(ctx, rec, d)
-	if errors.Is(err, hitl.ErrNotPending) {
-		return nil, fmt.Errorf("%w: interrupt %s was already answered", ErrNotPaused, interruptID)
-	}
-	if err != nil {
+	case errors.Is(err, hitl.ErrNotPending):
+		return nil, fmt.Errorf("%w: interrupt %s was already answered or cancelled", ErrNotPaused, interruptID)
+	case err != nil:
 		return nil, err
 	}
 	if run.SegmentFrom, err = m.log.Last(ctx, threadID); err != nil {
@@ -46,12 +42,18 @@ func (m *Manager) Answer(ctx context.Context, threadID, interruptID string, d hi
 	if remaining > 0 { // the run continues once the rest are answered
 		return run, nil
 	}
-	resumed, err := m.store.resume(ctx, run.ID, run.SegmentFrom)
+	if err := m.store.update(ctx, run.ID, map[string]string{"segment_from": run.SegmentFrom}); err != nil {
+		return nil, err
+	}
+	resumed, err := m.store.transition(ctx, run.ID, StatusAwaitingInput, StatusQueued)
 	if err != nil {
 		return nil, err
 	}
-	if !resumed {
-		return nil, ErrNotPaused
+	if !resumed { // another last answer resumed it, or a cancel closed it
+		if now, err := m.store.get(ctx, run.ID); err != nil || now.Status == StatusCancelled {
+			return nil, cmp.Or(err, ErrNotPaused)
+		}
+		return run, nil
 	}
 	answered, err := m.hitl.TakeDecided(ctx, threadID)
 	if err != nil {
@@ -59,10 +61,15 @@ func (m *Manager) Answer(ctx context.Context, threadID, interruptID string, d hi
 	}
 	entries := make([]types.ResumeEntry, len(answered))
 	for i := range answered {
-		entries[i] = answered[i].ResumeEntry()
+		if entries[i], err = answered[i].ResumeEntry(); err != nil {
+			return nil, err
+		}
 	}
-	raw, _ := json.Marshal(entries)
-	if err := m.store.refreshLease(ctx, threadID); err != nil {
+	raw, err := json.Marshal(entries)
+	if err != nil {
+		return nil, err
+	}
+	if err := m.store.holdLease(ctx, threadID, queuedLease); err != nil {
 		return nil, err
 	}
 	return run, m.enqueue(ctx, run, map[string]string{"resume": string(raw)})

@@ -16,7 +16,7 @@ services:
       retries: 10
 
   valkey:
-    image: valkey/valkey:8-alpine
+    image: valkey/valkey:9-alpine # as in production; runs use DELIFEQ (9.0)
     ports:
       - "6379:6379"
     volumes:

@@ -19,7 +19,7 @@ import (
 	"agentlite/config"
 	"agentlite/internal/runs"
 	"agentlite/internal/skills"
-	"agentlite/internal/tools/builtin"
+	"agentlite/internal/stream"
 )
 
 // A model call's output limit is always sent: some gateways reject requests
@@ -113,7 +113,7 @@ func (rt *Runtime) toolsFor(def config.AgentDef, run *runs.Run) ([]tool.Tool, []
 		return fns, sets, nil
 	}
 	for _, name := range slices.Sorted(maps.Keys(rt.harness)) {
-		if name == builtin.Subagent && len(def.Subagents) == 0 {
+		if name == stream.ToolSubagent && len(def.Subagents) == 0 {
 			continue
 		}
 		if !run.Root() && orchestration[name] { // like opencode: sub-agents do the work, they do not delegate or ask
@@ -142,7 +142,7 @@ func (rt *Runtime) toolList(def config.AgentDef) string {
 }
 
 // orchestration are the harness tools a sub-agent only gets by listing them.
-var orchestration = map[string]bool{builtin.Subagent: true, "todowrite": true, builtin.Question: true}
+var orchestration = map[string]bool{stream.ToolSubagent: true, stream.ToolTodoWrite: true, stream.ToolQuestion: true}
 
 // tool finds a harness or world tool by name; nil if there is none.
 func (rt *Runtime) tool(name string) tool.Tool {
@@ -163,7 +163,7 @@ func (rt *Runtime) instruction(def config.AgentDef) string {
 	if def.Tools == nil || len(*def.Tools) > 0 {
 		b.WriteString("\n\n" + citeInstruction)
 	}
-	if len(def.Subagents) == 0 || def.Tools != nil && !slices.Contains(*def.Tools, builtin.Subagent) {
+	if len(def.Subagents) == 0 || def.Tools != nil && !slices.Contains(*def.Tools, stream.ToolSubagent) {
 		return b.String()
 	}
 	b.WriteString("\n\n<available_subagents>\n")
