@@ -11,6 +11,7 @@ import (
 	"github.com/sethvargo/go-envconfig"
 
 	"agentlite/pkg/s3"
+	"agentlite/pkg/transport"
 )
 
 // Env holds everything read from environment variables.
@@ -33,6 +34,9 @@ type Env struct {
 	OpenSearch OpenSearch `env:", prefix=OPENSEARCH_"`
 	// S3 keeps artifact bodies and skill files; OpenSearch keeps their records.
 	S3 s3.Config `env:", prefix=S3_"`
+	// Transport is how requests to upstreams are made, e.g. the headers a
+	// forward drops.
+	Transport transport.Env `env:", prefix=TRANSPORT_"`
 	// ModelCardsDir is a checkout of the model cards (one Markdown file per
 	// model); empty means no cards.
 	ModelCardsDir string `env:"MODEL_CARDS_DIR"`

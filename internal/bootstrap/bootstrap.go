@@ -6,7 +6,6 @@ package bootstrap
 
 import (
 	"context"
-	"errors"
 	"fmt"
 
 	"github.com/rs/zerolog"
@@ -61,7 +60,7 @@ func New(ctx context.Context) (*App, error) {
 	}
 	app.closers = append(app.closers, stopTracing)
 
-	if app.Registry, err = providers.NewRegistry(cfg.Models, cfg.ModelCardsDir, app.Log); err != nil {
+	if app.Registry, err = providers.NewRegistry(cfg.Models, cfg.ModelCardsDir, cfg.Transport, app.Log); err != nil {
 		return nil, err
 	}
 	if err := checkConfiguredModels(cfg.Models, app.Registry); err != nil {
@@ -99,7 +98,7 @@ func New(ctx context.Context) (*App, error) {
 	}
 	app.Artifacts = artifacts.New(app.Store, files, app.Sources, app.Log)
 	app.Skills = skills.New(app.Store, files, app.Log)
-	servers, err := mcp.Servers(cfg.Connectors, app.Log)
+	servers, err := mcp.Servers(cfg.Connectors, cfg.Transport, app.Log)
 	if err != nil {
 		return nil, err
 	}
@@ -134,14 +133,14 @@ func (a *App) Close() {
 }
 
 // checkConfiguredModels checks the models models.yaml names: default_model
-// (a run that names none uses it) and memory's embedding model. Each must
-// resolve as the type it is used for, so a mistake fails the start rather
-// than every run or memory; one not listed yet may still come from
-// discovery.
+// (a run that names none uses it) and memory's embedding model. Each must be
+// declared in models.yaml, as the type it is used for: discovery runs after
+// the start and may never list it. So a mistake fails the start rather than
+// every run or memory, and the default is always in the model list.
 func checkConfiguredModels(m *config.ModelsConfig, registry *providers.Registry) error {
 	check := func(id, typ string) error {
-		if _, err := registry.ResolveAs(id, typ); err != nil && !errors.Is(err, providers.ErrUnknownModel) {
-			return fmt.Errorf("models.yaml: %w", err)
+		if _, err := registry.ResolveAs(id, typ); err != nil {
+			return fmt.Errorf("models.yaml: %w (declare it in its provider's models)", err)
 		}
 		return nil
 	}

@@ -7,18 +7,16 @@ import (
 	"strings"
 	"testing"
 
+	"agentlite/pkg/toolx"
 	"agentlite/pkg/transport"
 )
 
-// TestForwardKeepsWhoseCallItIs: an exposed server learns which run a call
-// is in from agentlite alone, so a client cannot set the run headers, nor
-// send its Authorization to a connector that does not forward the user's.
-// The connector's own headers and the MCP session still go through.
-var runHeaders = []string{
-	transport.HeaderThread, transport.HeaderRootThread, transport.HeaderRun, transport.HeaderAgent, transport.HeaderTool,
-}
-
+// TestForwardKeepsWhoseCallItIs: a client's sensitive headers never reach
+// an exposed server, and its Authorization only one whose connector forwards
+// the user's. The connector's own headers, the MCP session and the client's
+// other headers, run headers among them, go through.
 func TestForwardKeepsWhoseCallItIs(t *testing.T) {
+	proxy := transport.Env{SensitiveHeaders: []string{"Authorization", "Cookie"}}
 	var got *http.Request
 	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		got = r
@@ -32,11 +30,10 @@ func TestForwardKeepsWhoseCallItIs(t *testing.T) {
 	endpoint, _ := url.Parse(upstream.URL + "/mcp?key=k")
 
 	for _, forward := range []bool{false, true} {
-		srv := &Server{endpoint: endpoint, client: client, forward: forward}
+		srv := &Server{endpoint: endpoint, client: client, forward: forward, proxy: proxy}
 		req := httptest.NewRequest(http.MethodPost, "/mcp/slides?x=1", strings.NewReader(`{}`))
-		for _, h := range runHeaders {
-			req.Header.Set(h, "spoofed")
-		}
+		req.Header.Set("Cookie", "session=s")
+		req.Header.Set(toolx.HeaderThread, "t1")
 		req.Header.Set("Authorization", "Bearer user")
 		req.Header.Set("Mcp-Session-Id", "s1")
 		rec := httptest.NewRecorder()
@@ -47,10 +44,11 @@ func TestForwardKeepsWhoseCallItIs(t *testing.T) {
 		if got.URL.Path != "/mcp" || got.URL.RawQuery != "key=k" {
 			t.Errorf("forward=%v: sent to %s", forward, got.URL)
 		}
-		for _, h := range runHeaders {
-			if v := got.Header.Get(h); v != "" {
-				t.Errorf("forward=%v: %s reached the server: %q", forward, h, v)
-			}
+		if v := got.Header.Get("Cookie"); v != "" {
+			t.Errorf("forward=%v: Cookie reached the server: %q", forward, v)
+		}
+		if v := got.Header.Get(toolx.HeaderThread); v != "t1" {
+			t.Errorf("forward=%v: the server got %s %q", forward, toolx.HeaderThread, v)
 		}
 		if auth := got.Header.Get("Authorization"); (auth != "") != forward {
 			t.Errorf("forward=%v: the server got Authorization %q", forward, auth)
@@ -66,7 +64,7 @@ func TestForwardKeepsWhoseCallItIs(t *testing.T) {
 	// A server that cannot be reached is an error, with nothing written.
 	upstream.Close()
 	rec := httptest.NewRecorder()
-	srv := &Server{endpoint: endpoint, client: client}
+	srv := &Server{endpoint: endpoint, client: client, proxy: proxy}
 	err = srv.Forward(rec, httptest.NewRequest(http.MethodPost, "/mcp/slides", nil))
 	if err == nil || rec.Body.Len() > 0 {
 		t.Errorf("unreachable: err %v, wrote %q", err, rec.Body)

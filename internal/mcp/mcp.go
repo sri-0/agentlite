@@ -32,7 +32,8 @@ type Server struct {
 	// An exposed server's endpoint, nil otherwise, and how it is reached.
 	endpoint *url.URL
 	client   *http.Client
-	forward  bool // the connector forwards the user's Authorization
+	forward  bool          // the connector forwards the user's Authorization
+	proxy    transport.Env // how a client's requests are forwarded
 }
 
 // Servers builds one server per mcp connector, keyed by connector id. adk
@@ -40,13 +41,13 @@ type Server struct {
 // list its tools as a warning rather than failing every run that would use
 // it. Setting one up touches no network, so an error is the configuration's
 // (a TLS file, say) and fails the start.
-func Servers(connectors []config.Connector, log zerolog.Logger) (map[string]*Server, error) {
+func Servers(connectors []config.Connector, proxy transport.Env, log zerolog.Logger) (map[string]*Server, error) {
 	out := map[string]*Server{}
 	for _, c := range connectors {
 		if c.Type != config.ConnectorMCP {
 			continue
 		}
-		srv, err := newServer(c, log)
+		srv, err := newServer(c, proxy, log)
 		if err != nil {
 			return nil, fmt.Errorf("connector %q: %w", c.ID, err)
 		}
@@ -55,8 +56,8 @@ func Servers(connectors []config.Connector, log zerolog.Logger) (map[string]*Ser
 	return out, nil
 }
 
-func newServer(c config.Connector, log zerolog.Logger) (*Server, error) {
-	s := &Server{config: c.MCP, transport: commandTransport(c.MCP.Command), forward: c.HTTP.Forward}
+func newServer(c config.Connector, proxy transport.Env, log zerolog.Logger) (*Server, error) {
+	s := &Server{config: c.MCP, transport: commandTransport(c.MCP.Command), forward: c.HTTP.Forward, proxy: proxy}
 	if c.MCP.Endpoint != "" {
 		client, err := httpClient(c)
 		if err != nil {

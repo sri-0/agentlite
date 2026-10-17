@@ -196,6 +196,7 @@ browser may open the socket from; clients that send no `Origin` are not checked)
 `REDIS_PORT`, `REDIS_USER`, `REDIS_PASS`, `REDIS_DB_RUNS`, `REDIS_DB_SESSIONS`,
 `REDIS_DB_HITL`, `OPENSEARCH_URL`, `OPENSEARCH_USERNAME`, `OPENSEARCH_PASSWORD`,
 `S3_ENDPOINT`, `S3_ACCESS_KEY`, `S3_SECRET_KEY`, `S3_BUCKET`, `S3_REGION`, `S3_USE_SSL`,
+`TRANSPORT_SENSITIVE_HEADERS` (a caller's headers a forward drops),
 `OTEL_EXPORTER_OTLP_ENDPOINT` (tracing), and whatever the YAML files reference
 (provider base URLs and keys, `OPEN_SLIDE_MCP_URL`), and `MODEL_CARDS_DIR`.
 

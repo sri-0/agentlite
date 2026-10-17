@@ -8,7 +8,7 @@ import (
 	"testing"
 )
 
-// TestForwardDropsSensitiveHeaders: none of a caller's sensitive headers
+// TestForwardDropsSensitiveHeaders: none of a caller's SensitiveHeaders
 // reach the upstream, rewrite may set the upstream's own, and the caller's
 // other headers go through.
 func TestForwardDropsSensitiveHeaders(t *testing.T) {
@@ -19,12 +19,13 @@ func TestForwardDropsSensitiveHeaders(t *testing.T) {
 	defer upstream.Close()
 	target, _ := url.Parse(upstream.URL)
 
+	env := Env{SensitiveHeaders: []string{"Authorization", "Cookie", "X-Forwarded-Client-Cert"}}
 	req := httptest.NewRequest(http.MethodPost, "/v1/chat/completions", nil)
-	for _, h := range sensitive {
+	for _, h := range env.SensitiveHeaders {
 		req.Header.Set(h, "the caller's")
 	}
 	req.Header.Set("Content-Type", "application/json")
-	err := Forward(httptest.NewRecorder(), req, http.DefaultTransport, func(pr *httputil.ProxyRequest) {
+	err := env.Forward(httptest.NewRecorder(), req, http.DefaultTransport, func(pr *httputil.ProxyRequest) {
 		pr.SetURL(target)
 		pr.Out.Header.Set("Authorization", "Bearer upstream")
 	})
@@ -32,7 +33,7 @@ func TestForwardDropsSensitiveHeaders(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	for _, h := range sensitive {
+	for _, h := range env.SensitiveHeaders {
 		want := ""
 		if h == "Authorization" {
 			want = "Bearer upstream"

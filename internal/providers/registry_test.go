@@ -10,6 +10,7 @@ import (
 
 	"agentlite/internal/config"
 	"agentlite/pkg/modelcatalog"
+	"agentlite/pkg/transport"
 )
 
 // TestResolve pins how a model id routes in the deployed, offline setup
@@ -33,7 +34,7 @@ func TestResolve(t *testing.T) {
 			{ID: "qwen3-embedding", Type: modelcatalog.TypeEmbedding, BaseURL: "http://vllm-embed.invalid/v1"},
 		}},
 		{ID: "vllm-gpu2"}, // no base_url in this environment: skipped
-	}}, cards, zerolog.Nop())
+	}}, cards, transport.Env{}, zerolog.Nop())
 	if err != nil {
 		t.Fatal(err)
 	}

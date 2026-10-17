@@ -25,12 +25,9 @@ func (h *Handler) Opencode(c *echo.Context) error {
 			provider.Models[m.ID] = opencode.ModelOf(m)
 		}
 	}
-	cfg := opencode.Config{Provider: map[string]opencode.Provider{app: provider}, MCP: map[string]opencode.MCP{}}
-	// models.yaml's default, which opencode refuses unless its provider lists
-	// it: discovery may not have listed it yet.
-	def := h.Config.Models.DefaultModel
-	if _, ok := provider.Models[def]; ok {
-		cfg.Model = app + "/" + def
+	cfg := opencode.Config{
+		Model:    app + "/" + h.Config.Models.DefaultModel, // declared in models.yaml, so always listed
+		Provider: map[string]opencode.Provider{app: provider}, MCP: map[string]opencode.MCP{},
 	}
 	for _, conn := range h.Config.Connectors {
 		if conn.Type == config.ConnectorMCP && conn.MCP.Expose {

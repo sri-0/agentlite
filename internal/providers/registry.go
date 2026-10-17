@@ -16,6 +16,7 @@ import (
 
 	"agentlite/internal/config"
 	"agentlite/pkg/modelcatalog"
+	"agentlite/pkg/transport"
 )
 
 // Errors Resolve and ResolveAs return. None falls back to another provider
@@ -34,8 +35,9 @@ const (
 
 // Registry holds every provider and the models each serves.
 type Registry struct {
-	providers []*provider // in models.yaml order
-	cardsDir  string      // MODEL_CARDS_DIR; "" means no cards
+	providers []*provider   // in models.yaml order
+	cardsDir  string        // MODEL_CARDS_DIR; "" means no cards
+	proxy     transport.Env // how pass-through requests are forwarded
 	log       zerolog.Logger
 
 	mu    sync.RWMutex // guards each provider's discovered and models, and cards
@@ -62,8 +64,8 @@ type Target struct {
 
 // NewRegistry builds a client per provider and the model lists from
 // models.yaml and the model cards; Start adds what discovery finds.
-func NewRegistry(cfg *config.ModelsConfig, cardsDir string, log zerolog.Logger) (*Registry, error) {
-	r := &Registry{cardsDir: cardsDir, log: log}
+func NewRegistry(cfg *config.ModelsConfig, cardsDir string, proxy transport.Env, log zerolog.Logger) (*Registry, error) {
+	r := &Registry{cardsDir: cardsDir, proxy: proxy, log: log}
 	for _, p := range cfg.Providers {
 		if p.BaseURL == "" {
 			log.Warn().Str("provider", p.ID).Msg("provider has no base_url in this environment; skipped")

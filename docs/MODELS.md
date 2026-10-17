@@ -97,8 +97,10 @@ picker take `llm` models only, so it stays out of them.
 A type no endpoint takes (LiteLLM's `video_generation` or `ocr`) is kept as reported
 and refused everywhere. A run on a model that is not an `llm` is refused when it is
 queued (`400`), and memory refuses an embedding model of another type.
-`default_model` and `memory.embedding_model`, when already known at start, must be
-an `llm` and an `embedding` model.
+`default_model` and `memory.embedding_model` must be declared in models.yaml, under
+their provider's `models`, as an `llm` and an `embedding` model: discovery runs after the
+start and may never list them, so the server refuses to start otherwise. A declared
+model is always in the list.
 
 `models.yaml` entries, and only they, may also set where a model's requests go
 (a card's `base_url` or `api` is ignored: cards come from another repository and are
@@ -130,10 +132,10 @@ providers:
 
 Every call to a provider carries that provider's credentials: its `api_key_env` key,
 its headers and its client certificate. The pass-through drops the caller's sensitive
-headers (`transport.Forward`, the same list the MCP proxy drops: `Authorization`, which is
-the internal user's JWT, `Cookie`, `X-Api-Key`, `X-Forwarded-Client-Cert` and the run
-headers) and sends the provider's key instead, so a user's token never reaches a
-provider.
+headers (`transport.Env.Forward`, as the MCP proxy does: `TRANSPORT_SENSITIVE_HEADERS`, by
+default `Authorization`, which is the internal user's JWT, `Cookie`, `X-Api-Key` and
+`X-Forwarded-Client-Cert`) and sends the provider's key instead, so a user's token never
+reaches a provider.
 
 The development provider `openrouter` takes its base URL from `OPENROUTER_BASE_URL`;
 unset (production) it is skipped like any provider without a base URL, so a model id

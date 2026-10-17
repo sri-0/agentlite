@@ -47,15 +47,16 @@ must exist there (macOS and Linux have `true`).
   `tool_call` is set when its capabilities are known, so a model without tool calls
   says so; opencode assumes it has them otherwise. `limit` is set only when both the
   context window and the maximum output are known, since opencode needs both.
-- **`model`**, opencode's default, is models.yaml's `default_model`, once the provider
-  lists it: opencode refuses a default its provider does not list, and discovery may not
-  have found it yet.
+- **`model`**, opencode's default, is models.yaml's `default_model`, which models.yaml
+  declares (checked at start), so the provider always lists it: opencode refuses a
+  default its provider does not list.
 
 ## MCP servers
 
 An MCP connector with `mcp.expose: true` is published at `/mcp/{id}`
-(`mcp.Server.Forward`, `internal/mcp/proxy.go`). It is `transport.Forward`
-(`pkg/transport`, `httputil.ReverseProxy`; the provider pass-through uses it too) over
+(`mcp.Server.Forward`, `internal/mcp/proxy.go`). It is `transport.Env.Forward`
+(`pkg/transport`, `httputil.ReverseProxy`; the one place requests are forwarded, which
+the provider pass-through uses too) over
 the connector's own HTTP client, so requests carry the connector's headers and client
 certificate, to the connector's endpoint as configured. Streamed responses pass through
 as they come. A server that cannot be reached is a `502`, through the server's error
@@ -64,13 +65,12 @@ handler. It publishes the server as it is:
 - every tool, whatever `mcp.tools` allows the agents;
 - no harness hooks: no `require_confirmation`, `thread_args`, `ui` or `artifacts`; tool
   approval is whatever opencode's own `permission` settings say;
-- no run: like every forward (`transport.Forward`, which the model pass-through uses
-  too), it drops the client's sensitive headers: its credentials (`Authorization`,
-  `Cookie`, `X-Api-Key`, `X-Forwarded-Client-Cert`) and the run headers through which
-  agentlite tells a server which run a call is in (`X-Thread-ID`, `X-Root-Thread-ID`,
-  `X-Run-ID`, `X-Agent-ID`, `X-Tool-Name`), so only agentlite sets those. The client's
+- the client's sensitive headers dropped, like every forward's (`transport.Env.Forward`,
+  which the model pass-through uses too): `TRANSPORT_SENSITIVE_HEADERS`, by default
+  `Authorization`, `Cookie`, `X-Api-Key` and `X-Forwarded-Client-Cert`. The client's
   `Authorization`, the user's, goes on only when the connector forwards the user's
-  identity (`http.forward`, TOOLS.md). The client's other headers go through.
+  identity (`http.forward`, TOOLS.md). The client's other headers go through, run
+  headers (`X-Thread-ID`, …) among them.
 
 Only a server reached over HTTP can be exposed: a connector with a `command` (stdio) and
 `expose` fails the start. Any other id is a `404`.
