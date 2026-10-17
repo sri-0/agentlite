@@ -14,6 +14,7 @@ import (
 	"agentlite/internal/config"
 	"agentlite/internal/runs"
 	"agentlite/internal/skills"
+	"agentlite/internal/tools/builtin/skilltools"
 	"agentlite/pkg/toolx"
 )
 
@@ -21,7 +22,6 @@ import (
 const (
 	Subagent = "subagent" // sub-agent dispatch; offered only to agents with subagents
 	Question = "question" // answered by the user, not approved
-	Skills   = "skills"   // the skills library's toolset (SkillsToolset), by its name in a tools list
 )
 
 // Dispatcher starts, follows and stops child runs; runs.Manager implements it.
@@ -54,3 +54,6 @@ func All(d Deps) (map[string]toolx.Tool, error) {
 	}
 	return out, nil
 }
+
+// writeSkill is skilltools' write_skill.
+func writeSkill(d Deps) (toolx.Tool, error) { return skilltools.Write(d.Skills) }

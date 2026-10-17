@@ -19,6 +19,7 @@ import (
 	"agentlite/internal/config"
 	"agentlite/internal/runs"
 	"agentlite/internal/tools/builtin"
+	"agentlite/internal/tools/builtin/skilltools"
 )
 
 // A model call's output limit is always sent: some gateways reject requests
@@ -96,7 +97,7 @@ func (rt *Runtime) toolsFor(def config.AgentDef, run *runs.Run) ([]tool.Tool, []
 			switch t := rt.tool(name); {
 			case t != nil:
 				fns = append(fns, t)
-			case name == builtin.Skills:
+			case name == skilltools.Name:
 				sets = append(sets, rt.skillset)
 			case len(rt.servers) > 0:
 				mcpNames = append(mcpNames, name)

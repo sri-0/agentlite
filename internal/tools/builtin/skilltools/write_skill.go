@@ -1,33 +1,16 @@
-package builtin
+package skilltools
 
 import (
-	"context"
 	"fmt"
 
-	"google.golang.org/adk/v2/tool"
-	"google.golang.org/adk/v2/tool/skilltoolset"
 	"google.golang.org/adk/v2/tool/skilltoolset/skill"
 
 	"agentlite/internal/skills"
 	"agentlite/pkg/toolx"
 )
 
-// SkillsToolset is adk's skill toolset over the library: list_skills,
-// load_skill and load_skill_resource, and before each model call the skills'
-// names and descriptions at the end of the system instruction. Go's adk has
-// no tool that runs a skill's scripts.
-func SkillsToolset(ctx context.Context, lib *skills.Library) (tool.Toolset, error) {
-	return skilltoolset.New(ctx, skilltoolset.Config{Name: Skills, Source: lib, SystemInstruction: skillsInstruction})
-}
-
-// skillsInstruction replaces adk's own, which says scripts can be run.
-const skillsInstruction = `You can use skills: instructions (a SKILL.md) and other files for specialised tasks, kept in a library. available_skills lists each skill's name and what it is for, not its instructions.
-1. If a skill fits the task, you MUST call load_skill with its name before doing the task, then follow its instructions exactly.
-2. Read the files its instructions point to with load_skill_resource. A skill's scripts are for reading only: nothing can run them.
-3. A user message that names a skill as /<name> carries its instructions in a <skill_content> block: follow them without loading the skill again. In an earlier message the block may be gone: load the skill if you still need it.`
-
-// writeSkillTool names the tool that writes a skill to the library.
-const writeSkillTool = "write_skill"
+// writeName names the tool that writes a skill to the library.
+const writeName = "write_skill"
 
 type writeSkillArgs struct {
 	Name         string         `json:"name" jsonschema:"lowercase letters, digits and single hyphens, at most 64 characters"`
@@ -44,12 +27,12 @@ type skillFileArg struct {
 	Content string `json:"content" jsonschema:"the file's full text"`
 }
 
-// writeSkill creates a library skill, or replaces one's SKILL.md and the
-// files given, after the user approves; its other files are kept, and so are
-// its title, category and source unless given.
-func writeSkill(d Deps) (toolx.Tool, error) {
+// Write is write_skill: it creates a library skill, or replaces one's
+// SKILL.md and the files given, after the user approves; its other files are
+// kept, and so are its title, category and source unless given.
+func Write(lib *skills.Library) (toolx.Tool, error) {
 	return toolx.New(toolx.Spec{
-		Name: writeSkillTool,
+		Name: writeName,
 		Description: "Create a skill in the skills library, or change one, after the user approves. " +
 			"Write the whole skill in one call: its instructions, and any other files it has in files. " +
 			"An existing skill keeps the other files you do not give.",
@@ -64,7 +47,7 @@ func writeSkill(d Deps) (toolx.Tool, error) {
 			files[f.Path] = []byte(f.Content)
 		}
 		files[skills.SkillFile] = md // the instructions, not a file of that path
-		s, err := d.Skills.Save(tc, skills.Draft{
+		s, err := lib.Save(tc, skills.Draft{
 			Files: files, Meta: skills.Meta{Title: given(a.Title), Category: given(a.Category), Source: given(a.Source)},
 			KeepFiles: true,
 		})

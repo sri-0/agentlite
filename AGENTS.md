@@ -51,9 +51,8 @@ internal/
   stream/              AG-UI conventions, adk → AG-UI encoder, storage coalescing
   tools/               world tools (calculate, webfetch, write_note, search_records); the
                        catalog; tools/builtin: subagent, todowrite, question, emit_artifact,
-                       report_progress, write_skill
-  skills/              the skills library: records in OpenSearch, files in S3, uploads, adk's
-                       skill toolset, /name
+                       report_progress; tools/builtin/skilltools: adk's skill toolset, write_skill
+  skills/              the skills library: records in OpenSearch, files in S3, uploads, /name
   refs/                references in a message (/name; later @agent, #id), by sigil
   sources/             numbers and stores the sources tools return
   artifacts/           artifact records (OpenSearch) and bodies (S3)
