@@ -10,21 +10,6 @@ import (
 	"agentlite/pkg/db/opensearch"
 )
 
-const (
-	defaultPageSize = 50
-	maxPageSize     = 200
-)
-
-// pageSize is ?limit=: defaultPageSize when absent or not positive, and at
-// most maxPageSize.
-func pageSize(c *echo.Context) (int, error) {
-	limit, err := echo.QueryParamOr[int](c, "limit", defaultPageSize)
-	if limit <= 0 {
-		limit = defaultPageSize
-	}
-	return min(limit, maxPageSize), err
-}
-
 type threadItem struct {
 	opensearch.Thread
 	RunStatus string `json:"run_status,omitempty"`
@@ -144,7 +129,7 @@ func (h *Handler) Messages(c *echo.Context) error {
 	if err != nil {
 		return err
 	}
-	limit, err := pageSize(c)
+	limit, err := echo.QueryParamOr[int](c, "limit", 0)
 	if err != nil {
 		return err
 	}

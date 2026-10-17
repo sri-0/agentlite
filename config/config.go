@@ -60,10 +60,7 @@ type Config struct {
 	Env
 	Models     *ModelsConfig
 	Connectors []Connector
-	// UserAgent is connectors.yaml's user_agent, sent by every connector
-	// that sets none and by tools no connector names.
-	UserAgent string
-	Agents    []AgentDef
+	Agents     []AgentDef
 }
 
 // Defs indexes the agents by id.
@@ -92,7 +89,7 @@ func Load(ctx context.Context) (*Config, error) {
 	if err != nil {
 		return nil, err
 	}
-	cfg.Connectors, cfg.UserAgent = cc.Connectors, cc.UserAgent
+	cfg.Connectors = cc.Connectors
 	if cfg.Agents, err = loadAgents(cfg.ConfigDir); err != nil {
 		return nil, err
 	}

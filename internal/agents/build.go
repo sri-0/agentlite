@@ -126,28 +126,20 @@ func (rt *Runtime) toolsFor(def config.AgentDef, run *runs.Run) ([]tool.Tool, []
 }
 
 // toolList names what a sub-agent can call, so the parent delegates only
-// work it can do.
+// work it can do. A pipeline lists its steps' tools.
 func (rt *Runtime) toolList(def config.AgentDef) string {
-	names := rt.toolNames(def)
+	var names []string
+	if def.Kind != config.KindLLM {
+		for _, id := range def.Subagents {
+			names = append(names, rt.toolList(rt.defs[id]))
+		}
+	} else if def.Tools != nil {
+		names = *def.Tools
+	}
 	if len(names) == 0 {
 		return "none"
 	}
 	return strings.Join(names, ", ")
-}
-
-// toolNames are the tools an agent lists; a pipeline's are its steps'.
-func (rt *Runtime) toolNames(def config.AgentDef) []string {
-	if def.Kind == config.KindLLM {
-		if def.Tools == nil {
-			return []string{"every tool"}
-		}
-		return *def.Tools
-	}
-	var names []string
-	for _, id := range def.Subagents {
-		names = append(names, rt.toolNames(rt.defs[id])...)
-	}
-	return names
 }
 
 // orchestration are the harness tools a sub-agent only gets by listing them.

@@ -55,22 +55,24 @@ type ArtifactKey struct {
 	ID        string `json:"i"`
 }
 
-// Key is the artifact's place in RecentArtifacts' order.
-func (a *Artifact) Key() ArtifactKey {
-	return ArtifactKey{UpdatedAt: a.UpdatedAt.UnixMilli(), RootID: a.RootID, ID: a.ID}
-}
-
-// RecentArtifacts lists artifacts across every conversation: up to limit,
-// after the given one (nil: from the newest).
-func (c *Client) RecentArtifacts(ctx context.Context, after *ArtifactKey, limit int) ([]Artifact, error) {
+// RecentArtifacts lists a page of artifacts across every conversation (see
+// pageSize), after the given one (nil: from the newest). next is where the
+// following page starts; nil when this one was the last.
+func (c *Client) RecentArtifacts(ctx context.Context, after *ArtifactKey, limit int) (found []Artifact, next *ArtifactKey, err error) {
+	size := pageSize(limit)
 	q := map[string]any{
-		"size": limit,
+		"size": size,
 		"sort": []any{map[string]any{"updated_at": "desc"}, map[string]any{"root_id": "asc"}, map[string]any{"id": "asc"}},
 	}
 	if after != nil {
 		q["search_after"] = []any{after.UpdatedAt, after.RootID, after.ID}
 	}
-	return search[Artifact](ctx, c, indexArtifacts, q)
+	found, err = search[Artifact](ctx, c, indexArtifacts, q)
+	if err != nil || len(found) < size {
+		return found, nil, err
+	}
+	last := found[len(found)-1]
+	return found, &ArtifactKey{UpdatedAt: last.UpdatedAt.UnixMilli(), RootID: last.RootID, ID: last.ID}, nil
 }
 
 // Artifacts lists a conversation's artifacts, newest first.

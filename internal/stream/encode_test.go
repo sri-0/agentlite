@@ -32,7 +32,7 @@ func TestEncoderSequence(t *testing.T) {
 	call := genai.NewPartFromFunctionCall("calculate", map[string]any{"expression": "1+1"})
 	call.FunctionCall.ID = "c1"
 	ask := genai.NewPartFromFunctionCall(toolconfirmation.FunctionCallName, map[string]any{
-		"originalFunctionCall": &genai.FunctionCall{ID: "q1", Name: ToolQuestion, Args: map[string]any{"questions": []any{}}},
+		"originalFunctionCall": &genai.FunctionCall{ID: "q1", Name: "question", Args: map[string]any{"questions": []any{}}},
 		"toolConfirmation":     map[string]any{"hint": "Answer the questions."},
 	})
 	ask.FunctionCall.ID = "confirm-q1"

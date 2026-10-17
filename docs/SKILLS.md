@@ -46,7 +46,8 @@ library is written by people, and by agents a person approves, one at a time.
 
 `POST /v1/skills` as a multipart form: `file`, a zip of the skill or its `SKILL.md`
 alone (`internal/skills/parse.go`), and optional `title`, `description`, `category` and
-`source`; an empty field keeps the SKILL.md's description, or what a replaced skill had.
+`source`; a field left out keeps the SKILL.md's description, or what a replaced skill
+had, and `""` clears a title, category or source, as `PATCH` does.
 
 - The zip is read with `archive/zip` as an `fs.FS`. `SKILL.md` is at its root or in its
   one top folder (a zip of the skill's folder, as Finder, GitHub and skill-creator make

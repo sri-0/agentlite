@@ -80,6 +80,15 @@ func New(cfg Config) (*Client, error) {
 	return &Client{api: api}, nil
 }
 
+// pageSize is how many entries a page of a list holds: 50 unless the client
+// asks for another number, and at most 200.
+func pageSize(limit int) int {
+	if limit <= 0 {
+		return 50
+	}
+	return min(limit, 200)
+}
+
 // listCap bounds the lists of one conversation's sources and artifacts, and
 // the skills library.
 const listCap = 1000
@@ -238,15 +247,15 @@ func (c *Client) SubThreads(ctx context.Context, rootID string) ([]string, error
 	return ids, err
 }
 
-// Messages returns up to limit messages of a thread with seq below before
-// (0 means from the newest), in ascending seq order.
+// Messages returns a page of a thread's messages (see pageSize) with seq
+// below before (0 means from the newest), in ascending seq order.
 func (c *Client) Messages(ctx context.Context, threadID string, before int64, limit int) ([]Message, error) {
 	filter := []any{map[string]any{"term": map[string]any{"thread_id": threadID}}}
 	if before > 0 {
 		filter = append(filter, map[string]any{"range": map[string]any{"seq": map[string]any{"lt": before}}})
 	}
 	out, err := search[Message](ctx, c, indexMessages, map[string]any{
-		"size": limit, "sort": []any{map[string]any{"seq": "desc"}}, "query": map[string]any{"bool": map[string]any{"filter": filter}},
+		"size": pageSize(limit), "sort": []any{map[string]any{"seq": "desc"}}, "query": map[string]any{"bool": map[string]any{"filter": filter}},
 	})
 	if err != nil {
 		return nil, err

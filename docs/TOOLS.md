@@ -162,9 +162,8 @@ func searchRecords(conn toolx.Connector) (toolx.Tool, error) {
 - The input and output types give the schemas, from `json` and `jsonschema` tags, as with
   adk's `functiontool`.
 - A world tool is a `tools.Builder`, `func(toolx.Connector) (toolx.Tool, error)`,
-  registered by name in `tools.Catalog`; the runtime builds each one with its connector.
-  One in no connector is built on a plain client (with the top-level `user_agent`) for
-  agents that list it by name.
+  registered by name in `tools.Catalog`; the runtime builds each one with its connector,
+  on that connector's one HTTP client. A tool is only offered through a connector.
 - A harness tool (`internal/tools/builtin`) is built the same way from `builtin.Deps`.
 - Registries and `toolx.Toolset` accept only `toolx.Tool`, and
   `TestOnlyToolxBuildsFunctionTools` fails if any package but `toolx` imports

@@ -12,23 +12,15 @@ import (
 	"agentlite/pkg/db/opensearch"
 )
 
-// Meta is what a user sets on a skill besides its files. A nil field keeps
-// what the skill has; "" clears a title, category or source. The description
-// is SKILL.md's, as the spec has it: setting it rewrites SKILL.md.
+// Meta is what a user sets on a skill besides its files, from a JSON body or
+// a form. A nil field keeps what the skill has; "" clears a title, category or
+// source. The description is SKILL.md's, as the spec has it: setting it
+// rewrites SKILL.md.
 type Meta struct {
-	Title       *string `json:"title"`
-	Description *string `json:"description"`
-	Category    *string `json:"category"`
-	Source      *string `json:"source"`
-}
-
-// Optional is a Meta field from a value that may be blank: nil, which keeps
-// what the skill has, when it is.
-func Optional(v string) *string {
-	if v = strings.TrimSpace(v); v == "" {
-		return nil
-	}
-	return &v
+	Title       *string `json:"title" form:"title"`
+	Description *string `json:"description" form:"description"`
+	Category    *string `json:"category" form:"category"`
+	Source      *string `json:"source" form:"source"`
 }
 
 // apply sets m's title, category and source on s; the description is
