@@ -15,6 +15,7 @@ import (
 
 	"agentlite/internal/config"
 	"agentlite/internal/handler"
+	"agentlite/internal/handler/wellknown"
 	"agentlite/internal/runs"
 	"agentlite/internal/skills"
 	"agentlite/pkg/db/opensearch"
@@ -68,11 +69,11 @@ func New(cfg *config.Config, h *handler.Handler, log zerolog.Logger) *echo.Echo 
 	e.DELETE("/v1/skills/:id", h.DeleteSkill)
 	e.GET("/v1/skills/:id/files/*", h.SkillFile, sandboxed)
 	e.PUT("/v1/skills/:id/files/*", h.WriteSkillFile, middleware.BodyLimit(skills.MaxBytes))
-	// npx skills discovery: the index, and each skill's files by its name next to it.
-	e.GET("/.well-known/agent-skills/index.json", h.SkillsIndex)
-	e.GET("/.well-known/agent-skills/:name/*", h.SkillsIndexFile, sandboxed)
-	// opencode: `opencode auth login <server>` configures models, MCP and skills.
-	e.GET("/.well-known/opencode", h.Opencode)
+	// What opencode and npx skills set themselves up from (docs/OPENCODE.md).
+	wk := &wellknown.Handler{Config: cfg, Registry: h.Registry, Skills: h.Skills}
+	e.GET("/.well-known/opencode", wk.Opencode)
+	e.GET("/.well-known/agent-skills/index.json", wk.SkillsIndex)
+	e.GET("/.well-known/agent-skills/:name/*", wk.SkillFile, sandboxed)
 	e.Any("/mcp/:id", h.MCPProxy)
 	e.POST("/v1/agent/chat", h.StartThread)
 	e.GET("/v1/agent/chat", h.Chat)

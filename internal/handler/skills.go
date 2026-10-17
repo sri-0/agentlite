@@ -115,34 +115,13 @@ func (h *Handler) DeleteSkill(c *echo.Context) error {
 
 // SkillFile serves one of a skill's files as written.
 func (h *Handler) SkillFile(c *echo.Context) error {
-	s, err := h.Skills.Get(c.Request().Context(), c.Param("id"))
+	ctx := c.Request().Context()
+	s, err := h.Skills.Get(ctx, c.Param("id"))
 	if err != nil {
 		return err
 	}
-	return h.skillFile(c, s)
-}
-
-// SkillsIndex serves the discovery index npx skills reads.
-func (h *Handler) SkillsIndex(c *echo.Context) error {
-	index, err := h.Skills.Index(c.Request().Context())
-	if err != nil {
-		return err
-	}
-	return c.JSON(http.StatusOK, index)
-}
-
-// SkillsIndexFile serves a file of a skill the discovery index names.
-func (h *Handler) SkillsIndexFile(c *echo.Context) error {
-	s, err := h.Skills.Named(c.Request().Context(), c.Param("name"))
-	if err != nil {
-		return err
-	}
-	return h.skillFile(c, s)
-}
-
-func (h *Handler) skillFile(c *echo.Context, s *opensearch.Skill) error {
 	p := c.Param("*")
-	b, err := h.Skills.File(c.Request().Context(), s, p)
+	b, err := h.Skills.File(ctx, s, p)
 	if err != nil {
 		return err
 	}

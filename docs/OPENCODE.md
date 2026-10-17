@@ -3,7 +3,8 @@
 `opencode auth login https://<server>` points [opencode](https://opencode.ai) at
 agentlite. It then gets this server's models, its exposed MCP servers and its skills
 library, with no configuration of its own. opencode reads `GET /.well-known/opencode`
-at login, and again on every start (`internal/handler/opencode.go`):
+at login, and again on every start (`internal/handler/wellknown`, its types in
+`pkg/opencode`). With `default_model: openrouter/openai/gpt-4.1-mini` in models.yaml:
 
 ```json
 {
@@ -25,9 +26,8 @@ at login, and again on every start (`internal/handler/opencode.go`):
 ```
 
 opencode puts `config` under the user's own configuration, so a user's settings win.
-The URLs are this server's as the request reached it: the `Host` header, and the scheme
-from TLS or `X-Forwarded-Proto` (Echo's `Context.Scheme`). A gateway in front must pass
-both through; one that rewrites `Host` hands opencode internal URLs.
+The URLs start with `PUBLIC_URL` (default `http://localhost:8000`): this server as clients
+reach it, through whatever gateway is in front.
 
 ## Login
 
@@ -41,18 +41,21 @@ must exist there (macOS and Linux have `true`).
 - **The provider** is named after the app (`APP_NAME`, default `agentlite`). It is the
   pass-through (MODELS.md) as an OpenAI-compatible provider, so a model is
   `agentlite/<provider>/<model>`.
-- **Its models** are every `llm` model of the registry, as `/v1/models` lists them.
+- **Its models** are every `llm` model of the registry, as `/v1/models` lists them:
+  models.yaml's providers, with the models their discovery finds.
   `reasoning` and `attachment` (vision) are set when the model's capabilities say so.
   `tool_call` is set when its capabilities are known, so a model without tool calls
   says so; opencode assumes it has them otherwise. `limit` is set only when both the
   context window and the maximum output are known, since opencode needs both.
-- **`model`**, opencode's default, is `default_model`, once the provider lists it
-  (discovery may not have yet).
+- **`model`**, opencode's default, is models.yaml's `default_model`, once the provider
+  lists it: opencode refuses a default its provider does not list, and discovery may not
+  have found it yet.
 
 ## MCP servers
 
 An MCP connector with `mcp.expose: true` is published at `/mcp/{id}`
-(`mcp.Server.Forward`, `internal/mcp/proxy.go`). The proxy is `httputil.ReverseProxy` over
+(`mcp.Server.Forward`, `internal/mcp/proxy.go`). It is `transport.Forward`
+(`pkg/transport`, `httputil.ReverseProxy`; the provider pass-through uses it too) over
 the connector's own HTTP client, so requests carry the connector's headers and client
 certificate, to the connector's endpoint as configured. Streamed responses pass through
 as they come. A server that cannot be reached is a `502`, through the server's error
@@ -91,7 +94,10 @@ opencode run -m agentlite/openrouter/openai/gpt-4.1-mini "Use the report-style s
 
 | File | Role |
 |---|---|
-| `internal/handler/opencode.go` | `/.well-known/opencode`, the `/mcp/{id}` route |
+| `internal/handler/wellknown` | `/.well-known/opencode` and the skills discovery index |
+| `pkg/opencode` | the manifest's types; what a model's card tells opencode |
+| `internal/handler/connectors.go` | the `/mcp/{id}` route |
 | `internal/mcp/proxy.go` | the MCP proxy (`Server.Forward`) |
+| `pkg/transport/forward.go` | the reverse proxy it and the pass-through share |
 | `internal/agents/connectors.go` | `Runtime.ExposedMCP` |
 | `internal/config/connectors.go` | `mcp.expose` |

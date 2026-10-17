@@ -41,7 +41,8 @@ internal/
                        sessions, memory, sources, artifacts, MCP, the runtime and run manager
   config/              env (go-envconfig) + models.yaml, connectors.yaml, agents/*.md
   server/              Echo app: middleware, routes, error → status mapping
-  handler/             REST reads and thread admin; the socket upgrade
+  handler/             REST reads and thread admin; the socket upgrade; handler/wellknown:
+                       /.well-known/opencode and the skills discovery index
   ws/                  the agent chat socket: frames, requests, subscriptions
   runs/                the run lifecycle: Manager (start, answer, cancel, follow), worker,
                        finalizer, queues, event log, run records
@@ -64,9 +65,11 @@ pkg/
   toolx/               the tool wrapper every function tool is built with
   citations/           the source contract: Source, Origin, Recorder, [source:N]
   modelcatalog/        the Model type, provider list parsers, model cards, the merge
-  transport/           HTTP clients for providers, toolsets and MCP servers
+  transport/           HTTP clients for providers, toolsets and MCP servers; the reverse
+                       proxy the pass-through and the MCP proxy share
+  opencode/            what opencode reads from /.well-known/opencode
   s3/                  S3-compatible object storage (minio-go)
-  db/opensearch/       threads, messages, memories (kNN), sources, artifacts
+  db/opensearch/       threads, messages, memories (kNN), sources, artifacts, skills
   db/valkey/           client per logical database
   memory/              adk memory.Service on OpenSearch
   session/valkey/      adk session.Service on Valkey
