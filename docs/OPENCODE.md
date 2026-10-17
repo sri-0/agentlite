@@ -3,7 +3,7 @@
 `opencode auth login https://<server>` points [opencode](https://opencode.ai) at
 agentlite. It then gets this server's models, its exposed MCP servers and its skills
 library, with no configuration of its own. opencode reads `GET /.well-known/opencode`
-at login, and again on every start (`internal/handler/wellknown`, its types in
+at login, and again on every start (`internal/handler/wellknown/opencode.go`, its types in
 `pkg/opencode`). With `default_model: openrouter/openai/gpt-4.1-mini` in models.yaml:
 
 ```json
@@ -94,7 +94,7 @@ opencode run -m agentlite/openrouter/openai/gpt-4.1-mini "Use the report-style s
 
 | File | Role |
 |---|---|
-| `internal/handler/wellknown` | `/.well-known/opencode` and the skills discovery index |
+| `internal/handler/wellknown/opencode.go` | `/.well-known/opencode` |
 | `pkg/opencode` | the manifest's types; what a model's card tells opencode |
 | `internal/handler/connectors.go` | the `/mcp/{id}` route |
 | `internal/mcp/proxy.go` | the MCP proxy (`Server.Forward`) |

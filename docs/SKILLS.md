@@ -179,4 +179,4 @@ the server replaces them in place.
 | `internal/refs/refs.go` | references in a message, by sigil |
 | `internal/tools/builtin/write_skill.go` | `write_skill` |
 | `internal/handler/skills.go` | the API |
-| `internal/handler/wellknown` | the discovery index and its files |
+| `internal/handler/wellknown/skills.go` | the discovery index and its files |
