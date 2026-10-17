@@ -27,18 +27,13 @@ func (m *Manager) Answer(ctx context.Context, threadID, interruptID string, d hi
 	if run == nil || run.Status != StatusAwaitingInput {
 		return nil, ErrNotPaused
 	}
-	rec, err := m.hitl.Get(ctx, interruptID)
-	if errors.Is(err, hitl.ErrNotFound) || err == nil && rec.ThreadID != threadID {
+	remaining, err := m.hitl.Decide(ctx, threadID, interruptID, d)
+	switch {
+	case errors.Is(err, hitl.ErrNotFound):
 		return nil, fmt.Errorf("%w: interrupt %s", ErrNotFound, interruptID)
-	}
-	if err != nil {
-		return nil, err
-	}
-	remaining, err := m.hitl.Decide(ctx, rec, d)
-	if errors.Is(err, hitl.ErrNotPending) {
+	case errors.Is(err, hitl.ErrNotPending):
 		return nil, fmt.Errorf("%w: interrupt %s was already answered or cancelled", ErrNotPaused, interruptID)
-	}
-	if err != nil {
+	case err != nil:
 		return nil, err
 	}
 	if run.SegmentFrom, err = m.log.Last(ctx, threadID); err != nil {
@@ -66,9 +61,14 @@ func (m *Manager) Answer(ctx context.Context, threadID, interruptID string, d hi
 	}
 	entries := make([]types.ResumeEntry, len(answered))
 	for i := range answered {
-		entries[i] = answered[i].ResumeEntry()
+		if entries[i], err = answered[i].ResumeEntry(); err != nil {
+			return nil, err
+		}
 	}
-	raw, _ := json.Marshal(entries)
+	raw, err := json.Marshal(entries)
+	if err != nil {
+		return nil, err
+	}
 	if err := m.store.holdLease(ctx, threadID, queuedLease); err != nil {
 		return nil, err
 	}

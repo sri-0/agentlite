@@ -119,7 +119,9 @@ func New(ctx context.Context) (_ *App, err error) {
 		return nil, err
 	}
 	app.closers = append(app.closers, app.Agents.Wait, app.Runs.Stop) // the workers stop first
-	app.Runs.StartWorkers(ctx)
+	if err := app.Runs.StartWorkers(ctx); err != nil {
+		return nil, err
+	}
 	return app, nil
 }
 

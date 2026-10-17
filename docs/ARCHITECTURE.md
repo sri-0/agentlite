@@ -89,8 +89,8 @@ A run's status is a key of its own, and every change is one compare-and-set
 (`SET … IFEQ`): queued → running for the worker that takes it, queued or
 awaiting_input → cancelled for a cancel, awaiting_input → queued for the last
 answer. Whoever moves it first wins, and the other side falls back (a cancel
-that loses to a worker stops the run as a running one). The run store has no Lua:
-the lease is released with `DELIFEQ` (Valkey 9), so a late notice never releases a
+that loses to a worker stops the run as a running one). There is no Lua: the
+lease is released with `DELIFEQ` (Valkey 9), so a late notice never releases a
 newer run.
 
 A run that pauses (see HITL.md) keeps its lease as long as its record (7 days)
@@ -98,8 +98,9 @@ until it is answered or cancelled; once every pending interrupt is answered
 (`answer` frames), a new **segment** of the same run is queued, which streams into
 the same assistant message.
 
-Each consumer handles up to 32 entries at once. A parent waiting on a sub-agent,
-even one paused for the user, holds its slot.
+Each consumer executes up to 32 entries at once. A parent waiting on its
+sub-agents gives its slot back for the wait (`runs.Yield`), so waiting parents,
+even on children that wait for the user, never fill an agent's slots.
 
 Queue entries are acknowledged and deleted when the handler returns; an entry
 may carry the user's `Authorization` (TOOLS.md), so none outlives its run. An entry whose handler
@@ -109,9 +110,9 @@ alone while its lease names it (its worker is alive and the run is just long);
 otherwise it is closed with `RUN_ERROR` ("interrupted by a restart"), never
 re-executed, because tools have side effects; when a newer run already holds the
 thread, it is only marked as an error, and nothing is written into the newer run's
-log. Acknowledgements are written even during a shutdown. Consumer groups read
-from the stream's beginning, so a request queued before its group existed is
-still taken.
+log. Acknowledgements are written even during a shutdown. Consumer groups are
+created at start, before any request can arrive, and read from the stream's
+beginning.
 
 A shutdown cancels the worker loops and waits for their runs to settle and for
 memory writes in flight; sockets are closed as going away (1001), so clients

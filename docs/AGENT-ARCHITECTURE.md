@@ -99,7 +99,9 @@ answer. All of it happens in one turn of one run.
    verbatim), a pause sets the card to `waiting` with the child's pending
    requests, and the child's next segment clears them;
 4. when the child ends, returns `{result: <the child's final text>}` to the
-   parent's model; the card shows done or error.
+   parent's model; the card shows done or error. The call gives its worker slot
+   back while it follows the child (`runs.Yield`), so waiting parents never fill
+   an agent's slots.
 
 While the child is paused the call just keeps waiting: the user answers the
 request from the card (or the child's own thread) and the answer goes to the

@@ -86,7 +86,9 @@ func subagent(d Deps) (toolx.Tool, error) {
 		sink.Emit(events.NewSubagentStartedEvent(run.ID, a.SubagentType, events.WithSubagentDescription(a.Description), events.WithParentToolCall(ctx.FunctionCallID(), "")))
 		card.emit()
 
+		resume := runs.Yield(ctx)
 		final, err := follow(ctx, d.Dispatcher, childThread, run.ID, card)
+		resume()
 		switch {
 		case err != nil:
 			// The user cancelled the parent: the child goes too. On a server

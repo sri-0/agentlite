@@ -238,17 +238,27 @@ func (a *appendSink) append(e stream.Event) {
 	}
 }
 
-// StartWorkers runs the worker and finalizer loops in this process until ctx
-// ends; Stop then waits for the runs they are executing to settle.
-func (m *Manager) StartWorkers(ctx context.Context) {
+// StartWorkers creates the queues' consumer groups, then runs the worker and
+// finalizer loops in this process until ctx ends; Stop then waits for the
+// runs they are executing to settle. A group made before any request can
+// arrive starts at the stream's beginning, so no request is skipped.
+func (m *Manager) StartWorkers(ctx context.Context) error {
+	queues := []*queue{{db: m.db, key: doneKey, group: finalGroup}}
 	for id := range m.defs {
-		m.consume(ctx, &queue{db: m.db, key: requestsKey + id, group: workerGroup, consumer: m.consumerName(), log: m.logger}, m.execute)
+		queues = append(queues, &queue{db: m.db, key: requestsKey + id, group: workerGroup})
 	}
-	m.consume(ctx, &queue{db: m.db, key: doneKey, group: finalGroup, consumer: m.consumerName(), log: m.logger}, m.finalize)
-}
-
-func (m *Manager) consume(ctx context.Context, q *queue, handler func(context.Context, map[string]string) error) {
-	m.workers.Go(func() { q.consume(ctx, handler) })
+	for _, q := range queues {
+		q.consumer, q.log = m.consumerName(), m.logger
+		if err := q.createGroup(ctx); err != nil {
+			return err
+		}
+		handler := m.execute
+		if q.key == doneKey {
+			handler = m.finalize
+		}
+		m.workers.Go(func() { q.consume(ctx, handler) })
+	}
+	return nil
 }
 
 // Stop waits for the worker loops to finish their current entries.

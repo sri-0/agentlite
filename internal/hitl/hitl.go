@@ -5,15 +5,18 @@
 package hitl
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"strconv"
+	"slices"
 	"time"
 
 	"github.com/ag-ui-protocol/ag-ui/sdks/community/go/pkg/core/types"
 	"github.com/valkey-io/valkey-go"
+
+	"agentlite/internal/stream"
 )
 
 // Interrupt statuses.
@@ -49,12 +52,16 @@ type Decision struct {
 	Output        any    `json:"output,omitempty"`
 }
 
-// ResumeEntry is the AG-UI form of a decision for the run engine.
-func (i *Interrupt) ResumeEntry() types.ResumeEntry {
+// ResumeEntry is the AG-UI form of a decision for the run engine. A record
+// without a decision is refused: there is nothing to resume with.
+func (i *Interrupt) ResumeEntry() (types.ResumeEntry, error) {
+	if i.Decision == nil {
+		return types.ResumeEntry{}, fmt.Errorf("interrupt %s has no decision", i.ID)
+	}
 	// An output answers a question.
 	approved := i.Decision.Output != nil || i.Decision.Approved != nil && *i.Decision.Approved
 	payload := map[string]any{"approved": approved, "justification": i.Decision.Justification, "output": i.Decision.Output}
-	return types.ResumeEntry{InterruptID: i.ID, Status: types.ResumeStatusResolved, Payload: payload}
+	return types.ResumeEntry{InterruptID: i.ID, Status: types.ResumeStatusResolved, Payload: payload}, nil
 }
 
 // Errors for a missing interrupt and for one already decided.
@@ -65,8 +72,9 @@ var (
 
 const retention = 7 * 24 * time.Hour
 
-// Store keeps interrupts in Valkey: one hash per interrupt and a set of
-// pending ids per thread.
+// Store keeps interrupts in Valkey: one JSON record per interrupt and a set
+// of pending ids per thread. A record leaves pending once, by answer or by
+// cancel: each is a compare-and-set on the record as it was read.
 type Store struct{ db valkey.Client }
 
 // NewStore wraps a client.
@@ -79,132 +87,163 @@ func decidedKey(threadID string) string { return "hitl:thread:" + threadID + ":d
 // Add records the interrupts a run just paused on, from the AG-UI interrupts
 // the encoder produced.
 func (s *Store) Add(ctx context.Context, threadID, runID string, interrupts []types.Interrupt) error {
+	var cmds valkey.Commands
 	for _, in := range interrupts {
 		rec := Interrupt{
 			ID: in.ID, ThreadID: threadID, RunID: runID, Reason: in.Reason, ToolCall: in.ToolCallID,
 			Message: in.Message, Status: StatusPending, CreatedAt: time.Now(),
 		}
-		rec.ToolName, _ = in.Metadata["toolName"].(string)
-		rec.Args, _ = in.Metadata["args"].(map[string]any)
-		if err := s.save(ctx, &rec); err != nil {
+		rec.ToolName, _ = in.Metadata[stream.MetaToolName].(string)
+		rec.Args, _ = in.Metadata[stream.MetaArgs].(map[string]any)
+		if request, ok := in.Metadata[stream.MetaRequest].(map[string]any); ok && request[stream.MetaToolName] == "question" {
+			rec.Args, _ = request[stream.MetaArgs].(map[string]any) // the questions
+		}
+		raw, err := json.Marshal(rec)
+		if err != nil {
 			return err
 		}
-		if err := s.db.Do(ctx, s.db.B().Sadd().Key(pendingKey(threadID)).Member(in.ID).Build()).Error(); err != nil {
+		cmds = append(cmds, s.db.B().Set().Key(key(rec.ID)).Value(string(raw)).Ex(retention).Build(),
+			s.db.B().Sadd().Key(pendingKey(threadID)).Member(rec.ID).Build())
+	}
+	for _, r := range s.db.DoMulti(ctx, cmds...) {
+		if err := r.Error(); err != nil {
 			return err
 		}
 	}
 	return nil
 }
 
-// Pending lists a thread's open interrupts.
+// Pending lists a thread's open interrupts, oldest first.
 func (s *Store) Pending(ctx context.Context, threadID string) ([]Interrupt, error) {
-	ids, err := s.db.Do(ctx, s.db.B().Smembers().Key(pendingKey(threadID)).Build()).AsStrSlice()
-	if err != nil {
-		return nil, err
-	}
-	out := make([]Interrupt, 0, len(ids))
-	for _, id := range ids {
-		rec, err := s.Get(ctx, id)
-		if err != nil {
-			continue // expired
-		}
-		out = append(out, *rec)
-	}
-	return out, nil
+	out, _, err := s.members(ctx, pendingKey(threadID))
+	slices.SortFunc(out, func(a, b Interrupt) int { return a.CreatedAt.Compare(b.CreatedAt) })
+	return out, err
 }
 
 // Get fetches one interrupt.
 func (s *Store) Get(ctx context.Context, id string) (*Interrupt, error) {
+	rec, _, err := s.get(ctx, id)
+	return rec, err
+}
+
+// get returns the record and its JSON as stored, for a compare-and-set.
+func (s *Store) get(ctx context.Context, id string) (*Interrupt, string, error) {
 	raw, err := s.db.Do(ctx, s.db.B().Get().Key(key(id)).Build()).ToString()
+	if valkey.IsValkeyNil(err) {
+		return nil, "", fmt.Errorf("%w: %s", ErrNotFound, id)
+	}
 	if err != nil {
-		if valkey.IsValkeyNil(err) {
-			return nil, fmt.Errorf("%w: %s", ErrNotFound, id)
-		}
-		return nil, err
+		return nil, "", err
 	}
 	var rec Interrupt
 	if err := json.Unmarshal([]byte(raw), &rec); err != nil {
-		return nil, err
+		return nil, "", err
 	}
-	return &rec, nil
+	return &rec, raw, nil
 }
 
-// decideScript answers a pending interrupt atomically: it leaves the thread's
-// pending set, its record becomes the decided one, and its id joins the
-// decided set. The reply is how many of the thread's interrupts are still
-// pending, or -1 when this one was not pending.
-var decideScript = valkey.NewLuaScript(`
-if redis.call('SREM', KEYS[1], ARGV[1]) == 0 then return -1 end
-redis.call('SET', KEYS[2], ARGV[2], 'EX', ARGV[3])
-redis.call('SADD', KEYS[3], ARGV[1])
-return redis.call('SCARD', KEYS[1])`)
+// members reads the records of a set's ids with one MGET; an expired record
+// is skipped. It also returns each record's JSON as stored.
+func (s *Store) members(ctx context.Context, set string) ([]Interrupt, []string, error) {
+	ids, err := s.db.Do(ctx, s.db.B().Smembers().Key(set).Build()).AsStrSlice()
+	if err != nil || len(ids) == 0 {
+		return nil, nil, err
+	}
+	keys := make([]string, len(ids))
+	for i, id := range ids {
+		keys[i] = key(id)
+	}
+	vals, err := s.db.Do(ctx, s.db.B().Mget().Key(keys...).Build()).ToArray()
+	if err != nil {
+		return nil, nil, err
+	}
+	var recs []Interrupt
+	var raws []string
+	for _, v := range vals {
+		raw, err := v.ToString()
+		if valkey.IsValkeyNil(err) {
+			continue // expired
+		}
+		if err != nil {
+			return nil, nil, err
+		}
+		var rec Interrupt
+		if err := json.Unmarshal([]byte(raw), &rec); err != nil {
+			return nil, nil, err
+		}
+		recs, raws = append(recs, rec), append(raws, raw)
+	}
+	return recs, raws, nil
+}
 
-// Decide records the answer to a pending interrupt and reports how many of the
-// thread's interrupts are still waiting. An interrupt is answered once; a
-// second answer gets ErrNotPending.
-func (s *Store) Decide(ctx context.Context, rec *Interrupt, d Decision) (int64, error) {
+// replace stores rec over the record only if it is still raw; false when
+// another answer or a cancel changed it first.
+func (s *Store) replace(ctx context.Context, rec *Interrupt, raw string) (bool, error) {
+	next, err := json.Marshal(rec)
+	if err != nil {
+		return false, err
+	}
+	err = s.db.Do(ctx, s.db.B().Set().Key(key(rec.ID)).Value(string(next)).Ifeq(raw).Ex(retention).Build()).Error()
+	if valkey.IsValkeyNil(err) {
+		return false, nil
+	}
+	return err == nil, err
+}
+
+// Decide records the answer to one of a thread's pending interrupts and
+// reports how many are still waiting. An interrupt is answered once; a second
+// answer, or one after a cancel, gets ErrNotPending. Each answer joins the
+// decided set before it leaves the pending one, so whoever sees none left
+// finds every answer decided.
+func (s *Store) Decide(ctx context.Context, threadID, id string, d Decision) (int64, error) {
+	rec, raw, err := s.get(ctx, id)
+	if err == nil && rec.ThreadID != threadID {
+		err = fmt.Errorf("%w: %s", ErrNotFound, id)
+	}
+	if err != nil {
+		return 0, err
+	}
+	if rec.Status != StatusPending {
+		return 0, fmt.Errorf("interrupt %s: %w", id, ErrNotPending)
+	}
 	rec.Status, rec.Decision, rec.DecidedAt = StatusResolved, &d, time.Now()
-	raw, err := json.Marshal(rec)
-	if err != nil {
-		return 0, err
+	if ok, err := s.replace(ctx, rec, raw); !ok || err != nil {
+		return 0, cmp.Or(err, fmt.Errorf("interrupt %s: %w", id, ErrNotPending))
 	}
-	remaining, err := decideScript.Exec(ctx, s.db,
-		[]string{pendingKey(rec.ThreadID), key(rec.ID), decidedKey(rec.ThreadID)},
-		[]string{rec.ID, string(raw), strconv.FormatInt(int64(retention.Seconds()), 10)}).AsInt64()
-	if err != nil {
-		return 0, err
+	res := s.db.DoMulti(ctx,
+		s.db.B().Sadd().Key(decidedKey(threadID)).Member(id).Build(),
+		s.db.B().Srem().Key(pendingKey(threadID)).Member(id).Build(),
+		s.db.B().Scard().Key(pendingKey(threadID)).Build())
+	for _, r := range res[:2] {
+		if err := r.Error(); err != nil {
+			return 0, err
+		}
 	}
-	if remaining < 0 {
-		return 0, fmt.Errorf("interrupt %s: %w", rec.ID, ErrNotPending)
-	}
-	return remaining, nil
+	return res[2].AsInt64()
 }
 
 // TakeDecided returns the thread's answered interrupts that have not been
 // handed to the run yet, and forgets them.
 func (s *Store) TakeDecided(ctx context.Context, threadID string) ([]Interrupt, error) {
-	ids, err := s.db.Do(ctx, s.db.B().Smembers().Key(decidedKey(threadID)).Build()).AsStrSlice()
+	out, _, err := s.members(ctx, decidedKey(threadID))
 	if err != nil {
 		return nil, err
-	}
-	out := make([]Interrupt, 0, len(ids))
-	for _, id := range ids {
-		rec, err := s.Get(ctx, id)
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, *rec)
 	}
 	return out, s.db.Do(ctx, s.db.B().Del().Key(decidedKey(threadID)).Build()).Error()
 }
 
-// Cancel closes every pending interrupt of a thread. Each leaves the pending
-// set first, as Decide does, so one answered at the same moment keeps its answer.
+// Cancel closes every pending interrupt of a thread; one answered at the
+// same moment keeps its answer.
 func (s *Store) Cancel(ctx context.Context, threadID string) error {
-	pending, err := s.Pending(ctx, threadID)
+	recs, raws, err := s.members(ctx, pendingKey(threadID))
 	if err != nil {
 		return err
 	}
-	for i := range pending {
-		n, err := s.db.Do(ctx, s.db.B().Srem().Key(pendingKey(threadID)).Member(pending[i].ID).Build()).AsInt64()
-		if err != nil {
-			return err
-		}
-		if n == 0 {
-			continue // answered meanwhile
-		}
-		pending[i].Status, pending[i].DecidedAt = StatusCancelled, time.Now()
-		if err := s.save(ctx, &pending[i]); err != nil {
+	for i := range recs {
+		recs[i].Status, recs[i].DecidedAt = StatusCancelled, time.Now()
+		if _, err := s.replace(ctx, &recs[i], raws[i]); err != nil {
 			return err
 		}
 	}
 	return s.db.Do(ctx, s.db.B().Del().Key(pendingKey(threadID), decidedKey(threadID)).Build()).Error()
-}
-
-func (s *Store) save(ctx context.Context, rec *Interrupt) error {
-	raw, err := json.Marshal(rec)
-	if err != nil {
-		return err
-	}
-	return s.db.Do(ctx, s.db.B().Set().Key(key(rec.ID)).Value(string(raw)).Ex(retention).Build()).Error()
 }
