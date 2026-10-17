@@ -51,24 +51,30 @@ type Input struct {
 	Authorization string
 }
 
-// Sink persists threads and messages (OpenSearch now, a producer later).
-type Sink interface {
+// History persists threads and messages (OpenSearch now, a producer later)
+// and reads them back.
+type History interface {
 	SaveThread(ctx context.Context, t *opensearch.Thread) error
 	SaveMessage(ctx context.Context, m *opensearch.Message) error
-}
-
-// History reads what the sink persisted.
-type History interface {
 	Thread(ctx context.Context, id string) (*opensearch.Thread, error)
 	Messages(ctx context.Context, threadID string, before int64, limit int) ([]opensearch.Message, error)
+}
+
+// Deps are the services the run manager uses.
+type Deps struct {
+	DB         valkey.Client // the run lifecycle: logs, run records, leases, queues
+	Interrupts *hitl.Store   // kept apart, in a database of their own
+	History    History
+	Sessions   session.Service
+	Runtime    Runtime
+	Log        zerolog.Logger
 }
 
 // Manager owns the run lifecycle.
 type Manager struct {
 	db       valkey.Client
 	store    *store
-	log      Log
-	sink     Sink
+	log      *valkeyLog
 	history  History
 	sessions session.Service
 	runtime  Runtime
@@ -82,12 +88,11 @@ type Manager struct {
 }
 
 // New wires the run lifecycle.
-// db holds the run lifecycle (logs, run records, leases, queues); interrupts
-// are kept apart in their own store.
-func New(cfg *config.Config, db valkey.Client, interrupts *hitl.Store, sink Sink, history History, sessions session.Service, runtime Runtime, logger zerolog.Logger) *Manager {
+func New(cfg *config.Config, d Deps) *Manager {
 	return &Manager{
-		db: db, store: &store{db: db}, log: newValkeyLog(db), sink: sink, history: history, sessions: sessions, runtime: runtime,
-		hitl: interrupts, defs: cfg.Defs(), cfg: cfg, appName: cfg.AppName, model: cfg.Models.DefaultModel, logger: logger,
+		db: d.DB, store: &store{db: d.DB}, log: newValkeyLog(d.DB), history: d.History, sessions: d.Sessions,
+		runtime: d.Runtime, hitl: d.Interrupts, defs: cfg.Defs(), cfg: cfg, appName: cfg.AppName,
+		model: cfg.Models.DefaultModel, logger: d.Log,
 	}
 }
 

@@ -40,7 +40,7 @@ func (m *Manager) finalize(ctx context.Context, fields map[string]string) error 
 		ID: run.TurnID, ThreadID: run.ThreadID, RootID: run.RootID, Role: "assistant",
 		Seq: run.TurnSeq, CreatedAt: run.StartedAt, Text: run.Result, Events: raws,
 	}
-	if err := m.sink.SaveMessage(ctx, msg); err != nil {
+	if err := m.history.SaveMessage(ctx, msg); err != nil {
 		return err
 	}
 	if Status(fields["status"]).Terminal() {

@@ -5,6 +5,7 @@ import (
 
 	"google.golang.org/adk/v2/tool"
 
+	"agentlite/internal/stream"
 	"agentlite/pkg/toolx"
 )
 
@@ -43,7 +44,7 @@ func question(Deps) (toolx.Tool, error) {
 			}
 			return answers, nil
 		}
-		if err := ctx.RequestConfirmation("Answer the questions.", map[string]any{"toolName": "question", "args": a}); err != nil {
+		if err := ctx.RequestConfirmation("Answer the questions.", map[string]any{stream.MetaToolName: Question, stream.MetaArgs: a}); err != nil {
 			return nil, err
 		}
 		return nil, fmt.Errorf("question: %w", tool.ErrConfirmationRequired)

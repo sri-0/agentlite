@@ -9,24 +9,37 @@ import (
 	"github.com/valkey-io/valkey-go"
 )
 
-// Valkey keys and lifetimes for run records.
+// Valkey keys and lifetimes for run records. A thread's lease names its
+// active run: held long while the run waits in a queue, refreshed while a
+// worker executes it, kept as long as the record while it waits for input.
 const (
-	runTTL   = 7 * 24 * time.Hour
-	leaseTTL = 60 * time.Second
+	runTTL      = 7 * 24 * time.Hour
+	leaseTTL    = 60 * time.Second
+	queuedLease = 10 * time.Minute
 )
 
 func runKey(id string) string           { return "run:" + id }
+func statusKey(id string) string        { return "run:" + id + ":status" }
 func threadRunKey(thread string) string { return "thread:" + thread + ":run" }
 func threadSeqKey(thread string) string { return "thread:" + thread + ":seq" }
 func ctlChannel(runID string) string    { return "run:" + runID + ":ctl" }
 
-// store keeps run records and the per-thread active pointer in Valkey.
+// store keeps run records and the per-thread active pointer in Valkey. A
+// run's status is a key of its own, moved only by transition, so two parties
+// acting on one run (a worker and a cancel, an answer and a cancel) cannot
+// both win.
 type store struct{ db valkey.Client }
 
-func (s *store) save(ctx context.Context, run *Run) error {
+// create stores a new queued run.
+func (s *store) create(ctx context.Context, run *Run) error {
+	err := s.db.Do(ctx, s.db.B().Set().Key(statusKey(run.ID)).Value(string(StatusQueued)).Nx().Ex(runTTL).Build()).Error()
+	if err != nil {
+		return fmt.Errorf("run %s: %w", run.ID, err)
+	}
 	return s.update(ctx, run.ID, run.fields())
 }
 
+// update sets fields of the run's record; the status is not one of them.
 func (s *store) update(ctx context.Context, id string, fields map[string]string) error {
 	fields["updated_at"] = fmt.Sprint(time.Now().UnixMilli())
 	cmd := s.db.B().Hset().Key(runKey(id)).FieldValue()
@@ -41,44 +54,55 @@ func (s *store) update(ctx context.Context, id string, fields map[string]string)
 	return nil
 }
 
-func (s *store) get(ctx context.Context, id string) (*Run, error) {
-	f, err := s.db.Do(ctx, s.db.B().Hgetall().Key(runKey(id)).Build()).AsStrMap()
+// transition moves the run from one status to another; false when it was no
+// longer in from: someone else moved it first.
+func (s *store) transition(ctx context.Context, id string, from, to Status) (bool, error) {
+	err := s.db.Do(ctx, s.db.B().Set().Key(statusKey(id)).Value(string(to)).Ifeq(string(from)).Ex(runTTL).Build()).Error()
+	if valkey.IsValkeyNil(err) {
+		return false, nil
+	}
 	if err != nil {
-		return nil, fmt.Errorf("run %s: %w", id, err)
-	}
-	if len(f) == 0 {
-		return nil, fmt.Errorf("run %s: %w", id, ErrNotFound)
-	}
-	return runFromFields(f), nil
-}
-
-// claimThread marks the run as the thread's active run; false if one exists.
-func (s *store) claimThread(ctx context.Context, threadID, runID string) (bool, error) {
-	res := s.db.Do(ctx, s.db.B().Set().Key(threadRunKey(threadID)).Value(runID).Nx().Ex(leaseTTL).Build())
-	if err := res.Error(); err != nil {
-		if valkey.IsValkeyNil(err) {
-			return false, nil
-		}
-		return false, err
+		return false, fmt.Errorf("run %s: %s to %s: %w", id, from, to, err)
 	}
 	return true, nil
 }
 
-func (s *store) refreshLease(ctx context.Context, threadID string) error {
-	return s.db.Do(ctx, s.db.B().Expire().Key(threadRunKey(threadID)).Seconds(int64(leaseTTL.Seconds())).Build()).Error()
+func (s *store) get(ctx context.Context, id string) (*Run, error) {
+	res := s.db.DoMulti(ctx, s.db.B().Hgetall().Key(runKey(id)).Build(), s.db.B().Get().Key(statusKey(id)).Build())
+	f, err := res[0].AsStrMap()
+	if err != nil {
+		return nil, fmt.Errorf("run %s: %w", id, err)
+	}
+	status, err := res[1].ToString()
+	if len(f) == 0 || valkey.IsValkeyNil(err) {
+		return nil, fmt.Errorf("run %s: %w", id, ErrNotFound)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("run %s: %w", id, err)
+	}
+	run := runFromFields(f)
+	run.Status = Status(status)
+	return run, nil
 }
 
-// persistLease keeps the pointer without expiry while a run waits for input.
-func (s *store) persistLease(ctx context.Context, threadID string) error {
-	return s.db.Do(ctx, s.db.B().Persist().Key(threadRunKey(threadID)).Build()).Error()
+// claimThread marks the run as the thread's active run; false if one exists.
+func (s *store) claimThread(ctx context.Context, threadID, runID string) (bool, error) {
+	err := s.db.Do(ctx, s.db.B().Set().Key(threadRunKey(threadID)).Value(runID).Nx().Ex(queuedLease).Build()).Error()
+	if valkey.IsValkeyNil(err) {
+		return false, nil
+	}
+	return err == nil, err
 }
 
-// releaseScript deletes the thread's active pointer only while it still
-// names the run, so a redelivered notice cannot release a newer run.
-var releaseScript = valkey.NewLuaScript(`if redis.call('GET', KEYS[1]) == ARGV[1] then return redis.call('DEL', KEYS[1]) end return 0`)
+// holdLease keeps the thread's lease for ttl more.
+func (s *store) holdLease(ctx context.Context, threadID string, ttl time.Duration) error {
+	return s.db.Do(ctx, s.db.B().Expire().Key(threadRunKey(threadID)).Seconds(int64(ttl.Seconds())).Build()).Error()
+}
 
+// releaseThread deletes the thread's lease only while it still names the
+// run, so a redelivered notice cannot release a newer run.
 func (s *store) releaseThread(ctx context.Context, threadID, runID string) error {
-	return releaseScript.Exec(ctx, s.db, []string{threadRunKey(threadID)}, []string{runID}).Error()
+	return s.db.Do(ctx, s.db.B().Delifeq().Key(threadRunKey(threadID)).Value(runID).Build()).Error()
 }
 
 // active returns the thread's active run, or nil.
@@ -105,34 +129,23 @@ func (s *store) publish(ctx context.Context, channel, msg string) error {
 	return s.db.Do(ctx, s.db.B().Publish().Channel(channel).Message(msg).Build()).Error()
 }
 
-// resumeScript moves a paused run to queued only if it is still paused, so
-// concurrent answers resume it once.
-var resumeScript = valkey.NewLuaScript(`
-if redis.call('HGET', KEYS[1], 'status') ~= ARGV[1] then return 0 end
-redis.call('HSET', KEYS[1], 'status', ARGV[2], 'segment_from', ARGV[3])
-return 1`)
-
-// resume queues a paused run's next segment from the cursor; false when the
-// run was not paused (another answer already resumed it, or it was cancelled).
-func (s *store) resume(ctx context.Context, runID, segmentFrom string) (bool, error) {
-	n, err := resumeScript.Exec(ctx, s.db, []string{runKey(runID)},
-		[]string{string(StatusAwaitingInput), string(StatusQueued), segmentFrom}).AsInt64()
-	return n == 1, err
-}
-
 // requestCancel marks a running run as cancelled by the user. The worker
-// checks it when the run pauses, which the cancel message can race.
+// checks it when it subscribes to cancels and when the run pauses, which the
+// cancel message can race.
 func (s *store) requestCancel(ctx context.Context, runID string) error {
 	return s.db.Do(ctx, s.db.B().Hset().Key(runKey(runID)).FieldValue().FieldValue("cancel", "1").Build()).Error()
 }
 
-func (s *store) cancelRequested(ctx context.Context, runID string) bool {
+func (s *store) cancelRequested(ctx context.Context, runID string) (bool, error) {
 	v, err := s.db.Do(ctx, s.db.B().Hget().Key(runKey(runID)).Field("cancel").Build()).ToString()
-	return err == nil && v == "1"
+	if valkey.IsValkeyNil(err) {
+		return false, nil
+	}
+	return v == "1", err
 }
 
 // statuses returns the status of each listed thread's active run, for
-// threads that have one: one MGET of the leases, one pipeline of statuses.
+// threads that have one: one MGET of the leases, one of their statuses.
 func (s *store) statuses(ctx context.Context, threadIDs []string) (map[string]Status, error) {
 	out := map[string]Status{}
 	if len(threadIDs) == 0 {
@@ -142,21 +155,27 @@ func (s *store) statuses(ctx context.Context, threadIDs []string) (map[string]St
 	for i, id := range threadIDs {
 		keys[i] = threadRunKey(id)
 	}
-	runIDs, err := s.db.Do(ctx, s.db.B().Mget().Key(keys...).Build()).ToArray()
+	runIDs, err := s.db.Do(ctx, s.db.B().Mget().Key(keys...).Build()).AsStrSlice()
 	if err != nil {
 		return nil, err
 	}
 	var threads []string
-	var cmds valkey.Commands
-	for i, v := range runIDs {
-		if runID, err := v.ToString(); err == nil { // nil reply: no active run
-			threads = append(threads, threadIDs[i])
-			cmds = append(cmds, s.db.B().Hget().Key(runKey(runID)).Field("status").Build())
+	keys = keys[:0]
+	for i, runID := range runIDs {
+		if runID != "" { // nil reply: no active run
+			threads, keys = append(threads, threadIDs[i]), append(keys, statusKey(runID))
 		}
 	}
-	for i, res := range s.db.DoMulti(ctx, cmds...) {
-		if status, err := res.ToString(); err == nil {
-			out[threads[i]] = Status(status)
+	if len(keys) == 0 {
+		return out, nil
+	}
+	statuses, err := s.db.Do(ctx, s.db.B().Mget().Key(keys...).Build()).AsStrSlice()
+	if err != nil {
+		return nil, err
+	}
+	for i, st := range statuses {
+		if st != "" {
+			out[threads[i]] = Status(st)
 		}
 	}
 	return out, nil

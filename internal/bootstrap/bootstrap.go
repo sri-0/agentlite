@@ -44,15 +44,24 @@ type App struct {
 	Runs      *runs.Manager
 
 	closers []func()
+	cancel  context.CancelFunc // stops the worker loops and discovery
 }
 
-// New wires everything and starts the worker loops; Close stops them.
-func New(ctx context.Context) (*App, error) {
+// New wires everything and starts the worker loops; Close stops them. When
+// it fails partway, what it started is closed.
+func New(ctx context.Context) (_ *App, err error) {
+	ctx, cancel := context.WithCancel(ctx)
+	app := &App{cancel: cancel}
+	defer func() {
+		if err != nil {
+			app.Close()
+		}
+	}()
 	cfg, err := config.Load(ctx)
 	if err != nil {
 		return nil, err
 	}
-	app := &App{Config: cfg, Log: logging.New(cfg.LogLevel, cfg.LogJSON)}
+	app.Config, app.Log = cfg, logging.New(cfg.LogLevel, cfg.LogJSON)
 	stopTracing, err := tracing(ctx, cfg)
 	if err != nil {
 		return nil, err
@@ -103,12 +112,16 @@ func New(ctx context.Context) (*App, error) {
 		Registry: app.Registry, Sessions: app.Sessions, Memory: mem, Servers: servers,
 		Sources: recorder, Artifacts: app.Artifacts, Skills: app.Skills, Log: app.Log,
 	})
-	app.Runs = runs.New(cfg, runsDB, hitl.NewStore(hitlDB), app.Store, app.Store, app.Sessions, app.Agents, app.Log)
+	app.Runs = runs.New(cfg, runs.Deps{
+		DB: runsDB, Interrupts: hitl.NewStore(hitlDB), History: app.Store, Sessions: app.Sessions, Runtime: app.Agents, Log: app.Log,
+	})
 	if err := app.Agents.Bind(ctx, app.Runs); err != nil { // the subagent tool dispatches through the run manager
 		return nil, err
 	}
-	app.Runs.StartWorkers(ctx)
-	app.closers = append(app.closers, app.Runs.Stop)
+	app.closers = append(app.closers, app.Agents.Wait, app.Runs.Stop) // the workers stop first
+	if err := app.Runs.StartWorkers(ctx); err != nil {
+		return nil, err
+	}
 	return app, nil
 }
 
@@ -122,8 +135,10 @@ func (a *App) valkey(db int) (valkeygo.Client, error) {
 	return c, nil
 }
 
-// Close stops the workers and releases connections, newest first.
+// Close stops the worker loops and discovery, waits for the runs and the
+// memory writes in flight, and releases connections, newest first.
 func (a *App) Close() {
+	a.cancel()
 	for i := len(a.closers) - 1; i >= 0; i-- {
 		a.closers[i]()
 	}

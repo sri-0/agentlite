@@ -26,6 +26,11 @@ func (c *Client) SaveMemory(ctx context.Context, m *Memory) error {
 	return c.write(ctx, indexMemories, m.ID, m, opensearchapi.IndexParams{})
 }
 
+// DeleteMemories deletes a thread's memory entries.
+func (c *Client) DeleteMemories(ctx context.Context, threadID string) error {
+	return c.deleteWhere(ctx, indexMemories, "thread_id", threadID)
+}
+
 // SearchMemories returns the k entries nearest to the vector, leaving out the
 // entries of one thread (the one asking, whose turns are already in context).
 func (c *Client) SearchMemories(ctx context.Context, vector []float32, k int, excludeThread string) ([]Memory, error) {

@@ -19,6 +19,7 @@ import (
 	"agentlite/config"
 	"agentlite/internal/runs"
 	"agentlite/internal/skills"
+	"agentlite/internal/stream"
 	"agentlite/internal/tools/builtin"
 )
 
@@ -142,7 +143,7 @@ func (rt *Runtime) toolList(def config.AgentDef) string {
 }
 
 // orchestration are the harness tools a sub-agent only gets by listing them.
-var orchestration = map[string]bool{builtin.Subagent: true, "todowrite": true, builtin.Question: true}
+var orchestration = map[string]bool{builtin.Subagent: true, stream.ToolTodoWrite: true, builtin.Question: true}
 
 // tool finds a harness or world tool by name; nil if there is none.
 func (rt *Runtime) tool(name string) tool.Tool {

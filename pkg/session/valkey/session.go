@@ -1,5 +1,6 @@
 // Package valkeysession is an adk session.Service on Valkey: one hash of
-// metadata, one list of events and one hash of state per session.
+// metadata, one list of events and one hash of state per session, plus the
+// app: and user: state the sessions of an app or a user share.
 package valkeysession
 
 import (
@@ -21,17 +22,21 @@ import (
 // sessionTTL keeps idle thread sessions for a month after their last use.
 const sessionTTL = 30 * 24 * time.Hour
 
-// SessionService is adk's session.Service on Valkey: one hash of metadata, a
-// list of JSON events and a hash of state per session. Sessions are keyed by
-// thread id, so a thread's LLM context survives restarts and instances.
+// SessionService is adk's session.Service on Valkey. Sessions are keyed by
+// app, user and id (agentlite's ids are thread ids), so a thread's LLM
+// context survives restarts and instances.
 type SessionService struct{ db valkey.Client }
 
-// NewSessionService wraps a client.
+// New wraps a client.
 func New(db valkey.Client) *SessionService { return &SessionService{db: db} }
 
-func sessionKey(id string) string     { return "session:" + id }
-func eventsKey(id string) string      { return "session:" + id + ":events" }
-func stateKey(id string) string       { return "session:" + id + ":state" }
+func sessionKey(app, user, id string) string { return "session:" + app + ":" + user + ":" + id }
+func eventsKey(key string) string            { return key + ":events" }
+func stateKey(key string) string             { return key + ":state" }
+func appStateKey(app string) string          { return "state:" + app }
+func userStateKey(app, user string) string   { return "state:" + app + ":" + user }
+
+// sessionsIndex lists an app's sessions as "user\x00id", for List.
 func sessionsIndex(app string) string { return "sessions:" + app }
 
 func (s *SessionService) Create(ctx context.Context, req *session.CreateRequest) (*session.CreateResponse, error) {
@@ -39,55 +44,66 @@ func (s *SessionService) Create(ctx context.Context, req *session.CreateRequest)
 	if id == "" {
 		id = uuid.Must(uuid.NewV7()).String()
 	}
-	now := time.Now()
-	sess := &localSession{app: req.AppName, user: req.UserID, id: id, state: map[string]any{}, updatedAt: now}
-	maps.Copy(sess.state, req.State)
-	secs := int64(sessionTTL.Seconds())
+	key, now := sessionKey(req.AppName, req.UserID, id), time.Now()
+	created, err := s.db.Do(ctx, s.db.B().Hsetnx().Key(key).Field("updated").Value(now.Format(time.RFC3339Nano)).Build()).AsBool()
+	if err != nil {
+		return nil, fmt.Errorf("session create: %w", err)
+	}
+	if !created {
+		return nil, fmt.Errorf("session create: %q already exists", id)
+	}
 	cmds := valkey.Commands{
-		s.db.B().Hset().Key(sessionKey(id)).FieldValue().FieldValue("app", req.AppName).FieldValue("user", req.UserID).
-			FieldValue("updated", now.Format(time.RFC3339Nano)).Build(),
-		s.db.B().Expire().Key(sessionKey(id)).Seconds(secs).Build(),
-		s.db.B().Sadd().Key(sessionsIndex(req.AppName)).Member(id).Build(),
+		s.db.B().Expire().Key(key).Seconds(int64(sessionTTL.Seconds())).Build(),
+		s.db.B().Sadd().Key(sessionsIndex(req.AppName)).Member(req.UserID + "\x00" + id).Build(),
 	}
-	for k, v := range sess.state {
-		raw, _ := json.Marshal(v)
-		cmds = append(cmds, s.db.B().Hset().Key(stateKey(id)).FieldValue().FieldValue(k, string(raw)).Build(),
-			s.db.B().Expire().Key(stateKey(id)).Seconds(secs).Build())
-	}
+	cmds = append(cmds, s.setState(req.AppName, req.UserID, key, req.State)...)
 	for _, r := range s.db.DoMulti(ctx, cmds...) {
 		if err := r.Error(); err != nil {
 			return nil, fmt.Errorf("session create: %w", err)
 		}
 	}
-	return &session.CreateResponse{Session: sess}, nil
+	got, err := s.Get(ctx, &session.GetRequest{AppName: req.AppName, UserID: req.UserID, SessionID: id})
+	if err != nil {
+		return nil, err
+	}
+	return &session.CreateResponse{Session: got.Session}, nil
 }
 
 func (s *SessionService) Get(ctx context.Context, req *session.GetRequest) (*session.GetResponse, error) {
-	meta, err := s.db.Do(ctx, s.db.B().Hgetall().Key(sessionKey(req.SessionID)).Build()).AsStrMap()
-	if err != nil {
-		return nil, fmt.Errorf("session get: %w", err)
-	}
-	if len(meta) == 0 {
-		return nil, fmt.Errorf("%w: %q", session.ErrNotFound, req.SessionID)
-	}
-	updatedAt, _ := time.Parse(time.RFC3339Nano, meta["updated"])
-	sess := &localSession{app: meta["app"], user: meta["user"], id: req.SessionID, state: map[string]any{}, updatedAt: updatedAt}
-
-	rawState, err := s.db.Do(ctx, s.db.B().Hgetall().Key(stateKey(req.SessionID)).Build()).AsStrMap()
-	if err != nil {
-		return nil, fmt.Errorf("session state: %w", err)
-	}
-	for k, v := range rawState {
-		var val any
-		if err := json.Unmarshal([]byte(v), &val); err == nil {
-			sess.state[k] = val
-		}
-	}
+	key := sessionKey(req.AppName, req.UserID, req.SessionID)
 	start := int64(0)
 	if req.NumRecentEvents > 0 && req.After.IsZero() {
 		start = -int64(req.NumRecentEvents) // only the tail is wanted
 	}
-	rawEvents, err := s.db.Do(ctx, s.db.B().Lrange().Key(eventsKey(req.SessionID)).Start(start).Stop(-1).Build()).AsStrSlice()
+	res := s.db.DoMulti(ctx,
+		s.db.B().Hget().Key(key).Field("updated").Build(),
+		s.db.B().Hgetall().Key(stateKey(key)).Build(),
+		s.db.B().Hgetall().Key(appStateKey(req.AppName)).Build(),
+		s.db.B().Hgetall().Key(userStateKey(req.AppName, req.UserID)).Build(),
+		s.db.B().Lrange().Key(eventsKey(key)).Start(start).Stop(-1).Build(),
+	)
+	updated, err := res[0].ToString()
+	if valkey.IsValkeyNil(err) {
+		return nil, fmt.Errorf("%w: %q", session.ErrNotFound, req.SessionID)
+	}
+	if err != nil {
+		return nil, fmt.Errorf("session get: %w", err)
+	}
+	updatedAt, _ := time.Parse(time.RFC3339Nano, updated)
+	sess := &localSession{app: req.AppName, user: req.UserID, id: req.SessionID, state: map[string]any{}, updatedAt: updatedAt}
+	for _, r := range res[1:4] { // session, app and user state; their keys carry their prefixes
+		raw, err := r.AsStrMap()
+		if err != nil {
+			return nil, fmt.Errorf("session state: %w", err)
+		}
+		for k, v := range raw {
+			var val any
+			if err := json.Unmarshal([]byte(v), &val); err == nil {
+				sess.state[k] = val
+			}
+		}
+	}
+	rawEvents, err := res[4].AsStrSlice()
 	if err != nil {
 		return nil, fmt.Errorf("session events: %w", err)
 	}
@@ -107,27 +123,34 @@ func (s *SessionService) Get(ctx context.Context, req *session.GetRequest) (*ses
 	return &session.GetResponse{Session: sess}, nil
 }
 
+// List lists the user's sessions in the app, or every user's when UserID is
+// empty, without their events.
 func (s *SessionService) List(ctx context.Context, req *session.ListRequest) (*session.ListResponse, error) {
-	ids, err := s.db.Do(ctx, s.db.B().Smembers().Key(sessionsIndex(req.AppName)).Build()).AsStrSlice()
+	members, err := s.db.Do(ctx, s.db.B().Smembers().Key(sessionsIndex(req.AppName)).Build()).AsStrSlice()
 	if err != nil {
 		return nil, fmt.Errorf("session list: %w", err)
 	}
-	resp := &session.ListResponse{}
-	for _, id := range ids {
-		got, err := s.Get(ctx, &session.GetRequest{AppName: req.AppName, UserID: req.UserID, SessionID: id})
+	resp := &session.ListResponse{Sessions: []session.Session{}}
+	for _, m := range members {
+		user, id, _ := strings.Cut(m, "\x00")
+		if req.UserID != "" && user != req.UserID {
+			continue
+		}
+		got, err := s.Get(ctx, &session.GetRequest{AppName: req.AppName, UserID: user, SessionID: id})
 		if err != nil {
 			continue // expired since it was indexed
 		}
+		got.Session.(*localSession).events = nil
 		resp.Sessions = append(resp.Sessions, got.Session)
 	}
 	return resp, nil
 }
 
 func (s *SessionService) Delete(ctx context.Context, req *session.DeleteRequest) error {
-	id := req.SessionID
+	key := sessionKey(req.AppName, req.UserID, req.SessionID)
 	for _, r := range s.db.DoMulti(ctx,
-		s.db.B().Del().Key(sessionKey(id), eventsKey(id), stateKey(id)).Build(),
-		s.db.B().Srem().Key(sessionsIndex(req.AppName)).Member(id).Build(),
+		s.db.B().Del().Key(key, eventsKey(key), stateKey(key)).Build(),
+		s.db.B().Srem().Key(sessionsIndex(req.AppName)).Member(req.UserID+"\x00"+req.SessionID).Build(),
 	) {
 		if err := r.Error(); err != nil {
 			return fmt.Errorf("session delete: %w", err)
@@ -155,19 +178,22 @@ func (s *SessionService) AppendEvent(ctx context.Context, cur session.Session, e
 	if err != nil {
 		return fmt.Errorf("session event: %w", err)
 	}
-	secs := int64(sessionTTL.Seconds())
+	key, secs := sessionKey(sess.app, sess.user, sess.id), int64(sessionTTL.Seconds())
+	// Refreshing the expiry first also finds a deleted session.
+	exists, err := s.db.Do(ctx, s.db.B().Expire().Key(key).Seconds(secs).Build()).AsBool()
+	if err != nil {
+		return fmt.Errorf("session append: %w", err)
+	}
+	if !exists {
+		return fmt.Errorf("%w: %q", session.ErrNotFound, sess.id)
+	}
 	cmds := valkey.Commands{ // one transaction: the event, its state and the refreshed expiry land together
 		s.db.B().Multi().Build(),
-		s.db.B().Rpush().Key(eventsKey(sess.id)).Element(string(raw)).Build(),
-		s.db.B().Hset().Key(sessionKey(sess.id)).FieldValue().FieldValue("updated", event.Timestamp.Format(time.RFC3339Nano)).Build(),
-		s.db.B().Expire().Key(sessionKey(sess.id)).Seconds(secs).Build(),
-		s.db.B().Expire().Key(eventsKey(sess.id)).Seconds(secs).Build(),
-		s.db.B().Expire().Key(stateKey(sess.id)).Seconds(secs).Build(),
+		s.db.B().Rpush().Key(eventsKey(key)).Element(string(raw)).Build(),
+		s.db.B().Hset().Key(key).FieldValue().FieldValue("updated", event.Timestamp.Format(time.RFC3339Nano)).Build(),
+		s.db.B().Expire().Key(eventsKey(key)).Seconds(secs).Build(),
 	}
-	for k, v := range stored.Actions.StateDelta {
-		val, _ := json.Marshal(v)
-		cmds = append(cmds, s.db.B().Hset().Key(stateKey(sess.id)).FieldValue().FieldValue(k, string(val)).Build())
-	}
+	cmds = append(cmds, s.setState(sess.app, sess.user, key, stored.Actions.StateDelta)...)
 	cmds = append(cmds, s.db.B().Exec().Build())
 	for _, r := range s.db.DoMulti(ctx, cmds...) {
 		if err := r.Error(); err != nil {
@@ -176,6 +202,29 @@ func (s *SessionService) AppendEvent(ctx context.Context, cur session.Session, e
 	}
 	sess.append(stored)
 	return nil
+}
+
+// setState writes state by its prefix: app: keys to the app's hash, user:
+// keys to the user's, temp: keys nowhere, the rest to the session's own.
+func (s *SessionService) setState(app, user, key string, state map[string]any) valkey.Commands {
+	var cmds valkey.Commands
+	for k, v := range state {
+		target := stateKey(key)
+		switch {
+		case strings.HasPrefix(k, session.KeyPrefixTemp):
+			continue
+		case strings.HasPrefix(k, session.KeyPrefixApp):
+			target = appStateKey(app)
+		case strings.HasPrefix(k, session.KeyPrefixUser):
+			target = userStateKey(app, user)
+		}
+		raw, _ := json.Marshal(v)
+		cmds = append(cmds, s.db.B().Hset().Key(target).FieldValue().FieldValue(k, string(raw)).Build())
+	}
+	if len(cmds) > 0 {
+		cmds = append(cmds, s.db.B().Expire().Key(stateKey(key)).Seconds(int64(sessionTTL.Seconds())).Build())
+	}
+	return cmds
 }
 
 // stripTempState drops temp: keys, which adk defines as never persisted.

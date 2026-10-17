@@ -9,6 +9,8 @@ import (
 	"fmt"
 	"maps"
 	"slices"
+	"sync"
+	"time"
 
 	"github.com/google/uuid"
 	"github.com/rs/zerolog"
@@ -62,6 +64,8 @@ type Runtime struct {
 	sets       map[string]tool.Toolset // one per connector
 	mcpTools   mcpTools                // what the mcp connectors ask of individual MCP tools
 	toolUI     map[string]string       // UI renderer by tool name
+
+	remembering sync.WaitGroup // turns being stored in memory
 }
 
 // Deps are the services the runtime uses.
@@ -92,10 +96,11 @@ func New(cfg *config.Config, d Deps) *Runtime {
 }
 
 // Memory is long-term memory as the runtime uses it: a view per thread that
-// searches past conversations and stores finished ones. pkg/memory is the
-// OpenSearch implementation; any adk memory.Service can stand in.
+// searches past conversations and stores finished ones, and forgetting a
+// thread. pkg/memory is the OpenSearch implementation.
 type Memory interface {
 	ForThread(threadID string) adkmemory.Service
+	Forget(ctx context.Context, threadID string) error
 }
 
 // Bind builds the function tools (the subagent tool dispatches through d),
@@ -204,10 +209,10 @@ func (rt *Runtime) Run(ctx context.Context, in runs.Input, sink stream.Sink) (ru
 		sink.Emit(ev)
 	}
 
-	ctx = runs.WithRun(stream.WithSink(ctx, sink), run)
-	ctx = platform.WithUUIDProvider(ctx, func() string { return uuid.Must(uuid.NewV7()).String() }) // adk's event ids too
+	ctx = platform.WithUUIDProvider(stream.WithSink(ctx, sink), func() string { return uuid.Must(uuid.NewV7()).String() }) // adk's event ids too
 	ctx = toolx.WithRun(ctx, toolx.Run{
-		Thread:        toolx.Thread{ID: run.ThreadID, RootID: run.RootID, RunID: run.ID},
+		Thread: toolx.Thread{ID: run.ThreadID, RootID: run.RootID, RunID: run.ID},
+		Model:  run.Model, Connectors: run.Connectors,
 		Authorization: in.Authorization,
 		Sources:       rt.sources,
 	})
@@ -245,7 +250,7 @@ func (rt *Runtime) Run(ctx context.Context, in runs.Input, sink stream.Sink) (ru
 		return runs.Result{Status: runs.StatusAwaitingInput, Text: enc.Result(), Interrupts: interrupts}, nil
 	}
 	if rt.memory != nil && run.Root() {
-		go rt.remember(context.WithoutCancel(ctx), run.ThreadID)
+		rt.remembering.Go(func() { rt.remember(context.WithoutCancel(ctx), run.ThreadID) })
 	}
 	return runs.Result{Status: runs.StatusDone, Text: enc.Result()}, nil
 }
@@ -268,17 +273,34 @@ func (rt *Runtime) Agent(ctx context.Context, id string) (adkagent.Agent, error)
 	return rt.build(ctx, def, &runs.Run{ThreadID: "dev", RootID: "dev", Model: rt.defaultModel})
 }
 
+// rememberTimeout bounds storing one turn in memory.
+const rememberTimeout = 2 * time.Minute
+
 // remember stores a finished turn in long-term memory. It runs detached so
-// embedding never delays the thread's release.
+// embedding never delays the thread's release. Deleting a thread deletes its
+// session first, so a turn stored after its thread was deleted is forgotten
+// again rather than recalled in other conversations.
 func (rt *Runtime) remember(ctx context.Context, threadID string) {
-	got, err := rt.sessions.Get(ctx, &session.GetRequest{AppName: rt.appName, UserID: runs.SessionUser, SessionID: threadID})
+	ctx, cancel := context.WithTimeout(ctx, rememberTimeout)
+	defer cancel()
+	req := &session.GetRequest{AppName: rt.appName, UserID: runs.SessionUser, SessionID: threadID}
+	got, err := rt.sessions.Get(ctx, req)
 	if err == nil {
 		err = rt.memory.ForThread(threadID).AddSessionToMemory(ctx, got.Session)
+	}
+	if err == nil {
+		req.NumRecentEvents = 1
+		if _, err = rt.sessions.Get(ctx, req); errors.Is(err, session.ErrNotFound) {
+			err = rt.memory.Forget(ctx, threadID)
+		}
 	}
 	if err != nil {
 		rt.log.Warn().Err(err).Str("thread", threadID).Msg("memory not updated")
 	}
 }
+
+// Wait waits for the turns still being stored in memory.
+func (rt *Runtime) Wait() { rt.remembering.Wait() }
 
 // model opens the adk model for a model id on the provider the id names,
 // sending the provider its own id for the model.

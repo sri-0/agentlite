@@ -49,6 +49,6 @@ func (h *Handler) Chat(c *echo.Context) error {
 	if err != nil {
 		return nil // Accept has already written the HTTP error
 	}
-	ws.Serve(c.Request().Context(), conn, h.Runs, h.Store)
+	ws.Serve(c.Request().Context(), conn, h.Runs, h.Store, h.Log)
 	return nil
 }

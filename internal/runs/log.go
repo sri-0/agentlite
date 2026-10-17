@@ -20,22 +20,6 @@ type Entry struct {
 	Event stream.Event
 }
 
-// Log is the per-thread event stream: the live channel between a running
-// agent and its subscribers, and the source the finalizer folds from.
-type Log interface {
-	// Append adds an event produced by a run and returns its cursor.
-	Append(ctx context.Context, threadID string, e stream.Event) (string, error)
-	// Last returns the newest cursor, or "0" for an empty log.
-	Last(ctx context.Context, threadID string) (string, error)
-	// Range returns every event after the cursor without blocking.
-	Range(ctx context.Context, threadID, after string) ([]Entry, error)
-	// Read yields events after the cursor, blocking for new ones until ctx
-	// ends. The caller stops when it has what it needs.
-	Read(ctx context.Context, threadID, after string) iter.Seq2[Entry, error]
-	// Trim drops events older than the retention.
-	Trim(ctx context.Context, threadID string) error
-}
-
 const (
 	logRetention = 24 * time.Hour
 	logExpiry    = 7 * 24 * time.Hour
@@ -43,13 +27,16 @@ const (
 	readBatch    = 256
 )
 
-// valkeyLog stores each thread's events in a Valkey stream.
+// valkeyLog is the per-thread event stream, a Valkey stream: the live channel
+// between a running agent and its subscribers, and the source the finalizer
+// folds from.
 type valkeyLog struct{ db valkey.Client }
 
 func newValkeyLog(db valkey.Client) *valkeyLog { return &valkeyLog{db: db} }
 
 func logKey(threadID string) string { return "thread:" + threadID + ":log" }
 
+// Append adds an event produced by a run and returns its cursor.
 func (l *valkeyLog) Append(ctx context.Context, threadID string, e stream.Event) (string, error) {
 	raw, err := e.ToJSON()
 	if err != nil {
@@ -66,6 +53,7 @@ func (l *valkeyLog) Append(ctx context.Context, threadID string, e stream.Event)
 	return seq, nil
 }
 
+// Last returns the newest cursor, or "0" for an empty log.
 func (l *valkeyLog) Last(ctx context.Context, threadID string) (string, error) {
 	entries, err := l.db.Do(ctx, l.db.B().Xrevrange().Key(logKey(threadID)).End("+").Start("-").Count(1).Build()).AsXRange()
 	if err != nil {
@@ -77,6 +65,7 @@ func (l *valkeyLog) Last(ctx context.Context, threadID string) (string, error) {
 	return entries[0].ID, nil
 }
 
+// Range returns every event after the cursor without blocking.
 func (l *valkeyLog) Range(ctx context.Context, threadID, after string) ([]Entry, error) {
 	start := "-"
 	if after != "" && after != "0" {
@@ -89,6 +78,8 @@ func (l *valkeyLog) Range(ctx context.Context, threadID, after string) ([]Entry,
 	return parseEntries(raw)
 }
 
+// Read yields events after the cursor, blocking for new ones until ctx ends.
+// The caller stops when it has what it needs.
 func (l *valkeyLog) Read(ctx context.Context, threadID, after string) iter.Seq2[Entry, error] {
 	return func(yield func(Entry, error) bool) {
 		cursor := after
@@ -122,6 +113,7 @@ func (l *valkeyLog) Read(ctx context.Context, threadID, after string) iter.Seq2[
 	}
 }
 
+// Trim drops events older than the retention.
 func (l *valkeyLog) Trim(ctx context.Context, threadID string) error {
 	minID := strconv.FormatInt(time.Now().Add(-logRetention).UnixMilli(), 10)
 	return l.db.Do(ctx, l.db.B().Xtrim().Key(logKey(threadID)).Minid().Threshold(minID).Build()).Error()
