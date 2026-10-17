@@ -16,6 +16,7 @@ import (
 	"agentlite/internal/agents"
 	"agentlite/internal/artifacts"
 	"agentlite/internal/hitl"
+	"agentlite/internal/images"
 	"agentlite/internal/mcp"
 	"agentlite/internal/providers"
 	"agentlite/internal/runs"
@@ -28,6 +29,7 @@ import (
 	"agentlite/pkg/modelcatalog"
 	"agentlite/pkg/s3"
 	valkeysession "agentlite/pkg/session/valkey"
+	"agentlite/pkg/toolx"
 )
 
 // App is the wired application.
@@ -38,6 +40,7 @@ type App struct {
 	Store     *opensearch.Client
 	Sessions  session.Service
 	Memory    *memory.Service // nil when memory is not configured
+	Images    *images.Studio  // nil when image generation is not configured
 	Artifacts *artifacts.Store
 	Skills    *skills.Library
 	Agents    *agents.Runtime
@@ -104,13 +107,22 @@ func New(ctx context.Context) (_ *App, err error) {
 	}
 	app.Artifacts = artifacts.New(app.Store, files, recorder, app.Log)
 	app.Skills = skills.New(app.Store, files, app.Log)
+	var tools []toolx.Tool // harness tools of feature packages
+	if m := cfg.Models.Images; m != nil {
+		app.Images = images.New(app.Registry, app.Artifacts, app.Store, m.Model)
+		img, err := app.Images.Tool()
+		if err != nil {
+			return nil, err
+		}
+		tools = append(tools, img)
+	}
 	servers, err := mcp.Servers(cfg.Connectors, cfg.Transport, app.Log)
 	if err != nil {
 		return nil, err
 	}
 	app.Agents = agents.New(cfg, agents.Deps{
 		Registry: app.Registry, Sessions: app.Sessions, Memory: mem, Servers: servers,
-		Sources: recorder, Artifacts: app.Artifacts, Skills: app.Skills, Log: app.Log,
+		Sources: recorder, Artifacts: app.Artifacts, Skills: app.Skills, Tools: tools, Log: app.Log,
 	})
 	app.Runs = runs.New(cfg, runs.Deps{
 		DB: runsDB, Interrupts: hitl.NewStore(hitlDB), History: app.Store, Sessions: app.Sessions,
@@ -146,7 +158,8 @@ func (a *App) Close() {
 }
 
 // checkConfiguredModels checks the models models.yaml names: default_model
-// (a run that names none uses it) and memory's embedding model. Each must be
+// (a run that names none uses it), memory's embedding model and the default
+// image model. Each must be
 // in the model list after the start's first discovery (declared in
 // models.yaml, or listed by its provider), as the type it is used for, so a
 // mistake fails the start rather than every run or memory.
@@ -157,8 +170,16 @@ func checkConfiguredModels(m *config.ModelsConfig, registry *providers.Registry)
 		}
 		return nil
 	}
-	if err := check(m.DefaultModel, modelcatalog.TypeLLM); err != nil || m.Memory == nil {
+	if err := check(m.DefaultModel, modelcatalog.TypeLLM); err != nil {
 		return err
 	}
-	return check(m.Memory.EmbeddingModel, modelcatalog.TypeEmbedding)
+	if m.Memory != nil {
+		if err := check(m.Memory.EmbeddingModel, modelcatalog.TypeEmbedding); err != nil {
+			return err
+		}
+	}
+	if m.Images != nil {
+		return check(m.Images.Model, modelcatalog.TypeImage)
+	}
+	return nil
 }

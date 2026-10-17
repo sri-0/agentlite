@@ -74,7 +74,7 @@ agents can run on it (`modelcatalog.Type*`):
 | Type | What | Endpoints |
 |---|---|---|
 | `llm` | chat, completions, responses | `/v1/chat/completions`, `/v1/responses`, `/v1/messages`; agent runs |
-| `image` | image generation and editing | `/v1/chat/completions` (vLLM-Omni serves Qwen-Image and Qwen-Image-Edit there, returning images in `message.content`; OpenRouter generates images there) |
+| `image` | image generation and editing | `images.model` (the `generate_image` tool, the Images page; `/images/generations`, TOOLS.md); `/v1/chat/completions` (vLLM-Omni serves Qwen-Image and Qwen-Image-Edit there, returning images in `message.content`; OpenRouter generates images there) |
 | `embedding` | embeddings | `/v1/embeddings`; memory |
 | `audio` | speech and audio understanding (Voxtral: transcripts and questions about a recording) | `/v1/chat/completions`, with the audio in an `input_audio` part |
 | `decision` | typed answers to questions | `/v1/decisions`, `/v1/systemone` |
@@ -102,9 +102,9 @@ picker take `llm` models only, so it stays out of them.
 A type no endpoint takes (LiteLLM's `video_generation` or `ocr`) is kept as reported
 and refused everywhere. A run on a model that is not an `llm` is refused when it is
 queued (`400`), and memory refuses an embedding model of another type.
-`default_model` and `memory.embedding_model` must be in the list after the start's
-first discovery, declared in models.yaml or listed by their provider, as an `llm` and an
-`embedding` model: the server refuses to start otherwise. Declaring them keeps them
+`default_model`, `memory.embedding_model` and `images.model` must be in the list after the start's
+first discovery, declared in models.yaml or listed by their provider, as an `llm`, an
+`embedding` and an `image` model: the server refuses to start otherwise. Declaring them keeps them
 listed even when their provider is down at the start.
 
 `models.yaml` entries, and only they, may also set where a model's requests go

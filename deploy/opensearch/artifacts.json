@@ -9,6 +9,7 @@
       "title": {"type": "text"},
       "kind": {"type": "keyword"},
       "language": {"type": "keyword"},
+      "media_type": {"type": "keyword"},
       "url": {"type": "keyword"},
       "size": {"type": "long"},
       "version": {"type": "integer"},

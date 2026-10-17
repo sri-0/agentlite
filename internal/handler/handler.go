@@ -10,6 +10,7 @@ import (
 	"agentlite/config"
 	"agentlite/internal/agents"
 	"agentlite/internal/artifacts"
+	"agentlite/internal/images"
 	"agentlite/internal/providers"
 	"agentlite/internal/runs"
 	"agentlite/internal/skills"
@@ -25,6 +26,7 @@ type Handler struct {
 	Store     *opensearch.Client
 	Artifacts *artifacts.Store
 	Skills    *skills.Library
+	Images    *images.Studio // nil when image generation is not configured
 	Log       zerolog.Logger
 }
 

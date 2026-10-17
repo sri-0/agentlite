@@ -54,6 +54,7 @@ type Runtime struct {
 	sources      *sources.Recorder
 	artifacts    *artifacts.Store
 	skills       *skills.Library
+	extra        []toolx.Tool   // harness tools of other packages (Deps.Tools)
 	refs         refs.Resolvers // what a message's /name, @agent, #id refer to
 	log          zerolog.Logger
 
@@ -78,6 +79,7 @@ type Deps struct {
 	Sources   *sources.Recorder
 	Skills    *skills.Library
 	Artifacts *artifacts.Store
+	Tools     []toolx.Tool // harness tools of other packages, such as generate_image
 	Log       zerolog.Logger
 }
 
@@ -86,7 +88,8 @@ func New(cfg *config.Config, d Deps) *Runtime {
 	rt := &Runtime{
 		appName: cfg.AppName, defs: cfg.Defs(), registry: d.Registry, sessions: d.Sessions, memory: d.Memory,
 		defaultModel: cfg.Models.DefaultModel, compact: cfg.Models.Compaction, servers: d.Servers,
-		sources: d.Sources, artifacts: d.Artifacts, skills: d.Skills, refs: refs.Resolvers{'/': d.Skills}, log: d.Log,
+		sources: d.Sources, artifacts: d.Artifacts, skills: d.Skills, extra: d.Tools,
+		refs: refs.Resolvers{'/': d.Skills}, log: d.Log,
 		connectors: cfg.Connectors, transport: cfg.Transport,
 		mcpTools: newMCPTools(cfg.Connectors),
 	}
@@ -114,6 +117,9 @@ func (rt *Runtime) Bind(ctx context.Context, d builtin.Dispatcher) error {
 	})
 	if err != nil {
 		return err
+	}
+	for _, t := range rt.extra {
+		rt.harness[t.Name()] = t
 	}
 	if rt.skillset, err = rt.skills.Toolset(ctx); err != nil {
 		return err

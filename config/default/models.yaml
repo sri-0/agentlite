@@ -47,6 +47,9 @@ providers:
         owned_by: openai
       - id: mistralai/voxtral-small-24b-2507   # discovered as an llm; it is for voice
         type: audio
+      - id: qwen/qwen-image-2.1-turbo   # generates and edits; offline, vLLM-Omni serves Qwen-Image-Edit
+        name: Qwen Image 2.1 Turbo
+        type: image
 
 # A model id is "<provider>/<model>": the provider's id, then the provider's
 # own name for the model (openrouter/openai/gpt-4.1-mini). A request goes to
@@ -81,3 +84,9 @@ compaction: { token_threshold: 0.85, keep_events: 20 }
 memory:
   embedding_model: openrouter/openai/text-embedding-3-small
   preload: false
+
+# Image generation (internal/images): the image model the generate_image tool
+# uses, and the Images page's default. Every image is kept as an artifact.
+# Omit the block and there is neither.
+images:
+  model: openrouter/qwen/qwen-image-2.1-turbo

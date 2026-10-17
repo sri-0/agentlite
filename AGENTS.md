@@ -61,6 +61,8 @@ internal/
   refs/                references in a message (/name; later @agent, #id), by sigil
   sources/             numbers and stores the sources tools return
   artifacts/           artifact records (OpenSearch) and bodies (S3)
+  images/              image generation: the generate_image tool, the Images page's route; every
+                       image an artifact
   mcp/                 mcp connectors → adk toolsets
   providers/           provider clients, model resolution and discovery, the pass-through
                        proxy, embeddings
@@ -118,6 +120,7 @@ document-level security, is `not_found`. ARCHITECTURE.md has the frames.
 | GET | `/.well-known/agent-skills/index.json`, `/.well-known/agent-skills/{name}/{path}` | the skills discovery index and files `npx skills add <server>` reads (no credentials) |
 | GET | `/.well-known/opencode` | what `opencode auth login <server>` configures: models, exposed MCP servers, skills (docs/OPENCODE.md) |
 | any | `/mcp/{id}` | an MCP connector with `mcp.expose: true`, proxied for clients such as opencode |
+| POST | `/v1/images` | the Images page: `{prompt, model?, threadId?, edit?}` → `{threadId, artifact}`, an image made and kept as an artifact (TOOLS.md) |
 | POST | `/v1/chat/completions`, `/v1/responses`, `/v1/messages`, `/v1/embeddings`, `/v1/decisions`, `/v1/systemone` | pass-through to the provider the body's `model` names, with the model rewritten to the provider's own id; each endpoint takes only models of its types (MODELS.md) |
 
 There is no authentication yet. The `Authorization` header on `POST /v1/agent/chat`

@@ -20,6 +20,7 @@ type ModelsConfig struct {
 	Memory       *MemoryConfig `yaml:"memory"`
 	DefaultModel string        `yaml:"default_model"` // answers when a request names no model
 	Compaction   *Compaction   `yaml:"compaction"`    // nil disables context compaction
+	Images       *ImagesConfig `yaml:"images"`        // nil disables image generation
 }
 
 // Compaction configures adk's session compaction for every run. Tail
@@ -68,6 +69,12 @@ type MemoryConfig struct {
 	// Preload searches memory before every model call of a user-started run;
 	// off, the agent decides when to search with the load_memory tool.
 	Preload bool `yaml:"preload"`
+}
+
+// ImagesConfig enables image generation (internal/images): the image model
+// the generate_image tool uses, and the Images page's default.
+type ImagesConfig struct {
+	Model string `yaml:"model"`
 }
 
 // Provider is one OpenAI-compatible upstream. Secrets are named by environment

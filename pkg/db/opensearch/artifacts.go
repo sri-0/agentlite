@@ -19,9 +19,10 @@ type Artifact struct {
 	ThreadID  string    `json:"thread_id"`
 	RunID     string    `json:"run_id"`
 	Title     string    `json:"title"`
-	Kind      string    `json:"kind"` // markdown, code, json, csv or url
+	Kind      string    `json:"kind"` // markdown, code, json, csv, url or image
 	Language  string    `json:"language,omitempty"`
-	URL       string    `json:"url,omitempty"` // kind url: the page to embed
+	MediaType string    `json:"media_type,omitempty"` // an image's, e.g. image/png
+	URL       string    `json:"url,omitempty"`        // kind url: the page to embed
 	Size      int       `json:"size"`
 	Version   int       `json:"version"`
 	CreatedAt time.Time `json:"created_at"`

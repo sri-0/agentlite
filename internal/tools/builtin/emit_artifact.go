@@ -37,7 +37,7 @@ func emitArtifact(d Deps) (toolx.Tool, error) {
 			ID: a.ID, Title: a.Title, Kind: a.Kind, Language: a.Language,
 			RootID: tc.Thread.RootID, ThreadID: tc.Thread.ID, RunID: tc.Thread.RunID,
 		}
-		if err := d.Artifacts.Save(tc, art, a.Content); err != nil {
+		if err := d.Artifacts.Save(tc, art, []byte(a.Content)); err != nil {
 			return nil, err
 		}
 		return artifacts.Summary(art), nil

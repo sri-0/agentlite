@@ -164,7 +164,9 @@ func searchRecords(conn toolx.Connector) (toolx.Tool, error) {
 - A world tool is a `tools.Builder`, `func(toolx.Connector) (toolx.Tool, error)`,
   registered by name in `tools.Catalog`; the runtime builds each one with its connector,
   on that connector's one HTTP client. A tool is only offered through a connector.
-- A harness tool (`internal/tools/builtin`) is built the same way from `builtin.Deps`.
+- A harness tool (`internal/tools/builtin`) is built the same way from `builtin.Deps`; a
+  feature package's harness tool (`generate_image`) is built by the package and handed to
+  the runtime in `agents.Deps.Tools` (bootstrap), so the agents never import it.
 - Registries and `toolx.Toolset` accept only `toolx.Tool`, and
   `TestOnlyToolxBuildsFunctionTools` fails if any package but `toolx` imports
   `functiontool`.
@@ -225,7 +227,7 @@ records and records every hit with the row's id, marking and control set as meta
 `emit_artifact` publishes a document; `internal/artifacts` stores it:
 
 - the record in OpenSearch `artifacts` (id a name-based UUID of `{root, artifact id}`): `id, root_id,
-  thread_id, run_id, title, kind, language, url, size, version, created_at, updated_at`;
+  thread_id, run_id, title, kind, language, url, media_type, size, version, created_at, updated_at`;
 - the body in S3 at `artifacts/{root}/{artifact id}/{version}`.
 
 An artifact id is letters, digits, `.`, `_` and `-`, starting with a letter or digit (it
@@ -234,7 +236,8 @@ otherwise.
 
 Kinds with a body: `markdown`, `code`, `json`, `csv` (there is no HTML kind: model-written
 markup is the one kind not worth its risk). Kind `url` has no body: it points at a page
-the UI embeds. Publishing the same id again stores a new version under its own key.
+the UI embeds. Kind `image` is an image (see Images below): its body is the image, its
+`media_type` the type sniffed from it, and it cites no sources. Publishing the same id again stores a new version under its own key.
 Versions come from the conversation's counters document (never below the current
 record's version, so an artifact saved before its counter existed keeps counting up),
 and the record is written with
@@ -249,6 +252,31 @@ conversation's artifacts, and `GET /v1/artifacts?after=&limit=` lists every
 conversation's, newest first, with each one's thread title; a full page carries `next`,
 an opaque cursor (OpenSearch `search_after` on update time, conversation and id) for the
 next page's `after`, so ties never drop an artifact.
+
+## Images
+
+`internal/images` makes images and keeps each as an `image` artifact, so every image is
+on the artifacts page; the agents only see its tool. `generate_image {prompt, edit?}` is a
+harness tool, offered when `models.yaml` has an `images` block: it makes the image with
+`images.model`, saves it, and shows it in the thread as an `artifact` activity (its calls
+carry the UI renderer `generate_image`). `edit` names an image of the conversation: the
+result is that artifact's next version, under its title.
+
+The Images page uses `POST /v1/images {prompt, model?, threadId?, edit?}` →
+`{threadId, artifact}`, with any image model: 400 for no prompt, an unknown or non-image
+model, or an edit of what is not an image; 502 with the model's message when it refuses.
+A generation has 3 minutes, is not retried (each is paid for), and finishes even if the
+client goes away. Its conversations are threads with `agent_id: "images"` (so no agent may
+be called `images`), created once the first image is made and titled by its prompt; the UI
+opens them on that page. `GET /v1/threads/{id}/artifacts/{artifactId}/content?v=N` serves
+version N, so an image shown in a chat keeps showing the version it made.
+
+The `media_type` field is new in `deploy/opensearch/artifacts.json`: run `make indices`.
+
+The model is called on the OpenAI route `/images/generations`, which OpenRouter and
+vLLM-Omni serve, reading `data[].b64_json`. An edit's reference image goes in OpenRouter's
+`input_references`; vLLM-Omni edits on `/images/edits` instead, so offline an edit
+generates without its reference until that route is added.
 
 S3 is any S3-compatible store through `minio-go` (`pkg/s3`); `docker-compose.yaml` runs
 MinIO on `:9000` (console `:9001`, `minioadmin`/`minioadmin`). The bucket is created on

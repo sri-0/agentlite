@@ -1,6 +1,6 @@
 // Package artifacts stores what agents publish: the record in OpenSearch and
 // the body in S3. A url artifact has no body; it points at a page the UI
-// embeds.
+// embeds. An image artifact's body is the image (internal/images).
 package artifacts
 
 import (
@@ -9,8 +9,10 @@ import (
 	"fmt"
 	"io"
 	"maps"
+	"net/http"
 	"regexp"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/rs/zerolog"
@@ -20,8 +22,12 @@ import (
 	"agentlite/pkg/s3"
 )
 
-// KindURL is an artifact that only points at a page.
-const KindURL = "url"
+// KindURL is an artifact that only points at a page; a KindImage artifact's
+// body is an image, served as the media type it was saved with.
+const (
+	KindURL   = "url"
+	KindImage = "image"
+)
 
 // Kinds an artifact with a body can have, and the content type it is served with.
 var contentTypes = map[string]string{
@@ -34,8 +40,13 @@ var contentTypes = map[string]string{
 // Kinds lists the kinds an artifact with a body may have.
 func Kinds() []string { return slices.Sorted(maps.Keys(contentTypes)) }
 
-// ContentType is how a kind's body is served.
-func ContentType(kind string) string { return contentTypes[kind] }
+// ContentType is how an artifact's body is served.
+func ContentType(a *opensearch.Artifact) string {
+	if a.Kind == KindImage {
+		return a.MediaType
+	}
+	return contentTypes[a.Kind]
+}
 
 // Store keeps artifacts.
 type Store struct {
@@ -59,13 +70,18 @@ var validID = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,127}$`)
 // conversation's counters document), each body has its own key, and the
 // record only moves forward, so two saves of one artifact at once both keep
 // their versions and the later one is served.
-func (s *Store) Save(ctx context.Context, a *opensearch.Artifact, body string) error {
+func (s *Store) Save(ctx context.Context, a *opensearch.Artifact, body []byte) error {
+	if a.Kind == KindImage {
+		a.MediaType = http.DetectContentType(body)
+	}
 	switch {
 	case !validID.MatchString(a.ID):
 		return fmt.Errorf("artifact id %q: use letters, digits, '.', '_' and '-'", a.ID)
 	case a.Kind == KindURL && a.URL == "":
 		return fmt.Errorf("a %s artifact needs a url", KindURL)
-	case a.Kind != KindURL && contentTypes[a.Kind] == "":
+	case a.Kind == KindImage && !strings.HasPrefix(a.MediaType, "image/"):
+		return fmt.Errorf("an %s artifact's body must be an image, not %s", KindImage, a.MediaType)
+	case a.Kind != KindURL && a.Kind != KindImage && contentTypes[a.Kind] == "":
 		return fmt.Errorf("unknown artifact kind %q; use one of %v", a.Kind, Kinds())
 	}
 	now := time.Now()
@@ -83,7 +99,7 @@ func (s *Store) Save(ctx context.Context, a *opensearch.Artifact, body string) e
 	}
 	if a.Kind != KindURL {
 		a.Size = len(body)
-		if err := s.bodies.Put(ctx, key(a), contentTypes[a.Kind], []byte(body)); err != nil {
+		if err := s.bodies.Put(ctx, key(a), ContentType(a), body); err != nil {
 			return err
 		}
 	}
@@ -92,9 +108,12 @@ func (s *Store) Save(ctx context.Context, a *opensearch.Artifact, body string) e
 	if err := s.records.SaveArtifact(ctx, a); err != nil && !errors.Is(err, opensearch.ErrConflict) {
 		return err
 	}
+	if a.Kind == KindImage {
+		return nil // an image cites nothing
+	}
 	// The artifact is saved; a citation that fails to record is logged, not
 	// reported as a failed save the model would retry.
-	if err := s.sources.Cite(ctx, a.RootID, "artifact:"+a.ID, body); err != nil {
+	if err := s.sources.Cite(ctx, a.RootID, "artifact:"+a.ID, string(body)); err != nil {
 		s.log.Warn().Err(err).Str("artifact", a.ID).Msg("record citations")
 	}
 	return nil

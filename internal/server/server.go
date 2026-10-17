@@ -76,6 +76,11 @@ func New(cfg *config.Config, h *handler.Handler) *echo.Echo {
 	e.GET("/.well-known/agent-skills/:name/*", wk.SkillFile, sandboxed)
 	e.Any("/mcp/:id", h.MCPProxy)
 
+	// The Images page: one image made and kept as an artifact (internal/images).
+	if h.Images != nil {
+		e.POST("/v1/images", h.Images.Handle)
+	}
+
 	// Agent chat: a new thread, then the socket.
 	e.POST("/v1/agent/chat", h.StartThread)
 	e.GET("/v1/agent/chat", h.Chat)
