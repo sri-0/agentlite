@@ -30,8 +30,10 @@ type questionArgs struct {
 // with the user's answers as the confirmation's output.
 func question(Deps) (toolx.Tool, error) {
 	return toolx.New(toolx.Spec{
-		Name:        Question,
-		Description: "Ask the user one to four multiple-choice questions when you need a decision only they can make. The answers arrive as the tool result.",
+		Name: Question,
+		Description: "Ask the user one to four multiple-choice questions when you need a decision only they can make. " +
+			"The answers arrive as the tool result: one list per question, empty for one the user skipped. " +
+			"skipped: true means the user skipped them all: go on with your best judgement and say what you assumed.",
 	}, func(ctx toolx.Context, a questionArgs) (map[string]any, error) {
 		if conf := ctx.ToolConfirmation(); conf != nil {
 			payload, _ := conf.Payload.(map[string]any)

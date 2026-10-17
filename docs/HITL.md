@@ -21,7 +21,7 @@ Two things pause a run:
 | What | Raised by | The user sees | Answered with |
 |---|---|---|---|
 | A tool that needs approval (`write_note`, MCP tools listed in `require_confirmation`) | adk, from the tool's config | the call's arguments, Approve / Deny, a justification field | `{approved, justification?}` |
-| The `question` tool | the tool itself, with `request: {toolName: "question", args: {questions}}` | a question card | `{output: {answers, text?}}`, which becomes the tool's result |
+| The `question` tool | the tool itself, with `request: {toolName: "question", args: {questions}}` | the questions in place of the composer (shadcn questionnaire) | `{output: {answers, skipped?}}`, which becomes the tool's result: one list of chosen labels or typed text per question, empty for one skipped, and `skipped: true` when the user skipped them all, which the tool's description tells the model to take as "go on with your best judgement" |
 
 `question` uses a confirmation rather than adk's long-running tools because adk
 always stops its loop on a confirmation, even when the pausing call shares a
@@ -63,6 +63,11 @@ The continuation's `RUN_STARTED` carries the same `turnId`, so it folds into the
 same assistant message. A turn that paused on several calls (an approval and a
 question in one model turn) resumes once, after the last of them is answered,
 because adk expects every confirmation of the turn in the same request.
+
+A thread takes one run at a time, so a message sent while the run waits is refused
+as busy. The UI cancels the paused run first (a paused run closes at once, before the
+cancel is acknowledged) and then sends the message, which starts the next turn; the
+question or approval it passed over shows as not answered.
 
 ## Sub-agents: shown on the parent, answered on the child
 

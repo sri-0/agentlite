@@ -182,7 +182,7 @@ tool ──tc.AddSource(Source{System, Key, URL, Title, Metadata})──► sour
         │                                                          └─ OpenSearch: number + record
         └─ returns the item to the model with "source": N
 model ──"… the cables corroded [source:2]."──► encoder ──► runtime: Cite(message:<turn>)
-UI    ──[source:2] chip ──► GET /v1/threads/{id}/sources/2
+UI    ──[source:2] citation ──► GET /v1/threads/{id}/sources/2
 ```
 
 - **Numbers belong to the conversation** (the root thread), so a sub-agent's citations
