@@ -20,10 +20,10 @@ type Memory struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
-// SaveMemory upserts a memory entry and returns once the next refresh makes it
-// searchable, so a thread delete after it finds it.
+// SaveMemory upserts a memory entry. Nothing reads one back at once, so the
+// index refreshes on its own schedule.
 func (c *Client) SaveMemory(ctx context.Context, m *Memory) error {
-	return c.write(ctx, indexMemories, m.ID, m, opensearchapi.IndexParams{Refresh: "wait_for"})
+	return c.write(ctx, indexMemories, m.ID, m, opensearchapi.IndexParams{})
 }
 
 // DeleteMemories deletes a thread's memory entries.
