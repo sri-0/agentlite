@@ -27,6 +27,9 @@ type Config struct {
 	// Timeout bounds each request, body included. Zero means no limit, which
 	// streamed model responses need.
 	Timeout time.Duration
+	// ResponseHeaderTimeout bounds the wait for the response's headers; zero
+	// means no limit.
+	ResponseHeaderTimeout time.Duration
 	// DisableCompression stops the client asking for gzip. Streamed responses
 	// need it: a compressing upstream may hold chunks back.
 	DisableCompression bool
@@ -49,6 +52,7 @@ func New(cfg Config) (*http.Client, error) {
 	t := http.DefaultTransport.(*http.Transport).Clone() // proxy from the environment, HTTP/2, sane timeouts
 	t.MaxIdleConnsPerHost = 100
 	t.DisableCompression = cfg.DisableCompression
+	t.ResponseHeaderTimeout = cfg.ResponseHeaderTimeout
 	if cfg.TLS != nil {
 		tlsCfg, err := cfg.TLS.config()
 		if err != nil {

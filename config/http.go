@@ -4,6 +4,7 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"net/http"
 	"os"
 	"strings"
 	"time"
@@ -27,11 +28,11 @@ type HTTP struct {
 	TLS     *TLS `yaml:"tls"`
 }
 
-// Transport is the pkg/transport configuration this block describes.
-func (h HTTP) Transport() (transport.Config, error) {
+// Client builds the client this block describes (pkg/transport).
+func (h HTTP) Client(env transport.Env) (*http.Client, error) {
 	tls, err := h.TLS.Resolve()
 	if err != nil {
-		return transport.Config{}, err
+		return nil, err
 	}
 	headers := maps.Clone(h.Headers)
 	if h.UserAgent != "" {
@@ -44,7 +45,7 @@ func (h HTTP) Transport() (transport.Config, error) {
 	if h.Forward {
 		cfg.ContextHeaders = toolx.Headers
 	}
-	return cfg, nil
+	return env.Client(cfg)
 }
 
 // TLS names the environment variables that hold a client certificate for

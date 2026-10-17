@@ -24,9 +24,9 @@ type recentArtifact struct {
 // opaque cursor: ?after=<next> fetches the following page.
 func (h *Handler) RecentArtifacts(c *echo.Context) error {
 	ctx := c.Request().Context()
-	limit, _ := echo.QueryParamOr[int](c, "limit", defaultPageSize)
-	if limit <= 0 || limit > maxPageSize {
-		limit = defaultPageSize
+	limit, err := echo.QueryParamOr[int](c, "limit", 0)
+	if err != nil {
+		return err
 	}
 	var after *opensearch.ArtifactKey
 	if v := c.QueryParam("after"); v != "" {
@@ -38,7 +38,7 @@ func (h *Handler) RecentArtifacts(c *echo.Context) error {
 			return echo.NewHTTPError(http.StatusBadRequest, "after must be a next cursor from this list")
 		}
 	}
-	found, err := h.Store.RecentArtifacts(ctx, after, limit)
+	found, next, err := h.Store.RecentArtifacts(ctx, after, limit)
 	if err != nil {
 		return err
 	}
@@ -55,8 +55,8 @@ func (h *Handler) RecentArtifacts(c *echo.Context) error {
 		items = append(items, recentArtifact{Artifact: a, ThreadTitle: titles[a.RootID]})
 	}
 	page := artifactsPage{list: newList(items)}
-	if len(found) == limit {
-		key, _ := json.Marshal(found[len(found)-1].Key())
+	if next != nil {
+		key, _ := json.Marshal(next)
 		page.Next = base64.RawURLEncoding.EncodeToString(key)
 	}
 	return c.JSON(http.StatusOK, page)

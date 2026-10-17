@@ -1,6 +1,7 @@
 package providers
 
 import (
+	"cmp"
 	"context"
 	"errors"
 	"fmt"
@@ -49,9 +50,10 @@ type provider struct {
 	declared []modelcatalog.Model // models.yaml, by upstream id
 	baseURLs map[string]*url.URL  // the declared models' own base_url, by upstream id
 
-	discovered []modelcatalog.Model          // the provider's last successful listing
-	models     map[string]modelcatalog.Model // merged, by upstream id
-	order      []string                      // upstream ids: declared first, then discovered
+	discovered   []modelcatalog.Model          // the provider's last successful listing
+	discoveredAt time.Time                     // when it was made
+	models       map[string]modelcatalog.Model // merged, by upstream id
+	order        []string                      // upstream ids: declared first, then discovered
 }
 
 // Target is where one model's requests go.
@@ -71,7 +73,7 @@ func NewRegistry(cfg *config.ModelsConfig, cardsDir string, proxy transport.Env,
 			log.Warn().Str("provider", p.ID).Msg("provider has no base_url in this environment; skipped")
 			continue
 		}
-		c, err := newClient(p)
+		c, err := newClient(p, proxy)
 		if err != nil {
 			return nil, err
 		}
@@ -152,49 +154,49 @@ func (r *Registry) provider(id string) *provider {
 	return nil
 }
 
-// Start runs discovery for every provider that configures it: once for all
-// of them together before it returns, so the start sees their models, then
-// on each one's refresh interval until ctx ends. Each pass reloads the cards.
+// Start refreshes the models once before it returns, so the start sees what
+// discovery finds, then every refresh interval until ctx ends.
 func (r *Registry) Start(ctx context.Context) {
-	var first sync.WaitGroup
-	for _, p := range r.providers {
-		if p.client.Config.Discover != nil {
-			first.Go(func() { r.discoverOnce(ctx, p) })
+	r.refresh(ctx)
+	go func() {
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(defaultRefresh):
+			}
+			r.refresh(ctx)
 		}
-	}
-	first.Wait()
-	for _, p := range r.providers {
-		if p.client.Config.Discover != nil {
-			go r.discoverLoop(ctx, p)
-		}
-	}
+	}()
 }
 
-func (r *Registry) discoverLoop(ctx context.Context, p *provider) {
-	refresh := p.client.Config.Discover.Refresh
-	if refresh <= 0 {
-		refresh = defaultRefresh
-	}
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		case <-time.After(refresh):
-		}
-		r.discoverOnce(ctx, p)
-	}
-}
-
-// discoverOnce lists a provider's models; on failure it keeps the last list.
-func (r *Registry) discoverOnce(ctx context.Context, p *provider) {
-	models, err := discover(ctx, p.client)
-	if err != nil {
-		r.log.Warn().Err(err).Str("provider", p.client.Config.ID).Msg("model discovery failed; keeping the last listing")
-		return
-	}
+// refresh reloads the model cards, lists the models of the providers whose
+// discovery is due, together, and rebuilds every provider's list, so a
+// pulled card reaches providers without discovery too. A failed listing
+// keeps the last one.
+func (r *Registry) refresh(ctx context.Context) {
 	r.loadCards()
-	r.rebuild(p, models)
-	r.log.Info().Str("provider", p.client.Config.ID).Int("models", len(models)).Msg("models discovered")
+	listings := make([][]modelcatalog.Model, len(r.providers))
+	var due sync.WaitGroup
+	for i, p := range r.providers {
+		d := p.client.Config.Discover
+		if d == nil || time.Since(p.discoveredAt) < cmp.Or(d.Refresh, defaultRefresh) {
+			continue
+		}
+		due.Go(func() {
+			models, err := discover(ctx, p.client)
+			if err != nil {
+				r.log.Warn().Err(err).Str("provider", p.client.Config.ID).Msg("model discovery failed; keeping the last listing")
+				return
+			}
+			listings[i], p.discoveredAt = models, time.Now()
+			r.log.Info().Str("provider", p.client.Config.ID).Int("models", len(models)).Msg("models discovered")
+		})
+	}
+	due.Wait()
+	for i, p := range r.providers {
+		r.rebuild(p, listings[i])
+	}
 }
 
 // discover fetches the provider's model list.
@@ -256,6 +258,9 @@ func (r *Registry) rebuild(p *provider, discovered []modelcatalog.Model) {
 	}
 	listed := map[string]modelcatalog.Model{}
 	for _, m := range p.discovered {
+		if _, ok := listed[m.ID]; ok {
+			continue // LiteLLM lists a model once per deployment; the first stands
+		}
 		listed[m.ID] = m
 		if _, ok := declared[m.ID]; !ok {
 			order = append(order, m.ID)

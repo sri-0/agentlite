@@ -3,6 +3,7 @@ package agents
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 
 	"github.com/ag-ui-protocol/ag-ui/sdks/community/go/pkg/core/events"
@@ -24,7 +25,10 @@ func seed(ctx context.Context, svc session.Service, app, user, threadID, author 
 	for _, m := range msgs {
 		for _, ev := range seedEvents(ctx, m, author) {
 			if err := svc.AppendEvent(ctx, resp.Session, ev); err != nil {
-				return fmt.Errorf("seed %s: %w", m.ID, err)
+				// A partial session would pass for the whole history: drop
+				// it, so the next turn seeds again.
+				del := svc.Delete(ctx, &session.DeleteRequest{AppName: app, UserID: user, SessionID: threadID})
+				return errors.Join(fmt.Errorf("seed %s: %w", m.ID, err), del)
 			}
 		}
 	}

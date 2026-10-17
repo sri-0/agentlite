@@ -228,6 +228,8 @@ allows any, and clients that send no `Origin` are not checked),
 `REDIS_DB_HITL`, `OPENSEARCH_URL`, `OPENSEARCH_USERNAME`, `OPENSEARCH_PASSWORD`,
 `S3_ENDPOINT`, `S3_ACCESS_KEY`, `S3_SECRET_KEY`, `S3_BUCKET`, `S3_REGION`, `S3_USE_SSL`,
 `TRANSPORT_SENSITIVE_HEADERS` (a caller's headers a forward drops),
+`TRANSPORT_RESPONSE_HEADER_TIMEOUT` (default 5m: how long a provider, MCP server or tool may
+take to answer before its body streams; the databases' clients are their own),
 `OTEL_EXPORTER_OTLP_ENDPOINT` (tracing), and whatever the YAML files reference
 (provider base URLs and keys, `OPEN_SLIDE_MCP_URL`), and `MODEL_CARDS_DIR`.
 
@@ -238,6 +240,10 @@ an unknown `api`, a tool an agent lists that nothing serves, a pipeline that con
 itself, or a missing default agent (`assistant`) fails the start.
 
 ## Observability
+
+Logs are zerolog; Echo and adk log through slog, which `pkg/logging` routes to it.
+Each request is logged by Echo's request logger with its real status and request
+id, and a panic is logged with its stack. `make lint` runs `go vet` and staticcheck.
 
 With `OTEL_EXPORTER_OTLP_ENDPOINT` set, adk's own telemetry exports traces (Jaeger
 in `docker-compose.yaml`, UI on :16686): a `run` span per run segment with adk's

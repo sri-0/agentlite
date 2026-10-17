@@ -59,7 +59,7 @@ func Servers(connectors []config.Connector, proxy transport.Env, log zerolog.Log
 func newServer(c config.Connector, proxy transport.Env, log zerolog.Logger) (*Server, error) {
 	s := &Server{config: c.MCP, transport: commandTransport(c.MCP.Command), forward: c.HTTP.Forward, proxy: proxy}
 	if c.MCP.Endpoint != "" {
-		client, err := httpClient(c)
+		client, err := c.HTTP.Client(proxy)
 		if err != nil {
 			return nil, err
 		}
@@ -130,16 +130,6 @@ func (r resilient) Tools(ctx agent.ReadonlyContext) ([]tool.Tool, error) {
 		return nil, nil
 	}
 	return tools, nil
-}
-
-// httpClient is the client a server over streamable HTTP is reached with, its
-// own (pkg/transport, from the connector's http block).
-func httpClient(c config.Connector) (*http.Client, error) {
-	cfg, err := c.HTTP.Transport()
-	if err != nil {
-		return nil, err
-	}
-	return transport.New(cfg)
 }
 
 // outsideRun connects without the thread of the run that happened to need

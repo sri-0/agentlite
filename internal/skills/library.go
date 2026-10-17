@@ -97,6 +97,9 @@ func (l *Library) Save(ctx context.Context, d Draft) (*opensearch.Skill, error) 
 			}
 		}
 	}
+	if n := len(s.Files) + len(files); n > maxFiles { // the kept files count too
+		return nil, fmt.Errorf("%w: %d files, more than %d", ErrInvalid, n, maxFiles)
+	}
 	if err := l.store(ctx, s, files); err != nil {
 		if prev == nil { // no record lists a new skill's files
 			l.cleanUp(s.Name, l.files.DeletePrefix(context.WithoutCancel(ctx), key(s.ID, "")))
@@ -112,7 +115,7 @@ func (l *Library) Save(ctx context.Context, d Draft) (*opensearch.Skill, error) 
 // store writes a skill's files, then its record, which lists them.
 func (l *Library) store(ctx context.Context, s *opensearch.Skill, files map[string][]byte) error {
 	for p, b := range files {
-		if err := l.files.Put(ctx, key(s.ID, p), ContentType(p, b), b); err != nil {
+		if err := l.files.Put(ctx, key(s.ID, p), contentType(p, b), b); err != nil {
 			return err
 		}
 		s.Files = append(s.Files, opensearch.SkillFile{Path: p, Size: len(b)})
@@ -203,9 +206,19 @@ func (l *Library) File(ctx context.Context, s *opensearch.Skill, p string) ([]by
 	return io.ReadAll(r)
 }
 
-// ContentType is what a skill's file is served as: by its extension, or by
-// its content.
-func ContentType(p string, b []byte) string {
+// ServeFile writes one of a skill's files to w, with its content type.
+func (l *Library) ServeFile(ctx context.Context, w http.ResponseWriter, s *opensearch.Skill, p string) error {
+	b, err := l.File(ctx, s, p)
+	if err != nil {
+		return err
+	}
+	w.Header().Set("Content-Type", contentType(p, b))
+	_, err = w.Write(b)
+	return err
+}
+
+// contentType is a file's type: by its extension, or by its content.
+func contentType(p string, b []byte) string {
 	return cmp.Or(mime.TypeByExtension(path.Ext(p)), http.DetectContentType(b))
 }
 

@@ -40,7 +40,8 @@ compaction summarizer, and by every sub-agent the run starts.
 
 ## Tools
 
-- **World tools** (`internal/tools`): `calculate`, `webfetch` (public hosts only; each
+- **World tools** (`internal/tools`): `calculate` (expr-lang/expr: decimals, powers, and
+  math functions; nothing else runs), `webfetch` (public hosts only; each
   page is a source), `write_note` (the approval demo; it only logs), `search_records`
   (the sources demo over sample records).
 - **Harness tools** (`internal/tools/builtin`): `subagent`, `todowrite`, `question`,

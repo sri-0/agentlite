@@ -11,7 +11,9 @@ require (
 	github.com/adrg/frontmatter v0.2.0
 	github.com/ag-ui-protocol/ag-ui/sdks/community/go v0.0.0-20261007133343-903a9ab9a154
 	github.com/coder/websocket v1.8.15
+	github.com/expr-lang/expr v1.17.8
 	github.com/goccy/go-yaml v1.19.2
+	github.com/google/go-cmp v0.7.0
 	github.com/google/uuid v1.6.0
 	github.com/joho/godotenv v1.5.1
 	github.com/labstack/echo/v5 v5.4.0
@@ -48,7 +50,6 @@ require (
 	github.com/felixge/httpsnoop v1.1.0 // indirect
 	github.com/go-logr/logr v1.4.4 // indirect
 	github.com/go-logr/stdr v1.2.2 // indirect
-	github.com/google/go-cmp v0.7.0 // indirect
 	github.com/google/jsonschema-go v0.4.3 // indirect
 	github.com/google/s2a-go v0.1.9 // indirect
 	github.com/google/safehtml v0.1.0 // indirect

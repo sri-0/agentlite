@@ -113,7 +113,8 @@ func New(ctx context.Context) (_ *App, err error) {
 		Sources: recorder, Artifacts: app.Artifacts, Skills: app.Skills, Log: app.Log,
 	})
 	app.Runs = runs.New(cfg, runs.Deps{
-		DB: runsDB, Interrupts: hitl.NewStore(hitlDB), History: app.Store, Sessions: app.Sessions, Runtime: app.Agents, Log: app.Log,
+		DB: runsDB, Interrupts: hitl.NewStore(hitlDB), History: app.Store, Sessions: app.Sessions,
+		Runtime: app.Agents, Log: app.Log,
 	})
 	if err := app.Agents.Bind(ctx, app.Runs); err != nil { // the subagent tool dispatches through the run manager
 		return nil, err

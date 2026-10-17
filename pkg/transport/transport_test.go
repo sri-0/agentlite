@@ -34,7 +34,7 @@ func TestClientCertificate(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	//nolint:staticcheck // the format under test
+	//lint:ignore SA1019 the format under test
 	legacy, err := x509.EncryptPEMBlock(rand.Reader, "RSA PRIVATE KEY", x509.MarshalPKCS1PrivateKey(rsaKey), password,
 		x509.PEMCipherAES256)
 	if err != nil {

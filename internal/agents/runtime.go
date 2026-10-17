@@ -37,6 +37,7 @@ import (
 	"agentlite/pkg/db/opensearch"
 	"agentlite/pkg/modelcatalog"
 	"agentlite/pkg/toolx"
+	"agentlite/pkg/transport"
 )
 
 // Runtime implements runs.Runtime on adk.
@@ -57,7 +58,7 @@ type Runtime struct {
 	log          zerolog.Logger
 
 	connectors []config.Connector
-	userAgent  string                  // for tools no connector names
+	transport  transport.Env           // how connectors' clients are built
 	harness    map[string]toolx.Tool   // always available: subagent, todowrite, …
 	skillset   tool.Toolset            // the skills library's: list_skills, load_skill, …
 	world      map[string]toolx.Tool   // switched on through connectors
@@ -86,7 +87,7 @@ func New(cfg *config.Config, d Deps) *Runtime {
 		appName: cfg.AppName, defs: cfg.Defs(), registry: d.Registry, sessions: d.Sessions, memory: d.Memory,
 		defaultModel: cfg.Models.DefaultModel, compact: cfg.Models.Compaction, servers: d.Servers,
 		sources: d.Sources, artifacts: d.Artifacts, skills: d.Skills, refs: refs.Resolvers{'/': d.Skills}, log: d.Log,
-		connectors: cfg.Connectors, userAgent: cfg.UserAgent,
+		connectors: cfg.Connectors, transport: cfg.Transport,
 		mcpTools: newMCPTools(cfg.Connectors),
 	}
 	if m := cfg.Models.Memory; m != nil {

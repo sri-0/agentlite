@@ -1,7 +1,7 @@
 package builtin
 
 import (
-	"fmt"
+	"errors"
 
 	"github.com/google/uuid"
 
@@ -31,7 +31,7 @@ func emitArtifact(d Deps) (toolx.Tool, error) {
 			a.ID = uuid.Must(uuid.NewV7()).String()
 		}
 		if tc.Thread.RootID == "" {
-			return nil, fmt.Errorf("artifacts can only be published from a thread")
+			return nil, errors.New("artifacts can only be published from a thread")
 		}
 		art := &opensearch.Artifact{
 			ID: a.ID, Title: a.Title, Kind: a.Kind, Language: a.Language,

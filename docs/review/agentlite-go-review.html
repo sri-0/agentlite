@@ -1,0 +1,878 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>agentlite Go Review</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,600;12..96,700&family=Instrument+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap">
+<style>
+/* Layout: a sticky section index beside one reading column of finding cards, each with its own feedback strip. Accent is Go's own cyan. */
+:root {
+  --bg: #f4f7f8;
+  --surface: #ffffff;
+  --sunk: #eaf0f2;
+  --ink: #11191c;
+  --muted: #56666d;
+  --line: #d8e1e4;
+  --accent: #00708c;
+  --accent-soft: #d9f1f7;
+  --high: #b42318; --high-soft: #fde8e6;
+  --med: #a15c07; --med-soft: #fdf1dc;
+  --low: #4b5b63; --low-soft: #e9eef0;
+  --do: #067647; --do-soft: #dcf5e7;
+  --later: #00708c; --later-soft: #d9f1f7;
+  --skip: #4b5b63; --skip-soft: #e4eaec;
+  --discuss: #6941c6; --discuss-soft: #ece6fb;
+  --font-display: "Bricolage Grotesque", "Avenir Next", system-ui, sans-serif;
+  --font-body: "Instrument Sans", "Segoe UI", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", ui-monospace, "SF Mono", Menlo, monospace;
+}
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) {
+    --bg: #0c1316; --surface: #131d21; --sunk: #0f181b; --ink: #e4edf0; --muted: #93a5ac; --line: #233238;
+    --accent: #4fc6e0; --accent-soft: #10303a;
+    --high: #f97066; --high-soft: #3a1714; --med: #fdb022; --med-soft: #33250b; --low: #a7b6bc; --low-soft: #1c2a30;
+    --do: #47cd89; --do-soft: #0f2e20; --later: #4fc6e0; --later-soft: #10303a; --skip: #a7b6bc; --skip-soft: #1c2a30;
+    --discuss: #b692f6; --discuss-soft: #261c3d;
+    color-scheme: dark;
+  }
+}
+:root[data-theme="dark"] {
+  --bg: #0c1316; --surface: #131d21; --sunk: #0f181b; --ink: #e4edf0; --muted: #93a5ac; --line: #233238;
+  --accent: #4fc6e0; --accent-soft: #10303a;
+  --high: #f97066; --high-soft: #3a1714; --med: #fdb022; --med-soft: #33250b; --low: #a7b6bc; --low-soft: #1c2a30;
+  --do: #47cd89; --do-soft: #0f2e20; --later: #4fc6e0; --later-soft: #10303a; --skip: #a7b6bc; --skip-soft: #1c2a30;
+  --discuss: #b692f6; --discuss-soft: #261c3d;
+  color-scheme: dark;
+}
+
+* { box-sizing: border-box; }
+body {
+  background: var(--bg); color: var(--ink); font-family: var(--font-body); font-size: 15px; line-height: 1.55;
+  padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px));
+  padding-block: 0 64px;
+}
+code, .mono { font-family: var(--font-mono); font-size: 0.86em; }
+code { background: var(--sunk); border-radius: 4px; padding: 0.05em 0.35em; overflow-wrap: anywhere; }
+button { font: inherit; color: inherit; }
+:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
+
+.shell { max-width: 1180px; margin: 0 auto; display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 40px; }
+@media (max-width: 960px) { .shell { grid-template-columns: minmax(0, 1fr); gap: 20px; } }
+
+header.top { max-width: 1180px; margin: 0 auto; padding-block: 36px 24px; display: flex; flex-direction: column; gap: 14px; }
+.eyebrow { font-family: var(--font-mono); font-size: 12px; letter-spacing: 0.04em; color: var(--muted); }
+h1 { font-family: var(--font-display); font-weight: 700; font-size: clamp(30px, 5vw, 44px); line-height: 1.05; margin: 0; letter-spacing: -0.01em; text-wrap: balance; }
+.lede { max-width: 68ch; margin: 0; color: var(--muted); font-size: 16px; }
+.baseline { display: flex; flex-wrap: wrap; gap: 8px; }
+.baseline span { font-family: var(--font-mono); font-size: 12px; padding: 3px 9px; border-radius: 999px; background: var(--surface); border: 1px solid var(--line); color: var(--muted); }
+.baseline b { color: var(--ink); font-weight: 500; }
+
+nav.index { position: sticky; top: calc(env(safe-area-inset-top, 0px) + 16px); align-self: start; display: flex; flex-direction: column; gap: 18px; }
+@media (max-width: 960px) { nav.index { position: static; } nav.index .links { flex-direction: row; flex-wrap: wrap; } }
+.progress { display: flex; flex-direction: column; gap: 8px; }
+.progress .label { font-size: 13px; color: var(--muted); }
+.progress .label b { color: var(--ink); font-variant-numeric: tabular-nums; }
+.bar { height: 6px; border-radius: 999px; background: var(--sunk); overflow: hidden; display: flex; }
+.bar i { display: block; height: 100%; }
+.links { display: flex; flex-direction: column; gap: 2px; }
+.links a { display: flex; justify-content: space-between; gap: 8px; padding: 6px 10px; border-radius: 8px; text-decoration: none; color: var(--ink); font-size: 14px; }
+.links a:hover { background: var(--sunk); }
+.links a span { font-family: var(--font-mono); font-size: 12px; color: var(--muted); font-variant-numeric: tabular-nums; }
+
+main { min-width: 0; display: flex; flex-direction: column; gap: 36px; }
+.notice { padding: 10px 14px; border-radius: 10px; background: var(--accent-soft); color: var(--ink); font-size: 14px; }
+.notice[data-kind="warn"] { background: var(--med-soft); }
+
+.filters { display: flex; flex-wrap: wrap; gap: 14px 24px; align-items: center; }
+.seg { display: inline-flex; flex-wrap: wrap; gap: 4px; }
+.seg .name { font-size: 12px; color: var(--muted); margin-right: 4px; align-self: center; letter-spacing: 0.04em; text-transform: uppercase; }
+.seg button { border: 1px solid var(--line); background: var(--surface); border-radius: 999px; padding: 4px 11px; font-size: 13px; cursor: pointer; }
+.seg button[aria-pressed="true"] { background: var(--ink); color: var(--bg); border-color: var(--ink); }
+
+section.group { display: flex; flex-direction: column; gap: 14px; scroll-margin-top: 16px; }
+section.group > h2 { font-family: var(--font-display); font-weight: 600; font-size: 24px; margin: 0; display: flex; align-items: baseline; gap: 10px; text-wrap: balance; }
+section.group > h2 small { font-family: var(--font-mono); font-size: 12px; font-weight: 400; color: var(--muted); }
+section.group > p.intro { margin: -4px 0 4px; color: var(--muted); max-width: 70ch; }
+
+article.finding { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 18px 20px 14px; display: flex; flex-direction: column; gap: 10px; scroll-margin-top: 16px; }
+article.finding[data-decision="do"] { border-color: color-mix(in oklab, var(--do) 45%, var(--line)); }
+article.finding[data-decision="skip"] { opacity: 0.72; }
+.fhead { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px 10px; }
+.fid { font-family: var(--font-mono); font-size: 12px; color: var(--accent); font-weight: 500; }
+.fhead h3 { margin: 0; font-size: 16.5px; font-weight: 600; flex: 1 1 260px; min-width: 0; text-wrap: balance; }
+.tags { display: flex; gap: 6px; flex-wrap: wrap; }
+.tag { font-size: 11.5px; font-weight: 500; padding: 2px 8px; border-radius: 999px; white-space: nowrap; }
+.sev-high { background: var(--high-soft); color: var(--high); }
+.sev-med { background: var(--med-soft); color: var(--med); }
+.sev-low { background: var(--low-soft); color: var(--low); }
+.tag.effort { background: var(--sunk); color: var(--muted); font-family: var(--font-mono); font-weight: 400; }
+.tag.verified { background: var(--do-soft); color: var(--do); }
+.where { display: flex; flex-wrap: wrap; gap: 6px; }
+.where code { font-size: 12px; color: var(--muted); }
+.finding p { margin: 0; max-width: 72ch; }
+.finding p b { font-weight: 600; }
+.finding ul { margin: 0; padding-left: 20px; max-width: 72ch; }
+
+.fb { border-top: 1px dashed var(--line); margin-top: 4px; padding-top: 12px; display: flex; flex-direction: column; gap: 10px; }
+.choices { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.choices button { border: 1px solid var(--line); background: transparent; border-radius: 8px; padding: 5px 12px; font-size: 13px; cursor: pointer; }
+.choices button:hover:not(:disabled) { background: var(--sunk); }
+.choices button:disabled { cursor: not-allowed; opacity: 0.55; }
+.choices button[data-d="do"][aria-pressed="true"] { background: var(--do-soft); color: var(--do); border-color: var(--do); }
+.choices button[data-d="later"][aria-pressed="true"] { background: var(--later-soft); color: var(--later); border-color: var(--later); }
+.choices button[data-d="skip"][aria-pressed="true"] { background: var(--skip-soft); color: var(--skip); border-color: var(--skip); }
+.choices button[data-d="discuss"][aria-pressed="true"] { background: var(--discuss-soft); color: var(--discuss); border-color: var(--discuss); }
+.status { font-size: 12px; color: var(--muted); margin-left: auto; }
+textarea { width: 100%; min-height: 42px; resize: vertical; field-sizing: content; font: inherit; font-size: 14px; color: var(--ink); background: var(--bg); border: 1px solid var(--line); border-radius: 8px; padding: 8px 10px; }
+textarea:disabled { opacity: 0.6; }
+textarea::placeholder { color: var(--muted); }
+
+ol.plan { margin: 0; padding-left: 22px; display: flex; flex-direction: column; gap: 8px; max-width: 72ch; }
+.general { background: var(--surface); border: 1px solid var(--line); border-radius: 12px; padding: 18px 20px; display: flex; flex-direction: column; gap: 10px; }
+.empty { color: var(--muted); font-size: 14px; }
+@media (prefers-reduced-motion: no-preference) { article.finding { transition: border-color 0.2s, opacity 0.2s; } }
+
+.tag.phase { background: var(--accent-soft); color: var(--accent); }
+.reply { min-width: 0; border-left: 3px solid var(--accent); background: var(--sunk); border-radius: 0 10px 10px 0; padding: 12px 14px; display: flex; flex-direction: column; gap: 9px; }
+.reply[data-tone="done"] { border-left-color: var(--do); }
+.reply[data-tone="question"] { border-left-color: var(--discuss); }
+.reply[data-tone="noted"] { border-left-color: var(--low); }
+.rhead { display: flex; flex-wrap: wrap; gap: 8px; align-items: baseline; font-size: 12px; color: var(--muted); }
+.rhead .kind { font-size: 11.5px; font-weight: 600; padding: 2px 8px; border-radius: 999px; background: var(--accent-soft); color: var(--accent); }
+.reply[data-tone="done"] .kind { background: var(--do-soft); color: var(--do); }
+.reply[data-tone="question"] .kind { background: var(--discuss-soft); color: var(--discuss); }
+.reply[data-tone="noted"] .kind { background: var(--low-soft); color: var(--low); }
+.reply p, .reply ul, .reply ol { margin: 0; max-width: 72ch; }
+.reply ul, .reply ol { padding-left: 20px; display: flex; flex-direction: column; gap: 4px; }
+.reply pre { margin: 0; max-width: 100%; overflow-x: auto; background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; font-size: 12.5px; line-height: 1.5; }
+.reply pre code { background: none; padding: 0; font-size: inherit; overflow-wrap: normal; white-space: pre; }
+.reply .ask { color: var(--discuss); font-weight: 500; }
+#questions li a, #plan li a { color: var(--accent); font-family: var(--font-mono); font-size: 13px; }
+
+.tag.outcome { background: var(--accent-soft); color: var(--accent); }
+.tag.decided[data-d="do"] { background: var(--do-soft); color: var(--do); }
+.tag.decided[data-d="later"] { background: var(--later-soft); color: var(--later); }
+.tag.decided[data-d="skip"] { background: var(--skip-soft); color: var(--skip); }
+.tag.decided[data-d="discuss"] { background: var(--discuss-soft); color: var(--discuss); }
+.finding p.note { color: var(--ink); }
+</style>
+</head>
+<body>
+<header class="top">
+  <div class="eyebrow">agentlite · reviewed 17 Oct 2026 · decided 17–18 Oct · done in #8, #9 and #10</div>
+  <h1>agentlite Go review</h1>
+  <p class="lede">Six reviewers read all 10,424 lines against golang-code-style and golang-design-patterns; the findings were merged and ranked, and the ones marked verified were reproduced or checked in the code. Each card shows the decision and note it got, Claude's reply to it, and its outcome: the PR that did it, or why not.</p>
+  <div class="baseline">
+    <span>go vet <b>clean</b></span>
+    <span>deadcode <b>nothing unused</b></span>
+    <span>staticcheck <b>4</b> (1 doc comment, 3 deliberate legacy PEM)</span>
+    <span>dupl ≥35 tokens <b>8 pairs</b></span>
+    <span>go mod tidy <b>clean</b></span>
+    <span><b>31</b> packages</span>
+  </div>
+</header>
+
+<div class="shell">
+  <nav class="index" aria-label="Sections">
+    <div class="progress">
+      <div class="label" id="progress-label">Loading feedback…</div>
+      <div class="bar" id="progress-bar" aria-hidden="true"></div>
+    </div>
+    <div class="links" id="links"></div>
+  </nav>
+
+  <main>
+    <div class="notice" id="notice" hidden></div>
+
+    <section class="group" id="plan">
+      <h2>Outcome</h2>
+      <ol class="plan">
+        <li><b>#8 · Config and storage.</b> A top-level config package read strictly, per-package settings, one plain OpenSearch query per operation, index mappings out of the service, UUIDv7 ids, thread delete.</li>
+        <li><b>#9 · Runs, HITL and the socket.</b> No Lua: compare-and-set run statuses and interrupt records, leases that cannot wedge, clean shutdown, socket health, adk's session suite.</li>
+        <li><b>#10 · The HTTP edge, providers, tools and tests.</b> Echo's request logger, response timeouts, one model refresh, calculate on expr, skill limits, the encoder, seed and catalog tests, make lint.</li>
+      </ol>
+      <p class="intro">Every PR was checked with go vet, staticcheck and the unit tests, and end to end against a running server: REST, skills, socket runs, tool calls, todos, sub-agents and their questions, HITL races, cancel, delete, shutdown and a crash.</p>
+    </section>
+
+    <div class="filters" role="group" aria-label="Filters">
+      <div class="seg" id="filter-decision"><span class="name">Show</span></div>
+      <div class="seg" id="filter-sev"><span class="name">Severity</span></div>
+    </div>
+    <div id="groups"></div>
+  </main>
+</div>
+
+<!-- Claude's replies, one template per finding; card() renders them under the feedback strip. -->
+<template data-id="B1" data-kind="Proposal + question" data-tone="question">
+<p><b>What it's for.</b> Some run steps are contested: two processes, or two requests, can act on the same run at once, and a plain read-then-write lets both win. A Lua script runs inside Valkey with nothing interleaved, which is why the review proposed one more. We already have three: <code>releaseScript</code> and <code>resumeScript</code> in internal/runs/store.go:78 and :110, and <code>decideScript</code> in internal/hitl/hitl.go:139. All of B1, and those three, can be done in code with single commands that check and write atomically.</p>
+<p><b>1. A paused lease never expires</b> (runs/store.go:71-74). The run record expires after 7 days (<code>runTTL</code>), but the lease never does. <code>claimThread</code> is a <code>SET NX</code>, so once the record is gone the thread answers busy forever. The fix is plain code: <code>EXPIRE … runTTL</code> instead of <code>PERSIST</code>.</p>
+<pre><code>// persistLease keeps the pointer without expiry while a run waits for input.
+func (s *store) persistLease(ctx context.Context, threadID string) error {
+	return s.db.Do(ctx, s.db.B().Persist().Key(threadRunKey(threadID)).Build()).Error()
+}</code></pre>
+<p><b>2. Cancel racing the worker</b> (runs/worker.go:29-52 and runs/cancel.go:24-26). Both write the status with a blind <code>HSET</code>:</p>
+<pre><code>run, err := m.store.get(ctx, fields["run_id"])   // reads "queued"
+…                                                // Cancel runs here: reads "queued", writes
+                                                 // "cancelled", the finalizer frees the thread
+m.store.update(ctx, run.ID, map[string]string{"status": string(StatusRunning)})
+                                                 // …and the cancelled run executes anyway, with no lease</code></pre>
+<p>Cancel and Answer have the same race on a paused run. That race is how B2's nil decision happens: Cancel saves an interrupt as cancelled, without a decision, over the answer that just landed.</p>
+<p>The fix needs no Lua. The status gets its own key and moves with one compare-and-set command, <code>SET … IFEQ</code>. Valkey 8.1 has it, and I checked it on your local 8.1.6, with <code>EX</code> too:</p>
+<pre><code>// transition moves the run to `to` only while it is still `from`; false when
+// someone else moved it first.
+func (s *store) transition(ctx context.Context, id string, from, to Status) (bool, error) {
+	err := s.db.Do(ctx, s.db.B().Set().Key(statusKey(id)).Value(string(to)).
+		Ifeq(string(from)).Ex(runTTL).Build()).Error()
+	if valkey.IsValkeyNil(err) {
+		return false, nil
+	}
+	return err == nil, err
+}</code></pre>
+<ul>
+<li><b>Worker:</b> moves queued to running. False means the run was cancelled, so it's skipped.</li>
+<li><b>Cancel:</b> moves queued or awaiting_input to cancelled. False means the run just started, so Cancel sets the flag and publishes, as for a running run.</li>
+<li><b>Answer:</b> moves awaiting_input to queued. This replaces <code>resumeScript</code>.</li>
+<li><b>Interrupts:</b> each record moves from pending to resolved or cancelled with the same <code>SET IFEQ</code>, compared against the JSON just read. An interrupt is then either answered or cancelled, never both, so B2 can't happen. Then come <code>SADD</code> decided, <code>SREM</code> pending and <code>SCARD</code>, in that order: whoever sees zero left has every answer. This replaces <code>decideScript</code>.</li>
+</ul>
+<p><b>3. Acks use a cancelled context</b> (runs/queue.go:114-116). <code>q.db.DoMulti(ctx, ack, del)</code> fails during shutdown, so finished entries are delivered again. The fix is <code>context.WithoutCancel</code> with a 5 s timeout.</p>
+<p><b>4. A RUN_ERROR lands in another run's stream</b> (runs/worker.go:39-49). When a dead worker's entry is reclaimed, it writes "run was interrupted by a restart" into the thread's log, even while a newer run is streaming there. The fix: write that event only when the thread has no other active run, and always record the status.</p>
+<p class="ask">Question: what Valkey runs in production? Releasing the lease "only if it still names this run" is <code>releaseScript</code>'s job. Valkey 9.0 has a command for it, <code>DELIFEQ</code>; 8.1 doesn't (I checked). On 8.x the choice is <code>SET lease x IFEQ runID PX 1</code> (it expires our own lease at once, only while it's ours; it works but reads like a trick), or keeping that one-line script. Also: can the three existing scripts go as well? I'd remove all three.</p>
+</template>
+
+<template data-id="B2" data-kind="Noted" data-tone="noted">
+<p>It becomes a guard: <code>ResumeEntry</code> returns an error on a nil decision and the answer fails, instead of the process dying. B1's compare-and-set on the interrupt record removes the race that causes it.</p>
+</template>
+
+<template data-id="B4" data-kind="Noted" data-tone="noted">
+<p>Skipped. P2 still trims webfetch, but only if it ends up shorter.</p>
+</template>
+
+<template data-id="B5" data-kind="Proposal + question" data-tone="question">
+<p><code>go/constant</code> gives correct answers but stays a four-function calculator. To make it useful I'd use <b>expr-lang/expr</b>, a widely used Go expression evaluator with no side effects and no I/O:</p>
+<ul>
+<li><code>7/2</code> is 3.5.</li>
+<li><code>^</code> and <code>**</code> are powers, and <code>%</code> and comparisons work.</li>
+<li>It has built-ins: <code>abs</code>, <code>ceil</code>, <code>floor</code>, <code>round</code>, <code>min</code> and <code>max</code>.</li>
+<li>We'd pass <code>sqrt</code>, <code>log</code>, <code>exp</code>, the trig functions and <code>pi</code> in from Go's math package.</li>
+</ul>
+<p>calculate.go stays about the same size.</p>
+<p class="ask">It's one new dependency: OK? Without it, go/constant fixes the wrong answers and nothing more.</p>
+</template>
+
+<template data-id="P1" data-kind="See B5" data-tone="noted">
+<p>Answered under B5: expr-lang/expr is the proposal for a calculate that's actually useful.</p>
+</template>
+
+<template data-id="B6" data-kind="Done in #6" data-tone="done">
+<p>Fixed by #6. Every forwarded request goes through <code>transport.Env.Forward</code> (pkg/transport/forward.go). It drops <code>TRANSPORT_SENSITIVE_HEADERS</code> before the provider's own key is set; the default list is Authorization, Cookie, X-Api-Key and X-Forwarded-Client-Cert.</p>
+<p>Your Istio JWT arrives as Authorization, so it never reaches a provider. An MCP connector with <code>http.forward: true</code> passes it on deliberately (internal/mcp/proxy.go). Nothing left to do.</p>
+</template>
+
+<template data-id="B7" data-kind="Confirmed + question" data-tone="question">
+<p><b>Confirmed two ways.</b> LiteLLM's <code>model_info_v1</code> (proxy/proxy_server.py on main) returns <code>copy.deepcopy(llm_router.model_list)</code>, which has one row per deployment. And a throwaway test (deleted after) fed two <code>gpt-4o</code> deployments through our Parse and rebuild: <code>/v1/models</code> listed <code>litellm/gpt-4o</code> twice, both with the second deployment's context length (64000, not 128000).</p>
+<p>The cause is in internal/providers/registry.go:258-263:</p>
+<pre><code>for _, m := range p.discovered {
+	listed[m.ID] = m                     // the last deployment wins
+	if _, ok := declared[m.ID]; !ok {
+		order = append(order, m.ID)      // appended once per deployment
+	}
+}</code></pre>
+<p>It only shows when one <code>model_name</code> has several deployments (load balancing). With one deployment per name you'd never see it, which is likely why you haven't. The fix skips an id that's already listed: three lines.</p>
+<p class="ask">Flip it to Do if you want it in PR 5.</p>
+</template>
+
+<template data-id="B8" data-kind="Noted" data-tone="noted">
+<p>A cycle check runs when agents load, and the config tests cover it. Then I'll exercise it end to end:</p>
+<ul>
+<li>A temporary CONFIG_DIR with A→B→A must fail the start with a clear message.</li>
+<li>The real config must still start.</li>
+<li>assistant, report-writer and a subagent run must still work over the socket.</li>
+</ul>
+</template>
+
+<template data-id="B9" data-kind="Proposal + question" data-tone="question">
+<p>Echo's answer is its own <code>middleware.RequestLogger()</code> (echo v5.4, middleware/request_logger.go:395):</p>
+<ul>
+<li><code>HandleError</code> is on, so a 404, 409 or 400 is logged with its real status, not as a 500.</li>
+<li>It logs the request id, latency, remote IP and user agent.</li>
+<li>It writes through <code>c.Logger()</code>, which is slog, and slog already bridges to zerolog (N5).</li>
+</ul>
+<p>server.go loses its 13-line <code>LogValuesFunc</code>, and Recover moves inside the logger, so a panic is logged with its stack as a 500:</p>
+<pre><code>e.Use(middleware.RequestID(), middleware.RequestLogger(), middleware.Recover(),
+	middleware.BodyLimit(cfg.MaxBodyMB&lt;&lt;20), middleware.CORSWithConfig(…))</code></pre>
+<p>One difference from today: the default logs every error status at error level, 404s included.</p>
+<p class="ask">Your note stops at "audit logging middleware but also". What should audit capture? My guess: one line per write (POST, PATCH, PUT or DELETE) with who made it, the method, the route, the resource id and the status. "Who" would be the subject of the JWT Istio attaches, which nothing parses yet.</p>
+</template>
+
+<template data-id="B11" data-kind="Proposal" data-tone="rec">
+<p>Following your note:</p>
+<ul>
+<li>A size cap per file, checked as each file goes to S3. It's 25 MiB, today's total cap.</li>
+<li>The POST is already capped by <code>MAX_BODY_MB</code>.</li>
+<li>Files are counted across the whole skill after the save, so repeated <code>PUT …/files</code> can't pass 1,000.</li>
+</ul>
+<p>The cumulative 25 MiB total goes. Say if you want the file count lower than 1,000.</p>
+</template>
+
+<template data-id="B13" data-kind="Proposal" data-tone="rec">
+<p>Echo does its part. It decodes <code>%01</code> in the path to the byte 0x01 and passes that on as the id; it can't know what an id should look like. Our code breaks next, at pkg/db/opensearch/store.go:264:</p>
+<pre><code>q := fmt.Sprintf(`{"size":%d,…"filter":[{"term":{"thread_id":%q}}%s]}}}`, limit, threadID, rng)</code></pre>
+<p>Go's <code>%q</code> writes <code>"a\x01b"</code>, which isn't valid JSON (JSON needs <code>\u0001</code>). OpenSearch refuses the body, and we return a 500.</p>
+<p>Both fixes are planned. D2's typed bodies quote correctly everywhere (see the prototype under D2). And ids are checked at the edge with Echo's typed path params, so a malformed id is a 400 before anything runs:</p>
+<pre><code>id, err := echo.PathParam[uuid.UUID](c, "id") // a malformed id returns a 400 BindingError</code></pre>
+<p><b>One correction to your note:</b> thread, run and turn ids are UUID v7 (<code>uuid.NewV7()</code>, runs/start.go:59), and only skill ids are v4. So the check is "any UUID": a v4-only check would reject every thread. Socket frames get the same check in <code>ws.allow</code>.</p>
+</template>
+
+<template data-id="D1" data-kind="Proposal" data-tone="rec">
+<p>Following your note:</p>
+<ul>
+<li><code>TRANSPORT_RESPONSE_HEADER_TIMEOUT</code> joins <code>transport.Env</code>, default 2m. That's long enough for a slow model call that doesn't stream, and streams send their headers at once.</li>
+<li><code>transport.New</code> applies it, so providers, MCP servers and tools get it. OpenSearch and S3 keep their own clients.</li>
+<li>Two calls get a context deadline instead: listing a connector's tools for the connectors page (handler/connectors.go:17), and the S3 bucket check at startup.</li>
+</ul>
+</template>
+
+<template data-id="D2" data-kind="Proposal" data-tone="rec">
+<p>opensearch-go v5 has typed request bodies generated from OpenSearch's API spec. <code>opensearchapi.SearchBody</code> has <code>Query</code>, <code>Sort</code>, <code>Size</code> and <code>Source</code>, and <code>DeleteByQueryBody</code> works the same way. I prototyped Messages with it:</p>
+<pre><code>filters := []opensearchapi.CommonQueryDSLQueryContainer{
+	{Term: map[string]opensearchapi.CommonQueryDSLTermQuery{"thread_id":
+		opensearchapi.NewCommonQueryDSLTermQueryFromFieldValue(opensearchapi.NewFieldValueFromString(threadID))}},
+	{Range: map[string]opensearchapi.CommonQueryDSLRangeQuery{"seq":
+		opensearchapi.NewCommonQueryDSLRangeQueryFromNumberRangeQuery(opensearchapi.CommonQueryDSLNumberRangeQuery{Lt: &amp;lt})}},
+}</code></pre>
+<p>That marshals to <code>{"query":{"bool":{"filter":[{"term":{"thread_id":"a\u0001b"}},{"range":{"seq":{"lt":42}}}]}},"size":50,"sort":[{"seq":"desc"}]}</code>, escaped correctly (B13).</p>
+<p>The generated names are long, so the package gets three small helpers (<code>term</code>, <code>filter</code>, <code>sortBy</code>) and every query uses them. No Sprintf and no map literals are left. The kNN query in memory.go converts too if its typed form is complete; if not, that one stays a marshalled struct.</p>
+</template>
+
+<template data-id="D3" data-kind="Proposal + question" data-tone="question">
+<p><b>Today.</b> <code>opensearch.New</code> (store.go:69-83) creates every index at boot and ignores "already exists", so a mapping change never reaches an existing index. memory.go:25 does the same for the vector index, whose dimension comes from config.</p>
+<pre><code>_, err := c.api.Indices.Create(ctx, opensearchapi.IndicesCreateReq{Index: name, BodyReader: strings.NewReader(mapping)})
+if err != nil &amp;&amp; errType(err) != "resource_already_exists_exception" {</code></pre>
+<p><b>Proposal, following your note:</b></p>
+<ul>
+<li>Each mapping becomes a JSON file in a top-level <code>opensearch/</code> directory (threads.json, messages.json and so on), with <code>"dynamic": "strict"</code>.</li>
+<li><code>make indices</code> applies them with curl: it creates a missing index and puts the mapping on an existing one.</li>
+<li>memories.json carries your embedding model's dimension, so changing models means editing that file.</li>
+<li>The service stops creating indices.</li>
+</ul>
+<p class="ask">Should the service keep one read-only check at startup? It would check that every index exists and that the memory dimension matches the embedding model, so a wrong setup fails at boot with "run make indices", not on the first save. Or should nothing about indices stay in the service?</p>
+<p class="ask">The dev cluster has drifted: threads.connectors and sources.id are text, and messages.seq is integer. Can I drop and recreate the dev indices (dev threads and messages are lost), or should I reindex them?</p>
+</template>
+
+<template data-id="D4" data-kind="Proposal" data-tone="rec">
+<p>Following your note:</p>
+<ul>
+<li>internal/config moves to a top-level <code>config</code> package. Its .go files sit next to config/default/, which keeps the YAML.</li>
+<li>Each storage package owns its settings, the way pkg/s3 does today: <code>opensearch.Config</code>, <code>valkey.Config</code> (pkg/db/valkey stays), <code>s3.Config</code> and <code>transport.Env</code>. Each uses go-envconfig tags and is embedded in <code>config.Config</code> with a prefix.</li>
+<li>pkg/memory copies the 10-line <code>TextOf</code> instead of importing internal/stream.</li>
+<li>A test fails if anything under pkg/ imports internal/ or config/.</li>
+</ul>
+</template>
+
+<template data-id="D5" data-kind="Proposal" data-tone="rec">
+<p>The socket gets its own <code>SOCKET_ALLOWED_ORIGINS</code>, and <code>ALLOWED_ORIGINS</code> stays for CORS. Today one list serves both, but the socket check is exact (handler/chat.go:48):</p>
+<pre><code>if origin := c.Request().Header.Get("Origin"); origin != "" &amp;&amp; !slices.Contains(h.Config.AllowedOrigins, origin) {</code></pre>
+<p>So <code>ALLOWED_ORIGINS=*</code> lets CORS through but refuses every socket. Both settings are checked when config loads: they can't be empty, and <code>*</code> means any origin in both. The boot checks listed in the finding come with it.</p>
+</template>
+
+<template data-id="D6" data-kind="Proposal + question" data-tone="question">
+<p><b>Today.</b> <code>DeleteThread</code> (store.go:240-255) already deletes by query from six indices, one call each, in map order:</p>
+<pre><code>for index, field := range map[string]string{
+	IndexThreads: "root_id", IndexMessages: "root_id", IndexMemories: "thread_id",
+	IndexSources: "root_id", IndexArtifacts: "root_id", IndexCounters: "root_id",
+} {</code></pre>
+<p>The handler (handler/threads.go:95-111) deletes the artifacts' S3 files first. The review's fix merged those calls into one; I'll drop that part.</p>
+<p><b>The new part is Valkey.</b> For the thread and each sub-agent thread (ids come from the threads index):</p>
+<ul>
+<li>Delete the adk session through <code>session.Service.Delete</code>. It holds the whole conversation for 30 days.</li>
+<li>Delete <code>thread:{id}:log</code>, <code>thread:{id}:seq</code> and the hitl sets.</li>
+<li>Return 404 for an unknown id, instead of 204.</li>
+</ul>
+<p class="ask">You wrote "just threads/thread messages". Leaving memories, sources and artifact records behind keeps the deleted conversation's text around, and memories get recalled in other threads (B12). I'd keep those deletes as they are. Do you really want only threads and messages?</p>
+</template>
+
+<template data-id="D7" data-kind="Recommend: do both fixes" data-tone="rec">
+<p>These are two separate problems.</p>
+<p><b>Queued leases lapse.</b> <code>claimThread</code> takes the thread with a 60 s lease (runs/store.go:57, <code>Set()…Nx().Ex(leaseTTL)</code>), and only a worker that's executing the run refreshes it (worker.go:63, <code>keepLease</code>). When all 32 slots are busy, a queued run can wait longer than 60 s. The lease lapses, the thread looks idle, and a second message starts a second run on it. Fix: claim with a long lease (10 min) while queued, and the worker shortens it to 60 s when it picks the run up. That's one line and a constant.</p>
+<p><b>Parents hold slots.</b> The subagent tool runs inside the parent's worker slot and blocks until the child ends (subagent.go:94):</p>
+<pre><code>final, err := d.Dispatcher.Wait(ctx, run.ID) // polls the child every 500 ms, with no deadline</code></pre>
+<p>If the child pauses for the user and nobody answers, the parent's slot is held for good. <code>maxInFlight</code> is 32 per agent per process (queue.go:24-26 says so in a comment), so 32 unanswered sub-agent questions stop that agent in that process until it restarts.</p>
+<p>Fix: a parent gives its slot back while it waits and takes one again when the child ends. The slot then limits runs that are executing, not runs that are waiting. It's about 15 lines, with the slot carried in the context. The bigger fix, where the parent pauses whenever its child pauses, isn't worth it now.</p>
+</template>
+
+<template data-id="D8" data-kind="Recommend: do 3 of 4" data-tone="rec">
+<p><b>Today.</b> One goroutine per socket reads frames, and every run, answer and cancel gets its own goroutine (ws/conn.go:69-74). Each subscribe starts a goroutine running a blocking XREAD on Valkey. <code>send</code> writes with the socket's context and no deadline (conn.go:220-223).</p>
+<ol>
+<li><b>Internal error text.</b> conn.go:95 sends <code>err.Error()</code> to the browser for every error, so an OpenSearch or Valkey failure shows its addresses. Log it, and send "internal error" when <code>code(err)</code> is internal.</li>
+<li><b>Dead peers.</b> There's no ping and no write deadline, so a client that vanished without closing keeps its goroutines and its Valkey reads until TCP gives up. Add a 30 s <code>conn.Ping</code> and a 10 s deadline per write.</li>
+<li><b>Shutdown.</b> <code>http.Server.Shutdown</code> doesn't close hijacked connections, and <code>ws.Serve</code> gets the request's context (handler/chat.go:57), which shutdown never cancels. So sockets are cut when the process exits. Serve also watches the server's context and closes with StatusGoingAway, so the UI reconnects at once.</li>
+<li><b>Skip</b> the caps on subscriptions and requests per socket. The clients are your own UI behind mTLS.</li>
+</ol>
+</template>
+
+<template data-id="D9" data-kind="Recommend: do" data-tone="rec">
+<ul>
+<li><b>reclaim</b> (runs/queue.go:95). <code>if err != nil || len(res) &lt; 2 { return }</code> keeps a failing XAUTOCLAIM silent. Log it.</li>
+<li><b>hitl.Pending</b> (hitl.go:110-113). Any Get error counts as expired (<code>continue // expired</code>). Skip only <code>ErrNotFound</code> and return the rest.</li>
+<li><b>cancelRequested</b> (runs/store.go:129-132). An error reads as "not cancelled". Return it, and the worker logs it.</li>
+<li><b>watchControl</b> (worker.go:127-133). Receive's error is dropped, so if the subscription is lost, cancel stops working for that run. Log it.</li>
+<li><b>hitl.Add</b> (worker.go:81-85). A failure is logged and the run still pauses, so every answer then gets "not found". Settle the run as an error instead.</li>
+<li><b>subagent follow</b> (subagent.go, near 179). A Subscribe error just ends the progress lines. Log it; T5 rewrites this loop anyway.</li>
+<li><b>Encoder</b> (stream/encode.go:208-211). If <code>OriginalCallFrom</code> fails, the confirmation request is dropped: the user is never asked and the turn can't continue. Emit a RUN_ERROR.</li>
+</ul>
+<p>All small, in PR 2.</p>
+</template>
+
+<template data-id="D10" data-kind="Recommend: do" data-tone="rec">
+<p>Two <code>time.Sleep</code> calls don't watch the context:</p>
+<ul>
+<li><b>runs/start.go:146</b>, in claimThread's wait loop. It polls every 100 ms for up to 5 s while the previous run finalises, and keeps going after the client hangs up.</li>
+<li><b>runs/queue.go:81</b>, a 1 s back-off after a read error. Shutdown waits it out.</li>
+</ul>
+<p>Both become a <code>select</code> on <code>ctx.Done()</code> and <code>time.After</code>, two lines each.</p>
+</template>
+
+<template data-id="P2" data-kind="Noted" data-tone="noted">
+<p>I'll only change webfetch if it ends up shorter. The <code>net.Dialer.Control</code> check would replace the resolve-then-dial code and the custom <code>CheckRedirect</code>, and dropping that also restores net/http's 10-redirect cap. If the result isn't shorter, webfetch stays as it is.</p>
+</template>
+
+<template data-id="P5" data-kind="Recommend: do" data-tone="rec">
+<ol>
+<li><b>A run can be lost at startup</b> (queue.go:53). <code>StartWorkers</code> launches each consume loop with <code>m.workers.Go</code>, and each loop creates its consumer group first, with <code>Id("$")</code>. A run accepted before that point creates the stream through XADD. A group created afterwards with <code>$</code> starts after that entry, so the run is never delivered: it sits queued, the user sees nothing, and the thread stays busy until the lease lapses. It's rare: it needs a fresh Valkey or a newly added agent, and a run in the first moments after a start. Fix: create every group with <code>"0"</code>, synchronously, in StartWorkers. Handled entries are deleted (queue.go:115), so <code>0</code> replays nothing old.</li>
+<li><b>A cancel can be missed</b> (worker.go:62 and 127-133). The cancel subscription starts in a goroutine after the run has started. Pub/sub keeps nothing, so a cancel published before SUBSCRIBE is confirmed is lost. The flag Cancel also sets is only checked when the run pauses (worker.go:74). Fix: valkey-go's <code>WithOnSubscriptionHook</code> re-checks the flag once the subscription is live.</li>
+<li><b>N+1 reads</b> (hitl.go:108-115 and 174-180). Pending and TakeDecided read each interrupt with its own GET. One MGET replaces them.</li>
+<li><code>strings.Contains(err.Error(), "BUSYGROUP")</code> (queue.go:53) becomes <code>valkey.IsValkeyBusyGroup(err)</code>.</li>
+</ol>
+<p>The first two are bugs; the last two are tidy-ups in the same lines.</p>
+</template>
+
+<template data-id="P6" data-kind="Noted" data-tone="noted">
+<p>This runs adk's own suite against Valkey, so it needs Valkey running and is skipped otherwise. It's the one exception to Q2's skip. Expect it to fail at first: it checks the contract our store breaks. Create overwrites, Get and Delete ignore the user, and app: and user: state isn't shared. Those get fixed in the same PR.</p>
+</template>
+
+<template data-id="P7" data-kind="Noted" data-tone="noted">
+<p>Agreed. <code>events.ValidateSequence</code> is the upstream ag-ui Go SDK's own check (sdks/community/go/pkg/core/events/events.go:250), from the package our events are built with. The tests feed adk events through our encoder and Coalesce, then assert that the upstream validator accepts the output. A handful of table rows cover it: text, reasoning, a tool call, an interrupt and an error.</p>
+</template>
+
+<template data-id="Q1" data-kind="Noted" data-tone="noted">
+<p>Only your four:</p>
+<ul>
+<li>The encoder and Coalesce, checked with ValidateSequence (P7).</li>
+<li>The encoder to seedEvents round trip.</li>
+<li>Config loading over config/default, cycles and strictness included.</li>
+<li>modelcatalog's Parse, LoadCards and Merge.</li>
+</ul>
+<p>Your note ends at "or", so I've left out the error-mapping and middleware tests and the skill-limit tests. Say if you want either. Each test has to catch a real regression; none are padding.</p>
+</template>
+
+<template data-id="T1" data-kind="Recommend: do" data-tone="rec">
+<pre><code>// internal/bootstrap/bootstrap.go:109
+app.Runs = runs.New(cfg, runsDB, hitl.NewStore(hitlDB), app.Store, app.Store, app.Sessions, app.Agents, app.Log)</code></pre>
+<p>That's eight positional arguments. <code>app.Store</code> goes in twice, because <code>Sink</code> and <code>History</code> are two interfaces over the same <code>*opensearch.Client</code>. And <code>runs.Log</code> is an interface with one implementation (<code>valkeyLog</code>) and no fake.</p>
+<p>Fix: a <code>runs.Deps</code> struct like <code>agents.Deps</code>, one <code>Store</code> interface, and the concrete log type. Small, in PR 2.</p>
+</template>
+
+<template data-id="T2" data-kind="Recommend: do" data-tone="rec">
+<ul>
+<li><b>Never read:</b> <code>Handler.Log</code> (handler/handler.go:28) and the OpenSearch client's <code>log</code> field (store.go:65).</li>
+<li><b>Exported with no caller outside their package:</b> <code>App.Sources</code> (bootstrap), the opensearch <code>Index*</code> constants, and <code>config.LoadAgents</code>, <code>LoadModels</code> and <code>LoadConnectors</code> (only <code>config.Load</code> calls them).</li>
+</ul>
+<p>Delete or unexport them: a few lines, in PR 1 with the config move.</p>
+</template>
+
+<template data-id="T3" data-kind="Recommend: skip" data-tone="noted">
+<p>providers has three types:</p>
+<ul>
+<li><code>Client</code>: a provider's HTTP client, key and config.</li>
+<li><code>provider</code>: its model lists.</li>
+<li><code>Target</code>: where one model's requests go. It holds a <code>*Client</code>.</li>
+</ul>
+<p>Callers reach through Target in three places: embed.go:38, reverseproxy.go:20-26 and agents/runtime.go:275, as in <code>t.Client.HTTP</code>. Merging the types is churn across the package for little gain, so I'd skip it.</p>
+</template>
+
+<template data-id="T4" data-kind="Recommend: later" data-tone="noted">
+<p><code>agents.Runtime</code> (runtime.go:38-62) has about 20 fields: agent definitions, providers, sessions, memory, the tool catalog (harness, world, skillset and MCP toolsets) and UI hints.</p>
+<p>It's built in two steps because of a cycle. The run manager needs the runtime to run agents, and the subagent tool inside the runtime needs the run manager to start children. So bootstrap calls New, then <code>runs.New</code>, then <code>Bind</code> (bootstrap.go:110).</p>
+<p>Pulling the tool catalog into its own type is a medium refactor with no bug behind it. I'd leave it until @agent refs or identity touch this code.</p>
+</template>
+
+<template data-id="T5" data-kind="Recommend: do" data-tone="rec">
+<p>Today the tool waits on the child in two ways at once (subagent.go:88-96):</p>
+<pre><code>followCtx, stopFollow := context.WithCancel(ctx)
+followed := make(chan struct{})
+go func() {
+	defer close(followed)
+	follow(followCtx, d.Dispatcher, childThread, card) // tails the child's log for progress
+}()
+final, err := d.Dispatcher.Wait(ctx, run.ID)          // polls the run record every 500 ms
+stopFollow()
+&lt;-followed</code></pre>
+<p>Two goroutines update the card, which is why <code>cardState</code> needs a mutex. Subscribe already ends at each segment's last event, so one loop can do both jobs. It follows a segment, then reads the run's status once. If the child has finished, the tool is done. If it's paused, the card shows its interrupts and the loop follows the next segment.</p>
+<p>That removes the second goroutine, the mutex and the polling. With D7, the slot is given back around this loop. I'll test it over the socket with a sub-agent that asks a question mid-run.</p>
+</template>
+
+<template data-id="X1" data-kind="Noted" data-tone="noted">
+<p>Agreed. One function in internal/skills does the reading and picks the content type, and both handlers call it. They differ only in finding the skill: by id, or by name. The wellknown package and its files stay.</p>
+</template>
+
+<template data-id="N6" data-kind="Done in #5" data-tone="done">
+<p>S3 is required and inline artifact bodies are gone (#5).</p>
+</template>
+
+<template data-id="T6" data-kind="Partly done in #5" data-tone="done">
+<p>write_skill.go got its name in #5. The rest is skipped, as you marked.</p>
+</template>
+
+<script>
+const SECTIONS = [
+  { key: "bugs", title: "Must fix: bugs and security", intro: "Real defects. Most are small; B1 is the one structural fix." },
+  { key: "design", title: "Should fix: design, resilience, consistency", intro: "Timeouts, lifecycle, validation at the edges and storage behaviour." },
+  { key: "pkg", title: "Use a package or the stdlib", intro: "Places where hand-written code can lean on what the stdlib or go.mod already provides." },
+  { key: "dup", title: "Duplication", intro: "The duplicate detector found little; these include the semantic repeats it can't see." },
+  { key: "tidy", title: "Tidy-ups", intro: "Surface, naming, structure and style, per golang-code-style." },
+  { key: "tests", title: "Tests", intro: "About half the packages have none, including the riskiest." },
+  { key: "against", title: "Suggested by reviewers, not recommended", intro: "Mark Do it if you want one of these anyway." },
+];
+
+const FINDINGS = [
+  // ---- bugs
+  { id: "B1", s: "bugs", sev: "high", effort: "M", v: true, title: "Run state machine: races and a permanent wedge",
+    where: ["internal/runs/store.go:72", "worker.go:52", "cancel.go:24-47", "answer.go", "queue.go:114"],
+    problem: "A paused run's lease is made permanent (`PERSIST`) while `run:{id}` expires after 7 days; after that the thread answers busy forever. Cancel and the worker set the status with blind `HSET`s, so a run cancelled while queued can still execute, holding no lease. Acks on shutdown use the cancelled context, so finished entries are redelivered. A crashed worker's reclaimed entry can append `RUN_ERROR` into the next run's log mid-stream.",
+    fix: "One Lua `transition(to, from…)` script that checks status and segment and sets status and lease TTL; every status write goes through it. The lease TTL matches the record's. Tag log entries with the run id so Subscribe and finalize only act on their own run. Ack with `context.WithoutCancel` and a 5 s timeout." },
+  { id: "B2", s: "bugs", sev: "high", effort: "S", v: true, title: "A nil decision can crash the server",
+    where: ["internal/hitl/hitl.go:55"],
+    problem: "`ResumeEntry` reads `i.Decision` with no nil check. A cancel racing an answer leaves a record without a decision; the panic happens in a socket goroutine with no recover, so the process exits.",
+    fix: "Refuse a nil decision with an error; B1 removes the race itself." },
+  { id: "B3", s: "bugs", sev: "high", effort: "S", v: true, title: "Shutdown hangs",
+    where: ["internal/runs/worker.go:202", "internal/bootstrap/bootstrap.go:120", "cmd/dev/main.go:30", "cmd/server/main.go"],
+    problem: "`Runs.Stop()` only waits for the workers; nothing cancels them. `cmd/dev` passes `context.Background()`, so leaving the CLI hangs and a launcher error is never printed. In `cmd/server` a failure before any signal (port in use) hangs too. A failed `bootstrap.New` leaks its Valkey clients, tracing and discovery goroutines.",
+    fix: "The App owns a cancel func: Close cancels, then waits. `signal.NotifyContext` in cmd/dev. `New` runs its closers when it fails partway." },
+  { id: "B4", s: "bugs", sev: "high", effort: "M", title: "webfetch's private-address guard can be bypassed",
+    where: ["internal/tools/webfetch.go:31-34", "webfetch.go:48", "webfetch.go:118-131"],
+    problem: "The check resolves the name itself and the dial resolves it again, so DNS rebinding passes. It misses 100.64.0.0/10 (CGNAT) and multicast. The custom `CheckRedirect` drops net/http's 10-redirect limit, so a redirect loop runs until the 20 s timeout.",
+    fix: "Check the connected address at dial time with `net.Dialer.Control` and `netip` predicates, through a `pkg/transport` option; it covers redirects too. No environment proxy for this client. Until then, add the 10-hop cap." },
+  { id: "B5", s: "bugs", sev: "high", effort: "S", v: true, title: "calculate gives wrong answers",
+    where: ["internal/tools/calculate.go:23"],
+    problem: "`types.Eval` uses Go constant rules: the tool's own example `(2+3)*4/7` returns 2 and `1/3` returns 0. It also evaluates `len(\"abc\")`; strings and booleans silently become 0.",
+    fix: "Parse with `go/parser` and evaluate the AST with `go/constant` (exact rationals): number literals, parentheses, unary ±, + − * / %, refusing division by zero. Add a table test." },
+  { id: "B6", s: "bugs", sev: "high", effort: "S", v: true, title: "Callers' credentials reach providers",
+    where: ["internal/providers/reverseproxy.go:26-31"],
+    problem: "The pass-through strips only `Authorization`. A caller's `X-Api-Key` (the Anthropic SDK sends it by default), `Api-Key`, `X-Goog-Api-Key` and `Cookie` go upstream, which MODELS.md says never happens.",
+    fix: "Delete those too; the provider's own headers are added after. Add a Forward test shaped like the MCP proxy's." },
+  { id: "B7", s: "bugs", sev: "med", effort: "S", v: true, title: "LiteLLM models listed several times",
+    where: ["internal/providers/registry.go:242-248"],
+    problem: "LiteLLM's `/model/info` has one entry per deployment, so a load-balanced model appears N times in `/v1/models` and the picker, and the last deployment's metadata wins.",
+    fix: "Skip an id already listed; add a test row." },
+  { id: "B8", s: "bugs", sev: "high", effort: "S", v: true, title: "An agent cycle crashes the process",
+    where: ["internal/config/agents.go:66-99", "internal/agents/build.go:37-50"],
+    problem: "Validation checks that subagent ids exist, not that they form no cycle. A sequential A→B→A overflows the stack on its first run, which is fatal and takes the server down.",
+    fix: "A depth-first check over sequential definitions when loading agents (about 15 lines)." },
+  { id: "B9", s: "bugs", sev: "high", effort: "S", v: true, title: "Request logs hide panics and misreport statuses",
+    where: ["internal/server/server.go:30-47"],
+    problem: "Recover sits outside the request logger, so a panic's stack is never logged. Without `HandleError`, every 404, 409 and 400 the error handler maps is logged as a 500 at error level. Request IDs are made but never logged.",
+    fix: "Order the middleware RequestID, RequestLogger (HandleError, LogRequestID, level by status), Recover, BodyLimit, CORS." },
+  { id: "B10", s: "bugs", sev: "med", effort: "S", v: true, title: "An empty LOG_LEVEL silences every log line",
+    where: ["pkg/logging/logging.go:17-20", "internal/config/config.go:22"],
+    problem: "`LOG_LEVEL=\"\"` parses as NoLevel without an error, which drops every line; a typo such as `warning` silently becomes info.",
+    fix: "Parse the level when loading config, refuse errors and NoLevel, and pass a `zerolog.Level`." },
+  { id: "B11", s: "bugs", sev: "med", effort: "S", v: true, title: "Skill size limits can be exceeded",
+    where: ["internal/skills/library.go:79-108", "internal/skills/parse.go:104-121"],
+    problem: "The 1,000-file and 25 MiB limits count only the files in the current save. File edits and write_skill keep the other files without counting them, so repeated `PUT …/files` grows a skill without bound. SKILLS.md says every save is held to them.",
+    fix: "Check the limits on the merged file list in Save; keep the path and SKILL.md checks where they are." },
+  { id: "B12", s: "bugs", sev: "med", effort: "S–M", title: "Deleted threads come back as memories",
+    where: ["pkg/memory/memory.go:55-70", "internal/agents/runtime.go:219-220"],
+    problem: "`remember` runs detached after the run's lease is released. Deleting the thread in that window lets later saves recreate its memories, which are then recalled in other conversations. The goroutine has no timeout and shutdown doesn't wait for it.",
+    fix: "Track it in a WaitGroup that Close waits on, with its own timeout. Embed every event first, write once with `_bulk`, then check the thread still exists and delete its memories if not." },
+  { id: "B13", s: "bugs", sev: "med", effort: "S", v: true, title: "An id with a control character returns 500",
+    where: ["pkg/db/opensearch/store.go:248,264", "sources.go:71", "artifacts.go:95", "memory.go:40"],
+    problem: "Queries quote ids with Go's `%q`, which isn't JSON quoting, so `GET /v1/threads/a%01b/messages` returns 500 (checked on the running server). `memory.go:40` also drops a `json.Marshal` error.",
+    fix: "Build every query with encoding/json; see D2." },
+
+  // ---- design
+  { id: "D1", s: "design", sev: "high", effort: "M", title: "No timeouts on outbound calls",
+    where: ["pkg/transport/transport.go", "internal/mcp/mcp.go:66", "pkg/db/opensearch/store.go:70", "pkg/s3/s3.go:36", "internal/handler/connectors.go:17"],
+    problem: "Provider and MCP clients have no `ResponseHeaderTimeout`. A stalled MCP server holds adk's session lock and blocks the first model call of every run with that connector. OpenSearch and S3 use library defaults with no timeout, the connector page lists tools live with no deadline, and `s3.New` can stall startup for minutes (skill rule 9).",
+    fix: "Add `ResponseHeaderTimeout` to `transport.Config` (safe for streams). Build the OpenSearch and S3 transports with pkg/transport, which also brings mTLS and a CA. Use `context.WithTimeout` for tool listing and bucket checks." },
+  { id: "D2", s: "design", sev: "med", effort: "M", title: "One way to build OpenSearch queries",
+    where: ["pkg/db/opensearch/*.go"],
+    problem: "Three styles today: Sprintf with `%q` (7 places), `json.Marshal` of maps (6), and a direct search call in Skills. The duplicate detector's hits in this package are these literals.",
+    fix: "`search[T]` takes a body and marshals it once; a small `query` helper serves the skills facets. Move `term` and `allOf` next to it." },
+  { id: "D3", s: "design", sev: "med", effort: "M", v: true, title: "Index mappings never update, and dev has drifted",
+    where: ["pkg/db/opensearch/store.go:78-112", "pkg/memory/memory.go:24-30"],
+    problem: "Creating an index ignores \"already exists\", so mapping changes never reach it. The dev cluster has `threads.connectors` and `sources.id` as text and `messages.seq` as integer; term queries on them silently miss. A changed memory dimension passes startup and then fails every save.",
+    fix: "On \"already exists\", put the mapping (additive changes apply, a type change fails at startup) and set `\"dynamic\": \"strict\"`. Reindex or drop the drifted dev indices once." },
+  { id: "D4", s: "design", sev: "med", effort: "S", title: "pkg/ imports internal/",
+    where: ["pkg/db/opensearch/store.go:20", "pkg/db/valkey/client.go:7", "pkg/memory/memory.go:18"],
+    problem: "The storage packages import internal/config, which imports pkg/toolx, so they pull in 18 to 38 adk packages; pkg/memory imports internal/stream for one 10-line function. pkg/ is meant to be app-agnostic.",
+    fix: "Define `opensearch.Config` and the Redis config the way pkg/s3 does; inline the 18-line pkg/db/valkey into bootstrap; copy `TextOf`. Add a test that fails if pkg/ imports internal/." },
+  { id: "D5", s: "design", sev: "med", effort: "S–M", title: "Validate config and input at the edges",
+    where: ["internal/config/*.go", "internal/handler/chat.go:48", "internal/runs/start.go:46"],
+    problem: "YAML decodes leniently, so a typo like `require_confirmaton` silently drops an approval. `MAX_BODY_MB`, `PUBLIC_URL`, a provider's `api` and `${VAR}` in headers go unchecked. `ALLOWED_ORIGINS` means different things to CORS and the socket: `*` breaks sockets and an empty value panics. Agents' tool lists aren't checked at boot (with MCP configured a typo becomes a filter that matches nothing), a `mode: subagent` agent can run as a root thread, and the default agent isn't checked.",
+    fix: "`yaml.DisallowUnknownField()`, an `Env.validate`, one origin check for both, and boot-time checks of tool lists, agent modes and the default agent." },
+  { id: "D6", s: "design", sev: "med", effort: "S–M", title: "Deleting a thread leaves data behind",
+    where: ["pkg/db/opensearch/store.go:242-255", "internal/handler/threads.go:95-111", "internal/runs"],
+    problem: "A child or unknown id returns 204 and deletes nothing. Indices are deleted in map order, so a failure halfway leaves orphans. In Valkey the adk session (the whole conversation, kept 30 days), the event log, the seq counter and the HITL sets stay behind.",
+    fix: "Look the thread up first (404, or 400 for a child), delete by query across all indices in one call, and add `Manager.Forget(threadID)` for the Valkey keys and the session." },
+  { id: "D7", s: "design", sev: "med", effort: "M–L", title: "Waiting parents hold worker slots; queued leases lapse",
+    where: ["internal/runs/queue.go:24-70", "store.go:15", "start.go:74"],
+    problem: "A parent waiting on a sub-agent keeps one of its agent's 32 worker slots, so 32 abandoned paused children stop that agent for everyone. A queued run's 60 s lease isn't refreshed until a worker picks it up, so under a backlog the thread looks idle and a second run can claim it.",
+    fix: "Extend the lease when a run is enqueued. Longer term, a parent pauses when its child pauses instead of holding a slot." },
+  { id: "D8", s: "design", sev: "med", effort: "S–M", title: "WebSocket limits and shutdown",
+    where: ["internal/ws/conn.go", "internal/server/server.go:96-108"],
+    problem: "No cap on subscriptions or request goroutines per socket, writes have no timeout (one slow reader blocks every writer), and there's no ping. Socket errors aren't logged and internal error text reaches clients. Sockets aren't part of graceful shutdown.",
+    fix: "A subscription cap and request semaphore, sends with a 10 s timeout, a 30 s ping, log and send \"internal error\", and `RegisterOnShutdown` to close sockets as going away." },
+  { id: "D9", s: "design", sev: "med", effort: "S", title: "Swallowed errors",
+    where: ["runs/queue.go:95-101", "hitl/hitl.go:110-113", "runs/store.go:129-132", "runs/worker.go:81-86,127-133", "tools/builtin/subagent.go:182-187", "stream/encode.go:208-212"],
+    problem: "reclaim, `Pending` (any error counts as expired), `cancelRequested` and the cancel subscription hide failures. A failed `hitl.Add` still pauses the run, so every answer then gets not found. The sub-agent follower and the encoder drop errors. AGENTS.md says errors are never swallowed.",
+    fix: "Log them, or skip only not-found; fail the run when `hitl.Add` fails." },
+  { id: "D10", s: "design", sev: "med", effort: "S", title: "Retries sleep without watching the context",
+    where: ["internal/runs/start.go:146", "internal/runs/queue.go:81"],
+    problem: "`time.Sleep` keeps polling for up to 5 s after the caller has gone (skill rule 11).",
+    fix: "`select` on `ctx.Done()` and `time.After`." },
+  { id: "D11", s: "design", sev: "low", effort: "S", title: "Model cards and embeddings refresh",
+    where: ["internal/providers/registry.go:168-224", "internal/providers/embed.go:38"],
+    problem: "Each provider re-reads the card directory every interval and logs the same warning; providers without discovery never pick up a pulled card, though MODELS.md says no restart is needed. The embeddings client is rebuilt on every call and picks up `OPENAI_ORG_ID` and similar from the environment.",
+    fix: "One refresh step that loads cards once and rebuilds every provider; one openai client per provider with the base URL per request." },
+  { id: "D12", s: "design", sev: "low", effort: "S", title: "Small bugs to take with nearby changes",
+    where: ["various"],
+    list: [
+      "`toolList` writes \"none\" into pipeline tool lists.",
+      "`progressFor` picks a random string argument (map order).",
+      "Byte truncation can split a UTF-8 character (webfetch, the run result, progress lines).",
+      "`s3.DeletePrefix` loses listing errors.",
+      "The session store sets `EXPIRE` before `HSET`, so new state hashes never expire.",
+      "A failed `Seed` leaves a truncated session that later turns run on.",
+      "`Pending` returns interrupts in random order.",
+      "Page sizes above 200 fall back to 50 instead of 200.",
+      "Bind errors flatten 413 and 415 into 400; `before=abc` is silently ignored.",
+    ],
+    fix: "A few lines each." },
+
+  // ---- packages
+  { id: "P1", s: "pkg", sev: "high", effort: "S", title: "go/constant for calculate", where: ["internal/tools/calculate.go"],
+    problem: "`go/types` is the wrong tool for arithmetic (B5).", fix: "Evaluate the parsed expression with `go/constant`." },
+  { id: "P2", s: "pkg", sev: "high", effort: "M", title: "net.Dialer.Control and netip for the SSRF check", where: ["internal/tools/webfetch.go", "pkg/transport"],
+    problem: "The guard does its own DNS lookup (B4).", fix: "Check the dialled address with `netip.Addr` predicates." },
+  { id: "P3", s: "pkg", sev: "low", effort: "S", title: "httputil.ProxyRequest.SetURL in the pass-through", where: ["internal/providers/reverseproxy.go:19-25"],
+    problem: "The upstream URL is built by hand, and deleting `Content-Length` does nothing.", fix: "Trim `/v1` and call `pr.SetURL(baseURL)`, as the MCP proxy does; make Forward a method on Target." },
+  { id: "P4", s: "pkg", sev: "low", effort: "S", title: "minio's iterator APIs", where: ["pkg/s3/s3.go:82-88"],
+    problem: "Channel plumbing that loses listing errors.", fix: "`ListObjectsIter` with `RemoveObjectsWithIter`." },
+  { id: "P5", s: "pkg", sev: "med", effort: "S", title: "valkey-go helpers", where: ["internal/runs/queue.go", "internal/runs/worker.go", "internal/hitl", "pkg/session/valkey"],
+    problem: "String-matched errors, a cancel that can be missed, N+1 reads and a consumer group created late.",
+    fix: "`IsValkeyBusyGroup`; `WithOnSubscriptionHook` to re-check the cancel flag; `MGET` and `DoMulti` instead of one GET per key; create groups at `0`, synchronously." },
+  { id: "P6", s: "pkg", sev: "med", effort: "S", title: "adk's session test suite", where: ["pkg/session/valkey"],
+    problem: "The Valkey session store is untested and breaks adk's contract: Create overwrites, Get and Delete ignore the user, app: and user: state isn't shared.",
+    fix: "Run `sessiontestsuite.RunServiceTests` against Valkey, skipped when Valkey isn't running." },
+  { id: "P7", s: "pkg", sev: "med", effort: "S", title: "AG-UI's ValidateSequence for the encoder", where: ["internal/stream"],
+    problem: "The wire format has no tests.", fix: "Feed adk events to the encoder and Coalesce and assert `events.ValidateSequence` on the output." },
+  { id: "P8", s: "pkg", sev: "med", effort: "S", title: "goccy's strict decoding", where: ["internal/config"],
+    problem: "Unknown YAML keys are ignored (D5).", fix: "`yaml.DisallowUnknownField()` everywhere config is decoded." },
+  { id: "P9", s: "pkg", sev: "low", effort: "S", title: "Small stdlib swaps", where: ["various"],
+    list: ["`errors.AsType` (Go 1.26) in the OpenSearch error helpers.", "`errors.Is(err, fs.ErrNotExist)` instead of `os.IsNotExist`.", "`net.JoinHostPort` for the listen address (IPv6).", "`echo.PathParam[int]` instead of `strconv.Atoi`.", "Drop `sort.Strings` after `filepath.Glob` and `maps.Clone` before mergo; both are redundant.", "`//lint:ignore SA1019` instead of `//nolint`, since staticcheck runs directly."],
+    fix: "Take each with the file it touches." },
+
+  // ---- duplication
+  { id: "X1", s: "dup", sev: "low", effort: "S", title: "Two SkillFile handlers", where: ["internal/handler/skills.go:117-129", "internal/handler/wellknown/skills.go:23-35"],
+    problem: "The same fetch-and-serve code twice (flagged by dupl).", fix: "One shared helper; keep the wellknown package and its split files." },
+  { id: "X2", s: "dup", sev: "med", effort: "M", title: "OpenSearch query literals", where: ["pkg/db/opensearch"], problem: "Repeated query bodies (D2).", fix: "Covered by D2." },
+  { id: "X3", s: "dup", sev: "low", effort: "S", title: "HTTP client built twice from connector config", where: ["internal/agents/connectors.go:48-55", "internal/mcp/mcp.go:136-142"],
+    problem: "Config, then transport, then client, in two places.", fix: "`func (h HTTP) Client() (*http.Client, error)` in config." },
+  { id: "X4", s: "dup", sev: "low", effort: "S", title: "Events to raw JSON twice", where: ["internal/runs/start.go:221-225", "internal/runs/finalizer.go:31-38"],
+    problem: "The same conversion in two places.", fix: "One helper." },
+  { id: "X5", s: "dup", sev: "low", effort: "S", title: "Page-size clamp twice", where: ["internal/handler/threads.go:117-121", "internal/handler/artifacts.go:27-30"],
+    problem: "The same clamp, with the same off-by-intent bug (D12).", fix: "One `pageSize(c)`." },
+  { id: "X6", s: "dup", sev: "low", effort: "S", title: "Frontmatter format declared three times", where: ["internal/config/agents.go:108", "pkg/modelcatalog/cards.go:23", "internal/skills/parse.go:30", "internal/skills/meta.go:58"],
+    problem: "Three format declarations plus a raw-frontmatter workaround.", fix: "One small split helper used by all four." },
+  { id: "X7", s: "dup", sev: "low", effort: "S", title: "Two optional-string helpers", where: ["internal/handler/skills.go:66-71", "internal/tools/builtin/skills.go:62-67"],
+    problem: "`field` and `given` do the same thing.", fix: "One helper in the skills package." },
+  { id: "X8", s: "dup", sev: "med", effort: "S", title: "Tool names and interrupt keys as bare literals", where: ["internal/agents/build.go:151", "internal/hitl/hitl.go:87-91", "internal/tools/builtin/question.go:44", "internal/stream/encode.go:217,230"],
+    problem: "`\"todowrite\"`, `\"question\"`, `\"toolName\"`, `\"args\"` and `\"request\"` spelled out in four packages; tool-name constants live in three places.",
+    fix: "One const block in stream, a leaf package hitl can import." },
+  { id: "X9", s: "dup", sev: "low", effort: "S", title: "Capability strings in two packages", where: ["pkg/modelcatalog", "pkg/opencode/opencode.go:80-85"],
+    problem: "`\"tool_calling\"`, `\"reasoning\"`, `\"vision\"` are literals.", fix: "Constants next to the model Type constants." },
+  { id: "X10", s: "dup", sev: "low", effort: "S", title: "Two ways to carry the run in the context", where: ["internal/runs/run.go:96-105", "pkg/toolx/context.go:58-68"],
+    problem: "Both are set together and read side by side.", fix: "Keep toolx's, with Model and Connectors added." },
+  { id: "X11", s: "dup", sev: "low", effort: "S", title: "Two id-hashing schemes", where: ["pkg/memory/memory.go:115", "pkg/db/opensearch/sources.go:48"],
+    problem: "sha1 in one, sha256 in the other.", fix: "Pick one." },
+
+  // ---- tidy
+  { id: "T1", s: "tidy", sev: "med", effort: "S", title: "runs.New takes 8 arguments", where: ["internal/runs/manager.go:87", "internal/bootstrap/bootstrap.go:116"],
+    problem: "Positional arguments including `app.Store, app.Store`; `Sink` and `History` are typed on OpenSearch structs anyway; `runs.Log` has one implementation and no fake.",
+    fix: "`runs.Deps` like `agents.New`, one `Store` interface, and the concrete log type until a fake exists." },
+  { id: "T2", s: "tidy", sev: "low", effort: "S", title: "Unused fields and exported surface", where: ["internal/handler/handler.go:28", "pkg/db/opensearch/store.go:65", "internal/bootstrap"],
+    problem: "`Handler.Log` and the OpenSearch client's logger are never used; `App.Sources`, the `Index*` constants and `config.Load*` are exported for nothing.", fix: "Remove or unexport." },
+  { id: "T3", s: "tidy", sev: "low", effort: "M", title: "Providers' three-way split", where: ["internal/providers/client.go:20-25", "registry.go:45-53"],
+    problem: "`Client`, `provider` and `Target` overlap; callers reach three levels deep.", fix: "One unexported provider and a Target holding what callers use." },
+  { id: "T4", s: "tidy", sev: "med", effort: "M", title: "agents.Runtime does four jobs", where: ["internal/agents/runtime.go"],
+    problem: "About 20 fields and a two-step New then Bind; calling connectors before Bind panics.", fix: "Pull the tool catalog (harness, world, MCP toolsets, boot checks) into one type built in one step." },
+  { id: "T5", s: "tidy", sev: "low", effort: "M", title: "subagent's second goroutine", where: ["internal/tools/builtin/subagent.go:88-172"],
+    problem: "A follower goroutine plus 500 ms polling and a mutex.", fix: "Follow the child inline until it finishes, then wait once." },
+  { id: "T6", s: "tidy", sev: "low", effort: "S", title: "Naming", where: ["pkg/session/valkey", "internal/mcp", "internal/tools/builtin/skills.go", "internal/runs/queue.go"],
+    problem: "`valkeysession.SessionService` stutters and the package name differs from its directory; internal/mcp shadows the SDK's package name; the write_skill file is called skills.go; `queue.log` is a logger beside `Manager.log`, the event log.",
+    fix: "Rename: `Service`, alias the SDK as `mcpsdk`, `write_skill.go`, `logger`." },
+  { id: "T7", s: "tidy", sev: "low", effort: "S", title: "Style", where: ["various"],
+    problem: "63 lines over 120 characters, conditions with 3 or more operands, packed struct literals, 7 `fmt.Errorf` calls without verbs.", fix: "Fix as files are touched." },
+  { id: "T8", s: "tidy", sev: "low", effort: "S–M", title: "Refresh on every OpenSearch write", where: ["pkg/db/opensearch/store.go:114-137", "internal/sources/sources.go:41-56"],
+    problem: "Every write forces a refresh; recording 20 sources costs 60 calls and 20 refreshes, and nobody reads memories right after writing them.", fix: "Pass refresh per call; memories and sources skip it." },
+  { id: "T9", s: "tidy", sev: "low", effort: "S", title: "The skills list sent before every model call", where: ["internal/skills/source.go:23-33"],
+    problem: "adk asks for the skill list before every model call, and the query returns whole records for two fields.", fix: "Fetch only name and description for that path." },
+  { id: "T10", s: "tidy", sev: "low", effort: "S", title: "Details-only skill edits rewrite SKILL.md", where: ["internal/skills/library.go:142-171"],
+    problem: "Changing only a title re-reads and re-writes SKILL.md and bumps the version, so npx and opencode download an unchanged skill again.", fix: "Without a description change, update the record only." },
+  { id: "T11", s: "tidy", sev: "low", effort: "S", title: "Stale docs", where: ["docs/ARCHITECTURE.md", "docs/SKILLS.md", "docs/HITL.md", "docs/MODELS.md", "internal/agents doc"],
+    problem: "\"Every write refreshes\", the skill limits, the paused lease, \"no restart needed\" and \"client built once\" no longer match the code.", fix: "Update each with its fix." },
+
+  // ---- tests
+  { id: "Q1", s: "tests", sev: "high", effort: "M", title: "Tests that need no infrastructure", where: ["internal/stream", "internal/agents", "internal/config", "pkg/modelcatalog", "internal/tools", "internal/server"],
+    list: ["The encoder and Coalesce, checked with ValidateSequence.", "An encoder to seedEvents round trip.", "Config loading over config/default, cycles and strictness included.", "calculate and webfetch's address check.", "modelcatalog's Parse, LoadCards and Merge rules.", "The error-to-status mapping and the middleware via `e.ServeHTTP`.", "The skill limits in `check()` and `Read()`."],
+    fix: "Table tests; each fix brings its own." },
+  { id: "Q2", s: "tests", sev: "med", effort: "M–L", title: "Integration tests against the docker stack", where: ["pkg/session/valkey", "internal/runs", "internal/hitl", "pkg/db/opensearch", "internal/skills"],
+    list: ["adk's session suite.", "The HITL and runs Lua scripts, the new transition script included.", "OpenSearch counters, conflicts, DeleteThread and the mapping check.", "skills.Library against MinIO."],
+    fix: "Skipped when the stack isn't running." },
+  { id: "Q3", s: "tests", sev: "low", effort: "S", title: "staticcheck in the Makefile", where: ["Makefile"],
+    problem: "No lint step; staticcheck found one real doc issue.", fix: "Add a `lint` target." },
+
+  // ---- against
+  { id: "N1", s: "against", title: "Fold handler/wellknown back into handler", where: ["internal/handler/wellknown"],
+    problem: "Suggested to remove a second handler struct.", fix: "Not recommended: you asked for it to be separate. X1 removes the duplication instead." },
+  { id: "N2", s: "against", title: "Fold internal/refs into agents", where: ["internal/refs"],
+    problem: "One sigil and one resolver today.", fix: "Not recommended: it is the seam you asked for, for @agent and #id." },
+  { id: "N3", s: "against", title: "Split pkg/db/opensearch", where: ["pkg/db/opensearch"],
+    problem: "Looks large.", fix: "Not recommended: one cohesive package of about 830 lines with good generic helpers." },
+  { id: "N4", s: "against", title: "Unify the artifact and skill stores", where: ["internal/artifacts", "internal/skills"],
+    problem: "Both keep a record in OpenSearch and files in S3.", fix: "Not recommended: artifacts keep versions, skills overwrite in place, on purpose." },
+  { id: "N5", s: "against", title: "Your call: zerolog to slog only", where: ["69 call sites in 16 files"],
+    problem: "Echo and adk already log through slog, with a bridge to zerolog.", fix: "Drops 4 dependencies and the bridge; a mechanical but wide change." },
+  { id: "N6", s: "against", title: "Your call: require S3 and drop inline artifact bodies", where: ["internal/artifacts"],
+    problem: "Without S3, artifact bodies live in OpenSearch: a second code path.", fix: "Skills already need S3, and MinIO is in docker-compose; requiring it removes the path." },
+];
+
+const DECISIONS = [
+  { d: "do", label: "Do it" },
+  { d: "later", label: "Later" },
+  { d: "skip", label: "Skip" },
+  { d: "discuss", label: "Discuss" },
+];
+const SEV_LABEL = { high: "High", med: "Medium", low: "Low" };
+
+const state = {}; // finding id -> {decision, note}
+const filters = { decision: "all", sev: "all" };
+
+const esc = (s) => s.replace(/[&<>"]/g, (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const fmt = (s) => esc(s).replace(/`([^`]+)`/g, "<code>$1</code>");
+const $ = (sel, el = document) => el.querySelector(sel);
+
+// Where each finding lands in the plan. Discussion items say "if Do".
+const FEEDBACK = {"B1": {"decision": "do", "note": "OK to remove the 3 scripts. im ok with some lua, just need to be the best approach, also we are running valkey 9 i"}, "B10": {"decision": "do", "note": ""}, "B11": {"decision": "do", "note": "Do this but make the changes simple please. not complex. I only care about file size for each upload to s3 / each POST to our server not culmatively. But yes ideally dont allow 1000 file skills."}, "B12": {"decision": "do", "note": ""}, "B13": {"decision": "do", "note": "Do the change. Make all UUIDs same version. "}, "B2": {"decision": "do", "note": ""}, "B3": {"decision": "do", "note": ""}, "B4": {"decision": "skip", "note": "we arent gonna use this tool eventually. i dont care. its just for testing right now."}, "B5": {"decision": "do", "note": "yes the dep is ok"}, "B6": {"decision": "discuss", "note": "Thats probably fine. we arent sending through those headers from the client. we use an mtls client cert for auth to agentlite (via our istio gateway which then attaches a jwt to header). "}, "B7": {"decision": "do", "note": "Does it? confirm this first, ive never seen this be an issue in our deployments."}, "B8": {"decision": "do", "note": "Ensure if you change this you need to do extensive testing (eg. with curl or temporary test scripts) to validate this didnt regress features. "}, "B9": {"decision": "do", "note": "Do this. we will worry about audit later."}, "D1": {"decision": "do", "note": "Add timeout on the transport, and allow it to be configurable. However, do not merge opensearch and s3 http clients into this. Transport is ONLY for providers and MCPS and tools. NOT our DBs. "}, "D10": {"decision": "do", "note": ""}, "D11": {"decision": "do", "note": ""}, "D12": {"decision": "do", "note": ""}, "D2": {"decision": "do", "note": "Please make this consistent and use opensearch-go v5 query builder where possible to make this less adhoc. Ideally its not just json query put into the client."}, "D3": {"decision": "do", "note": "That proposal is best yes. I dont want to add a check on startup, as that then requires a service account - which we want to deploy this with only JWT auth ideally. Also ensure teh current dev cluster aligns with the mappings."}, "D4": {"decision": "do", "note": "config isnt supposed to be under internal, its supposed to be top level. You can have ValkeyConfig, OpensearchConfig, S3Config sit with those packages please. and then import them into the global /config ."}, "D5": {"decision": "do", "note": "Also have seperate origins for socket perhaps?"}, "D6": {"decision": "do", "note": "Do memories as well, dont remove artefacts or sources though. we need those persisted for evidence and to recall them if needed. "}, "D7": {"decision": "do", "note": ""}, "D8": {"decision": "do", "note": ""}, "D9": {"decision": "do", "note": ""}, "N1": {"decision": "skip", "note": ""}, "N2": {"decision": "skip", "note": ""}, "N3": {"decision": "skip", "note": ""}, "N4": {"decision": "skip", "note": ""}, "N5": {"decision": "skip", "note": "thats the point of slog, our deps use it then we bridge it to our own logger."}, "N6": {"decision": "skip", "note": "We got rid of the fallback."}, "P1": {"decision": "do", "note": "Make this actual useful then."}, "P2": {"decision": "do", "note": "I dont really care about this. as long as its less lines of code. we dont want to keep webfetch long term."}, "P3": {"decision": "do", "note": ""}, "P4": {"decision": "later", "note": ""}, "P5": {"decision": "do", "note": "I need more info on this, but it sounds important to fix."}, "P6": {"decision": "do", "note": ""}, "P7": {"decision": "do", "note": "Ideally we want to validate our stuff against the upstream ag-ui golang package to ensure conformance. tests should be minimal, simple and test core things against a trusted package in this case."}, "P8": {"decision": "do", "note": ""}, "P9": {"decision": "do", "note": ""}, "Q1": {"decision": "do", "note": "unit testing the harness parts are important, and key utils. Keep them small and concise if possible. YOU MUST ENSURE they are meaningful, and actually testing something CRITICAL. do not test for the sake of it\n\nThe encoder and Coalesce, checked with ValidateSequence.\nAn encoder to seedEvents round trip.\nConfig loading over config/default, cycles and strictness included.\nmodelcatalog's Parse, LoadCards and Merge rules.\n\nDont add tests for calculate/webadress right now. or"}, "Q2": {"decision": "skip", "note": ""}, "Q3": {"decision": "do", "note": ""}, "T1": {"decision": "do", "note": ""}, "T10": {"decision": "skip", "note": ""}, "T11": {"decision": "do", "note": ""}, "T2": {"decision": "do", "note": ""}, "T3": {"decision": "skip", "note": ""}, "T4": {"decision": "later", "note": ""}, "T5": {"decision": "do", "note": ""}, "T6": {"decision": "skip", "note": ""}, "T7": {"decision": "do", "note": ""}, "T8": {"decision": "do", "note": ""}, "T9": {"decision": "do", "note": ""}, "X1": {"decision": "do", "note": "Note however, these files are for different reasons. If you want to consolidate the code for fetching the skills though put it inside internal/skills. And then both these api access routes just share that code."}, "X10": {"decision": "do", "note": ""}, "X11": {"decision": "do", "note": ""}, "X2": {"decision": "do", "note": ""}, "X3": {"decision": "do", "note": ""}, "X4": {"decision": "skip", "note": ""}, "X5": {"decision": "do", "note": ""}, "X6": {"decision": "do", "note": ""}, "X7": {"decision": "do", "note": ""}, "X8": {"decision": "do", "note": ""}, "X9": {"decision": "do", "note": ""}};
+const OUTCOME = {"B1": "#9", "B2": "#9", "B3": "#9", "B4": "Skipped", "B5": "#10", "B6": "Done in #6", "B7": "#10", "B8": "#8", "B9": "#10", "B10": "#8", "B11": "#10", "B12": "#9", "B13": "#8", "D1": "#10", "D2": "#8", "D3": "#8", "D4": "#8", "D5": "#8", "D6": "#8", "D7": "#9", "D8": "#9", "D9": "#9", "D10": "#9", "D11": "#10", "D12": "#9, #10", "P1": "#10", "P2": "Not changed", "P3": "#10", "P4": "#10, with D12", "P5": "#9", "P6": "#9", "P7": "#10", "P8": "#8", "P9": "#8, #10", "X1": "#10", "X2": "#8", "X3": "#10", "X4": "Skipped", "X5": "#10", "X6": "Not done", "X7": "#10", "X8": "#9", "X9": "#10", "X10": "#9", "X11": "#8", "T1": "#9", "T2": "#8", "T3": "Skipped", "T4": "Later", "T5": "#9", "T6": "Skipped (file renamed in #5)", "T7": "#10", "T8": "#8", "T9": "#8", "T10": "Skipped", "T11": "Every PR", "Q1": "#8, #10", "Q2": "Skipped (P6's suite only)", "Q3": "#10", "N1": "Not recommended", "N2": "Not recommended", "N3": "Not recommended", "N4": "Not recommended", "N5": "Not recommended", "N6": "Done in #5"};
+const HOW = {"B1": "No Lua at all: a run's status is its own key moved by SET IFEQ, interrupt records likewise, leases released with DELIFEQ (Valkey 9, also in docker-compose). The three scripts are gone.", "B5": "expr-lang/expr, compiled against the math functions so sqrt(2) works; a non-finite result is refused.", "B7": "Confirmed against LiteLLM's code and in a test; the first deployment's entry stands.", "B9": "Echo's RequestLogger, with Recover inside it. Audit logging is left for later, as you said.", "B11": "Files are counted across the whole skill after each save. The unzipped total stays per upload: it is what stops a zip bomb, and every file sits within one upload, so each S3 object stays under 25 MiB.", "B12": "Memory writes are tracked and bounded; a turn stored after its thread was deleted (its session gone) is forgotten again.", "B13": "Every id the server makes is a UUIDv7, adk's event ids too; sources and artifacts get name-based UUIDs, and a memory its event's id. A thread or skill id that is not a UUIDv7 gets 400, in paths and socket frames.", "D1": "TRANSPORT_RESPONSE_HEADER_TIMEOUT (default 5m) for providers, MCP servers and tools only; the databases keep their clients. One client per provider, MCP server and tool connector, and none for tools outside a connector.", "D2": "Each operation writes its query out as a map, marshalled once, so every value is escaped. No query helpers (comment on #8).", "D3": "Mappings in deploy/opensearch, applied with make indices; no check at startup. The dev cluster was rebuilt on them with every document kept.", "D4": "A top-level config package; valkey.Config and opensearch.Config live with their packages.", "D5": "WS_ALLOWED_ORIGINS for the socket (its settings are WS_*), handed to coder/websocket's OriginPatterns; the config checks fail the start.", "D6": "Threads, messages, memories and the Valkey keys go; sources and artifacts stay.", "D7": "A 10-minute lease while queued; a parent gives its worker slot back while it follows its child.", "D8": "Ping, write deadline, internal errors hidden, close as going away on shutdown; no per-socket caps.", "P2": "A dial-time check would mean rebuilding the connector's transport in webfetch: more code, not less.", "P4": "Fixing D12's lost listing errors needed minio's iterator APIs anyway.", "P9": "Including the maps.Clone before mergo: TestMerge shows mergo already copies maps.", "T8": "Memories only: sources are searched for citations in the same run, so they still refresh.", "X6": "The four frontmatter formats differ on purpose (strict, lenient, raw); sharing the two identical lines would need a new package.", "Q1": "Config loading (#8); the encoder and Coalesce with ValidateSequence, the seed round trip and modelcatalog (#10).", "X5": "One page size, in the opensearch package, which also says where the next page of artifacts starts; the handlers only read ?limit=.", "X8": "Interrupt keys are one const block in stream. Tool names stay in builtin, next to their tools (comment on #9)."};
+
+function reply(id) {
+  const t = document.querySelector(`template[data-id="${id}"]`);
+  if (!t) return "";
+  return `<div class="reply" data-tone="${t.dataset.tone}">
+    <div class="rhead"><span class="kind">${esc(t.dataset.kind)}</span><span>Claude · 18 Oct</span></div>
+    ${t.innerHTML}
+  </div>`;
+}
+
+function card(f) {
+  const tags = [];
+  if (f.sev) tags.push(`<span class="tag sev-${f.sev}">${SEV_LABEL[f.sev]}</span>`);
+  if (f.effort) tags.push(`<span class="tag effort">effort ${esc(f.effort)}</span>`);
+  if (f.v) tags.push(`<span class="tag verified">Verified</span>`);
+  const body = f.list
+    ? `<ul>${f.list.map((x) => `<li>${fmt(x)}</li>`).join("")}</ul>`
+    : `<p><b>Problem.</b> ${fmt(f.problem)}</p>`;
+  const r = reply(f.id), fb = state[f.id] || {};
+  return `<article class="finding" id="${f.id}" data-sev="${f.sev || "none"}" data-decision="${fb.decision || ""}" data-replied="${r ? "1" : ""}">
+    <div class="fhead"><span class="fid">${f.id}</span><h3>${fmt(f.title)}</h3><div class="tags">${tags.join("")}</div></div>
+    <div class="where">${f.where.map((w) => `<code>${esc(w)}</code>`).join("")}</div>
+    ${body}
+    <p><b>Fix.</b> ${fmt(f.fix)}</p>
+    <div class="fb">
+      <div class="choices">
+        ${fb.decision ? `<span class="tag decided" data-d="${fb.decision}">${DECISIONS.find((x) => x.d === fb.decision).label}</span>` : ""}
+        <span class="tag outcome">${esc(OUTCOME[f.id] || "")}</span>
+      </div>
+      ${fb.note ? `<p class="note"><b>Note.</b> ${fmt(fb.note)}</p>` : ""}
+      ${HOW[f.id] ? `<p class="note"><b>Done.</b> ${fmt(HOW[f.id])}</p>` : ""}
+    </div>
+    ${r}
+  </article>`;
+}
+
+function render() {
+  $("#groups").innerHTML = SECTIONS.map((s) => {
+    const items = FINDINGS.filter((f) => f.s === s.key);
+    return `<section class="group" id="sec-${s.key}" data-section="${s.key}">
+      <h2>${esc(s.title)} <small>${items.length}</small></h2>
+      <p class="intro">${esc(s.intro)}</p>
+      ${items.map(card).join("")}
+      <p class="empty" hidden>Nothing here matches the filters.</p>
+    </section>`;
+  }).join("");
+
+  $("#filter-decision").insertAdjacentHTML("beforeend",
+    [["all", "All"], ["replied", "Has reply"], ["undecided", "Undecided"], ...DECISIONS.map((x) => [x.d, x.label])]
+      .map(([v, l]) => `<button type="button" data-v="${v}" aria-pressed="${v === "all"}">${l}</button>`).join(""));
+  $("#filter-sev").insertAdjacentHTML("beforeend",
+    [["all", "All"], ["high", "High"], ["med", "Medium"], ["low", "Low"]]
+      .map(([v, l]) => `<button type="button" data-v="${v}" aria-pressed="${v === "all"}">${l}</button>`).join(""));
+
+  for (const [id, key] of [["filter-decision", "decision"], ["filter-sev", "sev"]]) {
+    $("#" + id).addEventListener("click", (e) => {
+      const b = e.target.closest("button");
+      if (!b) return;
+      filters[key] = b.dataset.v;
+      for (const x of $("#" + id).querySelectorAll("button")) x.setAttribute("aria-pressed", String(x === b));
+      applyFilters();
+    });
+  }
+
+
+  updateCounts();
+}
+
+
+function applyFilters() {
+  for (const el of document.querySelectorAll("article.finding")) {
+    const d = (state[el.id] || {}).decision || "";
+    const okD = filters.decision === "all"
+      || (filters.decision === "replied" ? el.dataset.replied === "1"
+        : filters.decision === "undecided" ? !d : d === filters.decision);
+    const okS = filters.sev === "all" || el.dataset.sev === filters.sev;
+    el.hidden = !(okD && okS);
+  }
+  for (const sec of document.querySelectorAll("section.group[data-section]")) {
+    const any = [...sec.querySelectorAll("article.finding")].some((a) => !a.hidden);
+    $(".empty", sec).hidden = any;
+  }
+}
+
+function updateCounts() {
+  const total = FINDINGS.length;
+  const counts = { do: 0, later: 0, skip: 0, discuss: 0 };
+  for (const f of FINDINGS) { const d = (state[f.id] || {}).decision; if (d) counts[d]++; }
+  const decided = counts.do + counts.later + counts.skip + counts.discuss;
+  $("#progress-label").innerHTML =
+    `<b>${decided}</b> of ${total} decided · ${counts.do} do · ${counts.later} later · ${counts.skip} skip · ${counts.discuss} discuss`;
+  $("#progress-bar").innerHTML = ["do", "later", "discuss", "skip"]
+    .map((d) => `<i style="width:${(counts[d] / total) * 100}%;background:var(--${d})"></i>`).join("");
+  $("#links").innerHTML = SECTIONS.map((s) => {
+    const items = FINDINGS.filter((f) => f.s === s.key);
+    const done = items.filter((f) => (state[f.id] || {}).decision).length;
+    return `<a href="#sec-${s.key}">${esc(s.title.split(":")[0])}<span>${done}/${items.length}</span></a>`;
+  }).join("");
+  $("#links").insertAdjacentHTML("afterbegin", `<a href="#plan">Outcome<span>3 PRs</span></a>`);
+  applyFilters();
+}
+
+Object.assign(state, FEEDBACK);
+render();
+</script>
+</body>
+</html>
