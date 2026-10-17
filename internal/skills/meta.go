@@ -22,8 +22,9 @@ type Meta struct {
 	Source      *string `json:"source"`
 }
 
-// details sets m's title, category and source on s.
-func (m Meta) details(s *opensearch.Skill) {
+// apply sets m's title, category and source on s; the description is
+// SKILL.md's (describe).
+func (m Meta) apply(s *opensearch.Skill) {
 	set := func(field, value *string) {
 		if value != nil {
 			*field = strings.TrimSpace(*value)

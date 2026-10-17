@@ -1,10 +1,6 @@
 package skills
 
-import (
-	"context"
-
-	"agentlite/pkg/db/opensearch"
-)
+import "context"
 
 // Index is the library as npx skills discovers it, at
 // /.well-known/agent-skills/index.json (v0.1.0 of the discovery draft,
@@ -23,12 +19,12 @@ type IndexEntry struct {
 
 // Index lists the library for npx skills.
 func (l *Library) Index(ctx context.Context) (*Index, error) {
-	list, err := l.records.Skills(ctx, opensearch.SkillFilter{})
+	all, err := l.records.AllSkills(ctx)
 	if err != nil {
 		return nil, err
 	}
-	index := &Index{Skills: make([]IndexEntry, len(list.Skills))}
-	for i, s := range list.Skills {
+	index := &Index{Skills: make([]IndexEntry, len(all))}
+	for i, s := range all {
 		e := IndexEntry{Name: s.Name, Description: s.Description}
 		for _, f := range s.Files {
 			e.Files = append(e.Files, f.Path)

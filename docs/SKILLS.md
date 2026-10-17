@@ -37,9 +37,11 @@ once a skill has it.
 Saving a skill (`Library.Save`) replaces any of the same name: it keeps its id, when it
 was created, and its title, category and source unless the save brings its own. Its new
 files are written, then the record, then the files it no longer has are deleted, so a
-reader never finds the record listing a file that is gone. Two first saves of one name
-at the same moment could make two skills; the library is written by people, and by
-agents a person approves, one at a time.
+reader never finds the record listing a file that is gone. A save that fails part way
+leaves a replaced skill with some of its new files, and a new skill's files are deleted.
+A file left behind by a failed delete is logged and goes with the skill's others when it
+is deleted. Two first saves of one name at the same moment could make two skills; the
+library is written by people, and by agents a person approves, one at a time.
 
 ## Adding a skill
 
@@ -52,10 +54,10 @@ alone (`internal/skills/parse.go`), and optional `title`, `description`, `catego
   them). Hidden files and `__MACOSX` are left out; a link is refused, and so is a zip
   with a path that leaves it (`../`, `/`, `\`): `go.mod` sets `godebug
   zipinsecurepath=0`, and `archive/zip` checks it.
-- At most 1000 files and 25 MiB unzipped, as `npx skills` allows. The total is checked
-  against each file's stated size before anything is read, and `archive/zip` refuses to
-  read past a stated size, so a zip bomb stops at the limit. The route's body limit is
-  26 MiB.
+- At most 1000 files and 25 MiB unzipped, as `npx skills` allows; every save is held to
+  them, `write_skill`'s too. A zip's total is checked against each file's stated size
+  before anything is read, and `archive/zip` refuses to read past a stated size, so a zip
+  bomb stops at the limit. The route's body limit is 26 MiB.
 - SKILL.md's frontmatter is read leniently (`adrg/frontmatter`): fields the spec does
   not have, such as Claude Code's `argument-hint`, are allowed and kept in the file.
   `name` and `description` are checked with adk's `skill.Validate` (lowercase letters,
@@ -106,8 +108,8 @@ list gets it with the rest, and an agent with a list gets it by naming `skills`
   adk treats as a template that `{...}` in a description would break.
 - `load_skill_resource` returns a script's text like any other file's; a binary file is
   refused, since the model would read it as text.
-- Every call has the run's context. When OpenSearch is reached with the user's
-  credentials, the listing holds only the skills they may see.
+- Every call has the run's context. OpenSearch is read as the service today; once it
+  is read with the user's credentials, the listing holds only the skills they may see.
 
 `write_skill` (a harness tool, `internal/tools/builtin/skills.go`) creates a skill or
 changes one after the user approves (HITL.md): `name`, `description`, `instructions`
@@ -130,8 +132,9 @@ message, and the turn starts with an activity that shows it:
   `load_skill_resource`. The activity is `skill` (`{id, name, title, description}`), and
   the UI shows it as the skill loaded, linking to its page (AG-UI-RENDERING.md).
 - The message itself goes to the model and is stored as typed. A `/word` that is no
-  skill stays plain text; a skill that cannot be read (the store is down) fails the turn
-  rather than sending it without the skill.
+  skill stays plain text, and one that cannot be a skill's name (`/usr/bin`) is not looked
+  up; a skill that cannot be read (the store is down) fails the turn rather than sending
+  it without the skill.
 
 A session rebuilt from history (`Runtime.Seed`, when the adk session is gone from
 Valkey) has the messages as typed, without the skills' instructions; the instruction

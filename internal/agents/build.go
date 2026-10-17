@@ -18,6 +18,7 @@ import (
 
 	"agentlite/internal/config"
 	"agentlite/internal/runs"
+	"agentlite/internal/skills"
 	"agentlite/internal/tools/builtin"
 )
 
@@ -96,8 +97,10 @@ func (rt *Runtime) toolsFor(def config.AgentDef, run *runs.Run) ([]tool.Tool, []
 			switch t := rt.tool(name); {
 			case t != nil:
 				fns = append(fns, t)
-			case name == skillsToolset && rt.skills != nil:
-				sets = append(sets, rt.skills.Toolset())
+			case name == skills.ToolsetName:
+				if rt.skills != nil { // without S3 there is no library
+					sets = append(sets, rt.skills.Toolset())
+				}
 			case len(rt.servers) > 0:
 				mcpNames = append(mcpNames, name)
 			default:
@@ -126,9 +129,6 @@ func (rt *Runtime) toolsFor(def config.AgentDef, run *runs.Run) ([]tool.Tool, []
 	}
 	return fns, sets, nil
 }
-
-// skillsToolset is how an agent's tools list names the skills library.
-const skillsToolset = "skills"
 
 // toolList names what a sub-agent can call, so the parent delegates only
 // work it can do. A pipeline lists its steps' tools.

@@ -42,10 +42,11 @@ func writeSkill(d Deps) (toolx.Tool, error) {
 		if err != nil {
 			return nil, fmt.Errorf("%w: %v", skills.ErrInvalid, err)
 		}
-		files := map[string][]byte{skills.SkillFile: md}
+		files := map[string][]byte{}
 		for _, f := range a.Files {
 			files[f.Path] = []byte(f.Content)
 		}
+		files[skills.SkillFile] = md // the instructions, not a file of that path
 		s, err := d.Skills.Save(tc, skills.Draft{
 			Files: files, Meta: skills.Meta{Title: given(a.Title), Category: given(a.Category), Source: given(a.Source)},
 			KeepFiles: true,

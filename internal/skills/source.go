@@ -15,18 +15,18 @@ import (
 )
 
 // The library is an adk skill.Source, which adk's skill toolset reads. Each
-// call has the run's context, so a store that reads as the user (OpenSearch
-// with their credentials) lists only the skills they may see.
+// call has the run's context; OpenSearch is read as the service today, and
+// once it is read as the user, the listing holds only the skills they may see.
 var _ skill.Source = (*Library)(nil)
 
 // ListFrontmatters lists every skill's name and description.
 func (l *Library) ListFrontmatters(ctx context.Context) ([]*skill.Frontmatter, error) {
-	list, err := l.records.Skills(ctx, opensearch.SkillFilter{})
+	all, err := l.records.AllSkills(ctx)
 	if err != nil {
 		return nil, err
 	}
-	out := make([]*skill.Frontmatter, len(list.Skills))
-	for i, s := range list.Skills {
+	out := make([]*skill.Frontmatter, len(all))
+	for i, s := range all {
 		out[i] = &skill.Frontmatter{Name: s.Name, Description: s.Description}
 	}
 	return out, nil

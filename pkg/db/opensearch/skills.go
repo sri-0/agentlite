@@ -73,7 +73,11 @@ func (c *Client) Skill(ctx context.Context, id string) (*Skill, error) {
 
 // SkillNamed fetches the skill with a name; ErrNotFound when there is none.
 func (c *Client) SkillNamed(ctx context.Context, name string) (*Skill, error) {
-	found, err := search[Skill](ctx, c, IndexSkills, fmt.Sprintf(`{"size":1,"query":{"term":{"name":%q}}}`, name))
+	q, err := json.Marshal(map[string]any{"size": 1, "query": term("name", name)})
+	if err != nil {
+		return nil, err
+	}
+	found, err := search[Skill](ctx, c, IndexSkills, string(q))
 	if err != nil {
 		return nil, err
 	}
@@ -83,11 +87,17 @@ func (c *Client) SkillNamed(ctx context.Context, name string) (*Skill, error) {
 	return &found[0], nil
 }
 
+// AllSkills lists the whole library by name, without counts: what agents and
+// npx skills see.
+func (c *Client) AllSkills(ctx context.Context) ([]Skill, error) {
+	return search[Skill](ctx, c, IndexSkills, fmt.Sprintf(`{"size":%d,"sort":[{"name":"asc"}]}`, listCap))
+}
+
 // Skills lists the library: by name, or best match first when Q is set
-// (every word must match). The
-// category and source counts come from the same search, each under the other
-// choice only: a category's count follows the chosen source, the source counts
-// follow the chosen category, so every count is what choosing it would show.
+// (every word must match). The category and source counts come from the same
+// search, each under the other choice only: a category's count follows the
+// chosen source, the source counts follow the chosen category, so every count
+// is what choosing it would show.
 func (c *Client) Skills(ctx context.Context, f SkillFilter) (*SkillList, error) {
 	query := map[string]any{"match_all": map[string]any{}}
 	sort := []any{map[string]any{"name": "asc"}}
@@ -102,7 +112,7 @@ func (c *Client) Skills(ctx context.Context, f SkillFilter) (*SkillList, error) 
 		"size": listCap, "sort": sort, "query": query,
 		"aggs": map[string]any{"categories": facet("category", source), "sources": facet("source", category)},
 	}
-	if chosen := both(category, source); chosen != nil {
+	if chosen := allOf(category, source); chosen != nil {
 		body["post_filter"] = chosen
 	}
 	raw, err := json.Marshal(body)
@@ -135,8 +145,8 @@ func term(field, value string) map[string]any {
 	return map[string]any{"term": map[string]any{field: value}}
 }
 
-// both is the filters given, together; nil for none.
-func both(filters ...map[string]any) map[string]any {
+// allOf is the filters given, together; nil for none.
+func allOf(filters ...map[string]any) map[string]any {
 	var set []any
 	for _, f := range filters {
 		if f != nil {

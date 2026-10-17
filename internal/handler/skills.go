@@ -3,9 +3,7 @@ package handler
 import (
 	"errors"
 	"io"
-	"mime"
 	"net/http"
-	"path"
 	"strings"
 
 	"github.com/labstack/echo/v5"
@@ -51,10 +49,10 @@ func (h *Handler) GetSkill(c *echo.Context) error {
 func (h *Handler) CreateSkill(c *echo.Context) error {
 	f, _, err := c.Request().FormFile("file")
 	switch {
-	case errors.Is(err, http.ErrMissingFile), errors.Is(err, http.ErrNotMultipart):
-		return echo.NewHTTPError(http.StatusBadRequest, "send a multipart form with the skill's zip or SKILL.md as file")
-	case err != nil:
-		return err // the body limit's 413 among others
+	case errors.Is(err, echo.ErrStatusRequestEntityTooLarge):
+		return err
+	case err != nil: // no file, not multipart, a broken form
+		return echo.NewHTTPError(http.StatusBadRequest, "send a multipart form with the skill's zip or SKILL.md as file").Wrap(err)
 	}
 	defer f.Close()
 	body, err := io.ReadAll(f)
@@ -135,9 +133,5 @@ func (h *Handler) skillFile(c *echo.Context, s *opensearch.Skill) error {
 	if err != nil {
 		return err
 	}
-	ctype := mime.TypeByExtension(path.Ext(p))
-	if ctype == "" {
-		ctype = http.DetectContentType(b)
-	}
-	return c.Blob(http.StatusOK, ctype, b)
+	return c.Blob(http.StatusOK, skills.ContentType(p, b), b)
 }

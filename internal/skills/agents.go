@@ -6,11 +6,13 @@ import (
 	"fmt"
 
 	"google.golang.org/adk/v2/tool"
-	"google.golang.org/adk/v2/tool/skilltoolset/skill"
 
 	"agentlite/internal/refs"
 	"agentlite/internal/stream"
 )
+
+// ToolsetName is the toolset's name, which an agent's tools list gives it by.
+const ToolsetName = "skills"
 
 // Toolset is adk's skill toolset over the library: list_skills, load_skill
 // and load_skill_resource, and before each model call the skills' names and
@@ -22,11 +24,10 @@ func (l *Library) Toolset() tool.Toolset { return l.toolset }
 const instruction = `You can use skills: instructions (a SKILL.md) and other files for specialised tasks, kept in a library. available_skills lists each skill's name and what it is for, not its instructions.
 1. If a skill fits the task, you MUST call load_skill with its name before doing the task, then follow its instructions exactly.
 2. Read the files its instructions point to with load_skill_resource. A skill's scripts are for reading only: nothing can run them.
-3. A user message that names a skill as /<name> carries its instructions in a <skill_content> block: follow them without loading the skill again. In an earlier message the block may be gone: load the skill if you still need it.
-4. To create or change a skill, use write_skill.`
+3. A user message that names a skill as /<name> carries its instructions in a <skill_content> block: follow them without loading the skill again. In an earlier message the block may be gone: load the skill if you still need it.`
 
-// Activity is the skill activity's content: the skill a /name loaded.
-type Activity struct {
+// activity is the skill activity's content: the skill a /name loaded.
+type activity struct {
 	ID          string `json:"id"`
 	Name        string `json:"name"`
 	Title       string `json:"title,omitempty"`
@@ -39,7 +40,7 @@ var _ refs.Resolver = (*Library)(nil)
 // block, and a skill activity.
 func (l *Library) Resolve(ctx context.Context, name string) (refs.Ref, bool, error) {
 	s, err := l.Named(ctx, name)
-	if errors.Is(err, skill.ErrSkillNotFound) {
+	if errors.Is(err, ErrNotFound) {
 		return refs.Ref{}, false, nil
 	}
 	if err != nil {
@@ -52,6 +53,6 @@ func (l *Library) Resolve(ctx context.Context, name string) (refs.Ref, bool, err
 	return refs.Ref{
 		Kind: stream.ActivitySkill, ID: s.ID,
 		Content:  fmt.Sprintf("<skill_content name=%q>\n%s\n</skill_content>", s.Name, body),
-		Activity: Activity{ID: s.ID, Name: s.Name, Title: s.Title, Description: s.Description},
+		Activity: activity{ID: s.ID, Name: s.Name, Title: s.Title, Description: s.Description},
 	}, true, nil
 }

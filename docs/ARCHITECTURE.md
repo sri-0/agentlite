@@ -31,7 +31,7 @@ Echo server (internal/server, internal/handler, internal/ws)
    ├─ Valkey: event logs, runs, queues, leases, adk sessions, interrupt records
    ├─ OpenSearch: threads, messages (the stored AG-UI events), memories, sources, artifacts,
    │    counters (each conversation's last source number and artifact versions), skills
-   └─ S3 (MinIO locally): artifact bodies, skill files, skill files
+   └─ S3 (MinIO locally): artifact bodies, skill files
 ```
 
 `internal/bootstrap` wires all of this from configuration; `cmd/server` serves

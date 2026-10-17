@@ -15,8 +15,8 @@ import (
 	"agentlite/internal/stream"
 )
 
-// maxWords bounds the words of one message looked up as references.
-const maxWords = 10
+// maxRefs bounds the words of one message looked up as references.
+const maxRefs = 10
 
 // Ref is what a reference resolves to.
 type Ref struct {
@@ -43,9 +43,12 @@ func (rs Resolvers) Expand(ctx context.Context, turnID, text string) (*genai.Con
 	var events []stream.Event
 	seen := map[string]bool{}
 	for _, word := range strings.Fields(text) {
+		if len(seen) == maxRefs {
+			break
+		}
 		sigil, size := utf8.DecodeRuneInString(word)
 		r, ok := rs[sigil]
-		if !ok || len(word) == size || seen[word] || len(seen) == maxWords {
+		if !ok || len(word) == size || seen[word] {
 			continue
 		}
 		seen[word] = true

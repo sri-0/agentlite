@@ -13,7 +13,9 @@ import (
 	"io"
 	"maps"
 	"mime"
+	"net/http"
 	"path"
+	"regexp"
 	"slices"
 	"time"
 
@@ -27,6 +29,13 @@ import (
 	"agentlite/pkg/s3"
 )
 
+// Errors for a missing skill and a missing file: adk's own, which its skill
+// toolset reports to the model.
+var (
+	ErrNotFound     = skill.ErrSkillNotFound
+	ErrFileNotFound = skill.ErrResourceNotFound
+)
+
 // Library is the skills library.
 type Library struct {
 	records *opensearch.Client
@@ -38,9 +47,12 @@ type Library struct {
 // New returns the library over its records and files.
 func New(ctx context.Context, records *opensearch.Client, files *s3.Client, log zerolog.Logger) (*Library, error) {
 	l := &Library{records: records, files: files, log: log}
-	var err error
-	l.toolset, err = skilltoolset.New(ctx, skilltoolset.Config{Name: "skills", Source: l, SystemInstruction: instruction})
-	return l, err
+	ts, err := skilltoolset.New(ctx, skilltoolset.Config{Name: ToolsetName, Source: l, SystemInstruction: instruction})
+	if err != nil {
+		return nil, err
+	}
+	l.toolset = ts
+	return l, nil
 }
 
 // Draft is a skill to save: its files and the details it is filed with.
@@ -69,7 +81,9 @@ func (l *Library) Save(ctx context.Context, d Draft) (*opensearch.Skill, error) 
 		return nil, err
 	}
 	now := time.Now()
-	s := &opensearch.Skill{ID: uuid.NewString(), Name: fm.Name, Description: fm.Description, CreatedAt: now, UpdatedAt: now}
+	s := &opensearch.Skill{
+		ID: uuid.NewString(), Name: fm.Name, Description: fm.Description, CreatedAt: now, UpdatedAt: now,
+	}
 	prev, err := l.records.SkillNamed(ctx, s.Name)
 	switch {
 	case err == nil:
@@ -78,14 +92,7 @@ func (l *Library) Save(ctx context.Context, d Draft) (*opensearch.Skill, error) 
 	case !errors.Is(err, opensearch.ErrNotFound):
 		return nil, err
 	}
-	d.details(s)
-	for p, b := range files {
-		ctype := cmp.Or(mime.TypeByExtension(path.Ext(p)), "application/octet-stream")
-		if err := l.files.Put(ctx, key(s.ID, p), ctype, b); err != nil {
-			return nil, err
-		}
-		s.Files = append(s.Files, opensearch.SkillFile{Path: p, Size: len(b)})
-	}
+	d.apply(s)
 	var stale []string
 	if prev != nil {
 		for _, f := range prev.Files {
@@ -99,16 +106,36 @@ func (l *Library) Save(ctx context.Context, d Draft) (*opensearch.Skill, error) 
 			}
 		}
 	}
-	slices.SortFunc(s.Files, func(a, b opensearch.SkillFile) int { return cmp.Compare(a.Path, b.Path) })
-	if err := l.records.SaveSkill(ctx, s); err != nil {
+	if err := l.store(ctx, s, files); err != nil {
+		if prev == nil { // no record lists a new skill's files
+			l.cleanUp(s.Name, l.files.DeletePrefix(context.WithoutCancel(ctx), key(s.ID, "")))
+		}
 		return nil, err
 	}
-	// The skill is saved and no longer lists them: a file left behind goes
-	// with the rest when the skill is deleted.
-	if err := l.files.Delete(ctx, stale...); err != nil {
-		l.log.Warn().Err(err).Str("skill", s.Name).Msg("delete replaced files")
-	}
+	// The record no longer lists them; one left behind goes with the rest
+	// when the skill is deleted.
+	l.cleanUp(s.Name, l.files.Delete(context.WithoutCancel(ctx), stale...))
 	return s, nil
+}
+
+// store writes a skill's files, then its record, which lists them.
+func (l *Library) store(ctx context.Context, s *opensearch.Skill, files map[string][]byte) error {
+	for p, b := range files {
+		if err := l.files.Put(ctx, key(s.ID, p), ContentType(p, b), b); err != nil {
+			return err
+		}
+		s.Files = append(s.Files, opensearch.SkillFile{Path: p, Size: len(b)})
+	}
+	slices.SortFunc(s.Files, func(a, b opensearch.SkillFile) int { return cmp.Compare(a.Path, b.Path) })
+	return l.records.SaveSkill(ctx, s)
+}
+
+// cleanUp logs a failed delete of files no record lists: they waste space,
+// and the save or delete that left them stands.
+func (l *Library) cleanUp(skill string, err error) {
+	if err != nil {
+		l.log.Warn().Err(err).Str("skill", skill).Msg("delete skill files")
+	}
 }
 
 // Update sets m on a skill.
@@ -129,12 +156,18 @@ func (l *Library) Get(ctx context.Context, id string) (*opensearch.Skill, error)
 	return l.records.Skill(ctx, id)
 }
 
-// Named fetches a skill by name; adk's skill.ErrSkillNotFound when there is
-// none.
+// validName is what a skill's name may be (adk's skill.Validate checks the
+// same): a word such as /usr is no skill, and needs no lookup.
+var validName = regexp.MustCompile(`^[a-z0-9]+(-[a-z0-9]+)*$`)
+
+// Named fetches a skill by name; ErrNotFound when there is none.
 func (l *Library) Named(ctx context.Context, name string) (*opensearch.Skill, error) {
+	if len(name) > 64 || !validName.MatchString(name) {
+		return nil, fmt.Errorf("%w: %s", ErrNotFound, name)
+	}
 	s, err := l.records.SkillNamed(ctx, name)
 	if errors.Is(err, opensearch.ErrNotFound) {
-		return nil, fmt.Errorf("%w: %s", skill.ErrSkillNotFound, name)
+		return nil, fmt.Errorf("%w: %s", ErrNotFound, name)
 	}
 	return s, err
 }
@@ -149,14 +182,15 @@ func (l *Library) Delete(ctx context.Context, id string) error {
 	if err := l.records.DeleteSkill(ctx, id); err != nil {
 		return err
 	}
-	return l.files.DeletePrefix(ctx, key(id, ""))
+	l.cleanUp(id, l.files.DeletePrefix(context.WithoutCancel(ctx), key(id, "")))
+	return nil
 }
 
 // File reads one of a skill's files; ./references/x.md is references/x.md.
 func (l *Library) File(ctx context.Context, s *opensearch.Skill, p string) ([]byte, error) {
 	p = path.Clean(p)
 	if !slices.ContainsFunc(s.Files, func(f opensearch.SkillFile) bool { return f.Path == p }) {
-		return nil, fmt.Errorf("%w: %s has no %s", skill.ErrResourceNotFound, s.Name, p)
+		return nil, fmt.Errorf("%w: %s has no %s", ErrFileNotFound, s.Name, p)
 	}
 	r, err := l.files.Get(ctx, key(s.ID, p))
 	if err != nil {
@@ -164,6 +198,12 @@ func (l *Library) File(ctx context.Context, s *opensearch.Skill, p string) ([]by
 	}
 	defer r.Close()
 	return io.ReadAll(r)
+}
+
+// ContentType is what a skill's file is served as: by its extension, or by
+// its content.
+func ContentType(p string, b []byte) string {
+	return cmp.Or(mime.TypeByExtension(path.Ext(p)), http.DetectContentType(b))
 }
 
 // key is where a skill's file is in S3.

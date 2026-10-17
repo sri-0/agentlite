@@ -12,7 +12,6 @@ import (
 	"github.com/labstack/echo/v5"
 	"github.com/labstack/echo/v5/middleware"
 	"github.com/rs/zerolog"
-	"google.golang.org/adk/v2/tool/skilltoolset/skill"
 
 	"agentlite/internal/config"
 	"agentlite/internal/handler"
@@ -113,8 +112,8 @@ func errorHandler(next echo.HTTPErrorHandler) echo.HTTPErrorHandler {
 			{skills.ErrInvalid, http.StatusBadRequest},
 			{runs.ErrNotFound, http.StatusNotFound},
 			{opensearch.ErrNotFound, http.StatusNotFound},
-			{skill.ErrSkillNotFound, http.StatusNotFound},
-			{skill.ErrResourceNotFound, http.StatusNotFound},
+			{skills.ErrNotFound, http.StatusNotFound},
+			{skills.ErrFileNotFound, http.StatusNotFound},
 			{s3.ErrNotFound, http.StatusNotFound},
 			{runs.ErrBusy, http.StatusConflict},
 		} {
