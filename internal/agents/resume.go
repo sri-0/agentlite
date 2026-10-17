@@ -14,12 +14,13 @@ import (
 	"agentlite/internal/tools/builtin"
 )
 
-// content is the user message or, on resume, the adk_request_confirmation
-// responses adk expects for each answered interrupt. On resume it also
-// returns the CUSTOM approval events that record the answers in the log.
+// content is the user message, with what its references (/name) resolve to
+// and the activities that show them; or, on resume, the
+// adk_request_confirmation responses adk expects for each answered interrupt,
+// with the CUSTOM approval events that record the answers.
 func (rt *Runtime) content(ctx context.Context, threadID string, in runs.Input) (*genai.Content, []stream.Event, error) {
 	if len(in.Resume) == 0 {
-		return genai.NewContentFromText(in.Message, genai.RoleUser), nil, nil
+		return rt.refs.Expand(ctx, in.Run.TurnID, in.Message)
 	}
 	got, err := rt.sessions.Get(ctx, &session.GetRequest{AppName: rt.appName, UserID: runs.SessionUser, SessionID: threadID})
 	if err != nil {

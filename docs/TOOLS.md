@@ -44,8 +44,8 @@ describe the result.
    every citation traces back to the exact record a tool returned.
 6. **Artifacts are stored.** `emit_artifact` writes the metadata to the
    OpenSearch `artifacts` index and the body to S3 (MinIO locally, through the
-   `minio-go` client). Without S3 configured the body stays in the OpenSearch
-   document. A `url` artifact has no body: it points at a page to embed.
+   `minio-go` client). A `url` artifact has no body: it points at a page to
+   embed.
 7. **A tool can ask for its own UI.** `toolx.Spec.UI` (and `ui:` per MCP tool in
    an MCP connector) names a renderer. The encoder puts it in the `TOOL_CALL_START`
    metadata, so stored history renders the same way. The UI keeps a registry of
@@ -226,10 +226,8 @@ records and records every hit with the row's id, marking and control set as meta
 `emit_artifact` publishes a document; `internal/artifacts` stores it:
 
 - the record in OpenSearch `artifacts` (id `{root}:{artifact id}`): `id, root_id,
-  thread_id, run_id, title, kind, language, url, size, stored, version, created_at,
-  updated_at`;
-- the body in S3 at `artifacts/{root}/{artifact id}/{version}` (`stored: s3`), or in the
-  record's `content` when `S3_ENDPOINT` is not set (`stored: inline`).
+  thread_id, run_id, title, kind, language, url, size, version, created_at, updated_at`;
+- the body in S3 at `artifacts/{root}/{artifact id}/{version}`.
 
 An artifact id is letters, digits, `.`, `_` and `-`, starting with a letter or digit (it
 is part of a document id, an S3 key and a URL); the model may name one, and gets a UUID

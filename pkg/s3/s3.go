@@ -13,9 +13,9 @@ import (
 	"github.com/minio/minio-go/v7/pkg/credentials"
 )
 
-// Config locates the store. An empty Endpoint means no store.
+// Config locates the store.
 type Config struct {
-	Endpoint  string `env:"ENDPOINT"` // host:port
+	Endpoint  string `env:"ENDPOINT, required"` // host:port
 	AccessKey string `env:"ACCESS_KEY"`
 	SecretKey string `env:"SECRET_KEY"`
 	Bucket    string `env:"BUCKET, default=agentlite"`
@@ -84,6 +84,17 @@ func (c *Client) DeletePrefix(ctx context.Context, prefix string) error {
 	var errs []error
 	for e := range c.mc.RemoveObjects(ctx, c.bucket, objects, minio.RemoveObjectsOptions{}) {
 		errs = append(errs, fmt.Errorf("s3 delete %s: %w", e.ObjectName, e.Err))
+	}
+	return errors.Join(errs...)
+}
+
+// Delete removes objects by key; a missing one is no error.
+func (c *Client) Delete(ctx context.Context, keys ...string) error {
+	var errs []error
+	for _, k := range keys {
+		if err := c.mc.RemoveObject(ctx, c.bucket, k, minio.RemoveObjectOptions{}); err != nil {
+			errs = append(errs, fmt.Errorf("s3 delete %s: %w", k, err))
+		}
 	}
 	return errors.Join(errs...)
 }

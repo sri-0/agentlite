@@ -20,6 +20,7 @@ import (
 	"agentlite/internal/mcp"
 	"agentlite/internal/providers"
 	"agentlite/internal/runs"
+	"agentlite/internal/skills"
 	"agentlite/internal/sources"
 	"agentlite/pkg/db/opensearch"
 	"agentlite/pkg/db/valkey"
@@ -40,6 +41,7 @@ type App struct {
 	Memory    *memory.Service // nil when memory is not configured
 	Sources   *sources.Recorder
 	Artifacts *artifacts.Store
+	Skills    *skills.Library
 	Agents    *agents.Runtime
 	Runs      *runs.Manager
 
@@ -91,19 +93,22 @@ func New(ctx context.Context) (*App, error) {
 		mem = app.Memory
 	}
 	app.Sources = sources.New(app.Store)
-	if app.Artifacts, err = artifactStore(ctx, cfg, app.Store, app.Sources, app.Log); err != nil {
+	files, err := s3.New(ctx, cfg.S3) // artifact bodies and skill files
+	if err != nil {
 		return nil, err
 	}
+	app.Artifacts = artifacts.New(app.Store, files, app.Sources, app.Log)
+	app.Skills = skills.New(app.Store, files, app.Log)
 	servers, err := mcp.Servers(cfg.Connectors, app.Log)
 	if err != nil {
 		return nil, err
 	}
 	app.Agents = agents.New(cfg, agents.Deps{
 		Registry: app.Registry, Sessions: app.Sessions, Memory: mem, Servers: servers,
-		Sources: app.Sources, Artifacts: app.Artifacts, Log: app.Log,
+		Sources: app.Sources, Artifacts: app.Artifacts, Skills: app.Skills, Log: app.Log,
 	})
 	app.Runs = runs.New(cfg, runsDB, hitl.NewStore(hitlDB), app.Store, app.Store, app.Sessions, app.Agents, app.Log)
-	if err := app.Agents.Bind(app.Runs); err != nil { // the subagent tool dispatches through the run manager
+	if err := app.Agents.Bind(ctx, app.Runs); err != nil { // the subagent tool dispatches through the run manager
 		return nil, err
 	}
 	app.Runs.StartWorkers(ctx)
@@ -144,23 +149,6 @@ func checkConfiguredModels(m *config.ModelsConfig, registry *providers.Registry)
 		return err
 	}
 	return check(m.Memory.EmbeddingModel, modelcatalog.TypeEmbedding)
-}
-
-// artifactStore keeps artifact bodies in S3 when S3_ENDPOINT is set, and in
-// OpenSearch otherwise.
-func artifactStore(
-	ctx context.Context, cfg *config.Config, records *opensearch.Client, recorder *sources.Recorder, log zerolog.Logger,
-) (*artifacts.Store, error) {
-	var bodies *s3.Client
-	if cfg.S3.Endpoint == "" {
-		log.Info().Msg("S3 not configured; artifact bodies are kept in OpenSearch")
-	} else {
-		var err error
-		if bodies, err = s3.New(ctx, cfg.S3); err != nil {
-			return nil, err
-		}
-	}
-	return artifacts.New(records, bodies, recorder, log), nil
 }
 
 // memoryService builds long-term memory when models.yaml configures it.

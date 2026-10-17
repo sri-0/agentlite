@@ -21,6 +21,7 @@ const (
 	ActivityAgent      = "agent"      // messageId = subagentRunId
 	ActivityCompaction = "compaction" // messageId = "compaction:<uuid>"
 	ActivityModel      = "model"      // messageId = "model:<turn id>": the turn changed the thread's model
+	ActivitySkill      = "skill"      // messageId = "skill:<turn id>:<skill id>": the turn's message named a skill (/name)
 )
 
 // Metadata keys: the turn on RUN_STARTED and RUN_FINISHED, a tool's UI

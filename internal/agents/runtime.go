@@ -23,7 +23,9 @@ import (
 	"agentlite/internal/config"
 	"agentlite/internal/mcp"
 	"agentlite/internal/providers"
+	"agentlite/internal/refs"
 	"agentlite/internal/runs"
+	"agentlite/internal/skills"
 	"agentlite/internal/sources"
 	"agentlite/internal/stream"
 	"agentlite/internal/tools/builtin"
@@ -45,11 +47,14 @@ type Runtime struct {
 	servers      map[string]*mcp.Server // MCP servers by connector id
 	sources      *sources.Recorder
 	artifacts    *artifacts.Store
+	skills       *skills.Library
+	refs         refs.Resolvers // what a message's /name, @agent, #id refer to
 	log          zerolog.Logger
 
 	connectors []config.Connector
 	userAgent  string                  // for tools no connector names
 	harness    map[string]toolx.Tool   // always available: subagent, todowrite, …
+	skillset   tool.Toolset            // the skills library's: list_skills, load_skill, …
 	world      map[string]toolx.Tool   // switched on through connectors
 	sets       map[string]tool.Toolset // one per connector
 	mcpTools   mcpTools                // what the mcp connectors ask of individual MCP tools
@@ -63,6 +68,7 @@ type Deps struct {
 	Memory    Memory                 // nil when memory is not configured
 	Servers   map[string]*mcp.Server // MCP servers by connector id
 	Sources   *sources.Recorder
+	Skills    *skills.Library
 	Artifacts *artifacts.Store
 	Log       zerolog.Logger
 }
@@ -72,7 +78,8 @@ func New(cfg *config.Config, d Deps) *Runtime {
 	rt := &Runtime{
 		appName: cfg.AppName, defs: cfg.Defs(), registry: d.Registry, sessions: d.Sessions, memory: d.Memory,
 		defaultModel: cfg.Models.DefaultModel, compact: cfg.Models.Compaction, servers: d.Servers,
-		sources: d.Sources, artifacts: d.Artifacts, log: d.Log, connectors: cfg.Connectors, userAgent: cfg.UserAgent,
+		sources: d.Sources, artifacts: d.Artifacts, skills: d.Skills, refs: refs.Resolvers{'/': d.Skills}, log: d.Log,
+		connectors: cfg.Connectors, userAgent: cfg.UserAgent,
 		mcpTools: newMCPTools(cfg.Connectors),
 	}
 	if m := cfg.Models.Memory; m != nil {
@@ -89,11 +96,17 @@ type Memory interface {
 }
 
 // Bind builds the function tools (the subagent tool dispatches through d),
-// one toolset per connector, and the UI renderer of every tool that names one.
-func (rt *Runtime) Bind(d builtin.Dispatcher) error {
+// the skills toolset, one toolset per connector, and the UI renderer of every
+// tool that names one.
+func (rt *Runtime) Bind(ctx context.Context, d builtin.Dispatcher) error {
 	var err error
-	rt.harness, err = builtin.All(builtin.Deps{Dispatcher: d, Defs: rt.defs, Artifacts: rt.artifacts, Log: rt.log})
+	rt.harness, err = builtin.All(builtin.Deps{
+		Dispatcher: d, Defs: rt.defs, Artifacts: rt.artifacts, Skills: rt.skills, Log: rt.log,
+	})
 	if err != nil {
+		return err
+	}
+	if rt.skillset, err = rt.skills.Toolset(ctx); err != nil {
 		return err
 	}
 	if err := rt.connectorSets(); err != nil {
@@ -158,11 +171,11 @@ func (rt *Runtime) Run(ctx context.Context, in runs.Input, sink stream.Sink) (ru
 	if err != nil {
 		return fail(err)
 	}
-	content, resumed, err := rt.content(ctx, run.ThreadID, in)
+	content, events, err := rt.content(ctx, run.ThreadID, in)
 	if err != nil {
 		return fail(err)
 	}
-	for _, ev := range resumed {
+	for _, ev := range events {
 		sink.Emit(ev)
 	}
 

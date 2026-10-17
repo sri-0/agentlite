@@ -12,6 +12,7 @@ in depth.
 | [TOOLS.md](TOOLS.md) | Building tools with `toolx`, the HTTP transports, sources and citations, artifacts and S3, tool UI renderers, the MCP tool hooks. |
 | [HITL.md](HITL.md) | Approvals and questions: how a run pauses, how the answer resumes it, and how a sub-agent's request reaches the user and its answer reaches the sub-agent. |
 | [AG-UI-RENDERING.md](AG-UI-RENDERING.md) | Every AG-UI event the backend emits, which code emits it, and what the UI's reducer and components make of it. |
+| [SKILLS.md](SKILLS.md) | The skills library: storage, uploads, adk's skill toolset and `write_skill`, `/name`, installing with `npx skills`, MCP servers' skills. |
 | [MEMORY.md](MEMORY.md) | Long-term memory: what is stored, how it is searched, how to switch preload on, how to swap the implementation. |
 
 Historical, kept for the reasoning behind decisions; they no longer describe the

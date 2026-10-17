@@ -1,6 +1,7 @@
 package agents
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"maps"
@@ -17,11 +18,19 @@ import (
 
 	"agentlite/internal/config"
 	"agentlite/internal/runs"
+	"agentlite/internal/skills"
 	"agentlite/internal/tools/builtin"
 )
 
-// defaultMaxOutputTokens is always sent: some gateways reject requests without it.
-const defaultMaxOutputTokens = 8192
+// A model call's output limit is always sent: some gateways reject requests
+// without it. It is the agent's own, or the model's up to maxOutputTokens (a
+// deck or a report written in one tool call fits, and OpenRouter holds credit
+// for every token allowed), or defaultMaxOutputTokens for a model that does
+// not say.
+const (
+	defaultMaxOutputTokens = 8192
+	maxOutputTokens        = 32768
+)
 
 // build turns a definition into an adk agent for one run: an llm agent, or a
 // sequential pipeline of its subagents. Every llm agent uses the run's model.
@@ -41,7 +50,7 @@ func (rt *Runtime) build(ctx context.Context, def config.AgentDef, run *runs.Run
 }
 
 func (rt *Runtime) buildLLM(ctx context.Context, def config.AgentDef, run *runs.Run) (adkagent.Agent, error) {
-	llm, _, err := rt.model(ctx, run.Model)
+	llm, card, err := rt.model(ctx, run.Model)
 	if err != nil {
 		return nil, fmt.Errorf("agent %q: %w", def.ID, err)
 	}
@@ -57,7 +66,7 @@ func (rt *Runtime) buildLLM(ctx context.Context, def config.AgentDef, run *runs.
 	}
 	maxTokens := def.MaxOutputTokens
 	if maxTokens == 0 {
-		maxTokens = defaultMaxOutputTokens
+		maxTokens = cmp.Or(min(card.MaxOutputTokens, maxOutputTokens), defaultMaxOutputTokens)
 	}
 	return llmagent.New(llmagent.Config{
 		Name:                     def.ID,
@@ -76,28 +85,30 @@ func (rt *Runtime) buildLLM(ctx context.Context, def config.AgentDef, run *runs.
 
 // toolsFor resolves an agent's tools for a run. A listed name must be a
 // harness or world tool or, when MCP servers are configured, is taken to be
-// one of their tools. Omitted means every harness tool plus the toolsets of
-// the run's connectors; the subagent tool only for agents with subagents.
+// one of their tools; skills is the skills library's toolset. Omitted means
+// every harness tool plus the toolsets of the run's connectors and the
+// skills; the subagent tool only for agents with subagents.
 func (rt *Runtime) toolsFor(def config.AgentDef, run *runs.Run) ([]tool.Tool, []tool.Toolset, error) {
 	var fns []tool.Tool
+	var sets []tool.Toolset
 	if def.Tools != nil {
 		var mcpNames []string
 		for _, name := range *def.Tools {
 			switch t := rt.tool(name); {
 			case t != nil:
 				fns = append(fns, t)
+			case name == skills.ToolsetName:
+				sets = append(sets, rt.skillset)
 			case len(rt.servers) > 0:
 				mcpNames = append(mcpNames, name)
 			default:
 				return nil, nil, fmt.Errorf("unknown tool %q", name)
 			}
 		}
-		if len(mcpNames) == 0 {
-			return fns, nil, nil
-		}
-		var sets []tool.Toolset
-		for _, srv := range rt.servers {
-			sets = append(sets, tool.FilterToolset(srv.Toolset, tool.AllowedToolsPredicate(mcpNames)))
+		if len(mcpNames) > 0 {
+			for _, srv := range rt.servers {
+				sets = append(sets, tool.FilterToolset(srv.Toolset, tool.AllowedToolsPredicate(mcpNames)))
+			}
 		}
 		return fns, sets, nil
 	}
@@ -110,7 +121,7 @@ func (rt *Runtime) toolsFor(def config.AgentDef, run *runs.Run) ([]tool.Tool, []
 		}
 		fns = append(fns, rt.harness[name].ADK())
 	}
-	return fns, rt.enabled(run.Connectors), nil
+	return fns, append(rt.enabled(run.Connectors), rt.skillset), nil
 }
 
 // toolList names what a sub-agent can call, so the parent delegates only

@@ -30,8 +30,8 @@ Echo server (internal/server, internal/handler, internal/ws)
    │
    ├─ Valkey: event logs, runs, queues, leases, adk sessions, interrupt records
    ├─ OpenSearch: threads, messages (the stored AG-UI events), memories, sources, artifacts,
-   │    counters (each conversation's last source number and artifact versions)
-   └─ S3 (MinIO locally): artifact bodies
+   │    counters (each conversation's last source number and artifact versions), skills
+   └─ S3 (MinIO locally): artifact bodies, skill files
 ```
 
 `internal/bootstrap` wires all of this from configuration; `cmd/server` serves
@@ -179,12 +179,13 @@ Valkey is split into logical databases, set by environment:
 
 OpenSearch indices: `threads`, `messages` (events stored unindexed), `memories`
 (kNN vectors; created only when memory is configured), `sources`, `artifacts`,
-`counters` (each conversation's source numbers and artifact versions).
+`counters` (each conversation's source numbers and artifact versions), `skills` (the
+skills library, one record per skill; its files are in S3; SKILLS.md).
 Every write refreshes the index, so a read after a save sees it.
 
-S3 (`S3_ENDPOINT`, MinIO in `docker-compose.yaml`): artifact bodies at
-`artifacts/{root}/{artifact id}/{version}`. Without it they stay in the `artifacts`
-records.
+S3 (`S3_ENDPOINT`, required; MinIO in `docker-compose.yaml`): artifact bodies at
+`artifacts/{root}/{artifact id}/{version}`, and skill files at `skills/{skill id}/{path}`.
+OpenSearch keeps only their records.
 
 ## Configuration
 

@@ -2,6 +2,10 @@ module agentlite
 
 go 1.27.1
 
+// archive/zip refuses a zip with a path that leaves its root (../, /, \):
+// an uploaded skill (internal/skills).
+godebug zipinsecurepath=0
+
 require (
 	dario.cat/mergo v1.0.2
 	github.com/adrg/frontmatter v0.2.0
@@ -102,6 +106,7 @@ require (
 	google.golang.org/protobuf v1.36.12 // indirect
 	gopkg.in/ini.v1 v1.67.3 // indirect
 	gopkg.in/yaml.v2 v2.4.0 // indirect
+	gopkg.in/yaml.v3 v3.0.1 // indirect
 	rsc.io/omap v1.2.0 // indirect
 	rsc.io/ordered v1.1.1 // indirect
 )
