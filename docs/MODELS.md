@@ -236,15 +236,15 @@ Voxtral's weights on `/v1/audio/transcriptions` with its transcription prompt.
 ## Suggestions
 
 The UI asks `POST /v1/suggestions` for what the user might send next (`internal/suggest`,
-apart from the agents): with `{threadId}` when a thread opens (stale ones too) and after
-each answer, and with `{text}` (plus `threadId` in a thread) while the user types. The
-server reads the thread's last message and its answer and what is being typed (each cut to
-4,000 characters), asks `suggestions.model` (`default_model` without the block) for three
-short messages in the user's voice (following the answer, or completing what is typed), as
-JSON held to a schema, and replies `{suggestions: [...]}`: at most three, each at most 80
-characters. Nothing is kept. `400` with neither `threadId` nor `text`; `409` for a thread
-whose last turn has no finished answer (none yet, running, or paused on a question) when
-there is no text; `502` when the model fails.
+apart from the agents) with `{messages, text}`: `messages` is the thread's last turn as the
+UI shows it (`[{role: "user", content}, {role: "assistant", content}]`), sent when a thread
+opens (stale ones too) and after each answer; `text` is what the user is typing, sent a
+second after they stop. The server reads nothing stored, so it never waits on its own copy
+of an answer that has just ended. It takes the last two messages and the typed text (each
+cut to 4,000 characters), asks `suggestions.model` (`default_model` without the block) for
+three short messages in the user's voice (following the answer, or completing what is
+typed), as JSON held to a schema, and replies `{suggestions: [...]}`: at most three, each at
+most 80 characters. Nothing is kept. `400` with neither; `502` when the model fails.
 
 ## Disconnected deployment
 
@@ -293,5 +293,5 @@ Also check, outside `models.yaml`:
 | `internal/providers/embed.go` | embeddings for memory |
 | `config/models.go` | `models.yaml` and its checks |
 | `internal/voice/voice.go` | the voice prompt: a recording to text |
-| `internal/suggest/suggest.go` | next-prompt suggestions: from a thread, what's typed, or both |
+| `internal/suggest/suggest.go` | next-prompt suggestions: from the last turn the UI sends, what's typed, or both |
 | `internal/files/embed.go` | multimodal embeddings for uploaded files |

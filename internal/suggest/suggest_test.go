@@ -6,44 +6,22 @@ import (
 	"strings"
 	"testing"
 	"unicode/utf8"
-
-	"agentlite/pkg/db/opensearch"
 )
 
-func TestLastTurn(t *testing.T) {
-	user := opensearch.Message{Role: "user", Text: "q"}
-	answer := opensearch.Message{Role: "assistant", Text: "a"}
-	for _, tc := range []struct {
-		name string
-		msgs []opensearch.Message
-		ok   bool
-	}{
-		{"answered", []opensearch.Message{user, answer}, true},
-		{"no messages", nil, false},
-		{"only the message", []opensearch.Message{user}, false},
-		{"empty answer (running or paused)", []opensearch.Message{user, {Role: "assistant", Text: "  "}}, false},
-		{"answer without its message", []opensearch.Message{answer, answer}, false},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			m, a, ok := lastTurn(tc.msgs)
-			if ok != tc.ok || (ok && (m != "q" || a != "a")) {
-				t.Errorf("lastTurn = %q, %q, %v; want ok %v", m, a, ok, tc.ok)
-			}
-		})
-	}
-}
-
-// TestPrompt: the turn, the typed text, or both, each cut to textCap runes.
+// TestPrompt: the last turn, the typed text, or both, each cut to textCap
+// runes, blank ones and older messages left out.
 func TestPrompt(t *testing.T) {
 	long := strings.Repeat("é", textCap+50)
-	p := prompt("short question", long, "")
-	if !strings.Contains(p, "short question") || strings.Contains(p, long) || strings.Contains(p, "typing") {
-		t.Fatalf("turn only: prompt didn't keep the question, cut the answer, or leave typing out: %q", p[:80])
+	turn := []Message{{"user", "older"}, {"user", "short question"}, {"assistant", long}}
+	p := prompt(turn, "")
+	if !strings.Contains(p, "The user wrote:\nshort question") || strings.Contains(p, "older") ||
+		strings.Contains(p, long) || strings.Contains(p, "typing") {
+		t.Fatalf("turn only: prompt didn't keep the last two, cut the answer, or leave typing out: %q", p[:80])
 	}
-	if p := prompt("", "", "how do I"); p != "The user is typing:\nhow do I" {
+	if p := prompt(nil, " how do I "); p != "The user is typing:\nhow do I" {
 		t.Errorf("text only: prompt = %q", p)
 	}
-	if p := prompt("q", "a", "and then"); !strings.Contains(p, "answered:\na\n\nThe user is typing:\nand then") {
+	if p := prompt([]Message{{"user", "q"}, {"assistant", "a"}}, "and then"); !strings.Contains(p, "answered:\na\n\nThe user is typing:\nand then") {
 		t.Errorf("both: prompt = %q", p)
 	}
 	if got := utf8.RuneCountInString(clip(long, textCap)); got != textCap {
@@ -51,37 +29,19 @@ func TestPrompt(t *testing.T) {
 	}
 }
 
-// history is a thread "t" whose messages are msgs.
-type history []opensearch.Message
-
-func (h history) Thread(_ context.Context, id string) (*opensearch.Thread, error) {
-	if id != "t" {
-		return nil, opensearch.ErrNotFound
-	}
-	return &opensearch.Thread{ID: id}, nil
-}
-
-func (h history) Messages(context.Context, string, int64, int) ([]opensearch.Message, error) {
-	return h, nil
-}
-
 // TestSuggestRefuses: the requests refused before any model is asked.
 func TestSuggestRefuses(t *testing.T) {
-	unanswered := history{{Role: "user", Text: "q"}}
 	for _, tc := range []struct {
 		name string
-		h    history
 		r    Request
-		want error
 	}{
-		{"nothing", nil, Request{}, ErrEmpty},
-		{"blank text", nil, Request{Text: "  "}, ErrEmpty},
-		{"unknown thread", nil, Request{ThreadID: "x"}, opensearch.ErrNotFound},
-		{"unanswered thread, no text", unanswered, Request{ThreadID: "t"}, ErrNoAnswer},
+		{"nothing", Request{}},
+		{"blank text", Request{Text: "  "}},
+		{"blank messages", Request{Messages: []Message{{"assistant", " "}}}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			if _, err := New(nil, tc.h, "m").Suggest(context.Background(), tc.r); !errors.Is(err, tc.want) {
-				t.Errorf("err %v, want %v", err, tc.want)
+			if _, err := New(nil, "m").Suggest(context.Background(), tc.r); !errors.Is(err, ErrEmpty) {
+				t.Errorf("err %v, want ErrEmpty", err)
 			}
 		})
 	}

@@ -117,7 +117,7 @@ func New(ctx context.Context) (_ *App, err error) {
 	if s := cfg.Models.Suggestions; s != nil {
 		suggestModel = s.Model
 	}
-	app.Suggest = suggest.New(app.Registry, app.Store, suggestModel)
+	app.Suggest = suggest.New(app.Registry, suggestModel)
 	recorder := sources.New(app.Store)
 	bucket, err := s3.New(ctx, cfg.S3) // artifact bodies, skill files and uploaded files
 	if err != nil {
