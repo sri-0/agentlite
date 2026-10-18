@@ -3,7 +3,11 @@
 // three are merged. It imports nothing from agentlite.
 package modelcatalog
 
-import "dario.cat/mergo"
+import (
+	"slices"
+
+	"dario.cat/mergo"
+)
 
 // Model is one model as GET /v1/models serves it. In models.yaml and in a
 // model card, ID is the upstream id (the provider's own name for it); served,
@@ -61,6 +65,10 @@ const (
 	CapReasoning   = "reasoning"
 	CapVision      = "vision"
 )
+
+// HasVision reports whether the model takes images: it lists vision (as
+// discovery does when its input modalities name image).
+func (m *Model) HasVision() bool { return slices.Contains(m.Capabilities, CapVision) }
 
 // Architecture mirrors the OpenRouter model metadata shape.
 type Architecture struct {

@@ -57,74 +57,76 @@ Deleting a workspace moves its files out of it, as it does its threads.
 
 `status` is `ready` once the file is embedded and searchable, `stored` when it is kept
 and referenceable but not searchable: a PDF, or every file when `models.yaml` has no
-`files` block.
+`embedding` block.
 
 ## Embedding and search
 
-`models.yaml`'s `files` block names the embedding model, its vector size and its
-server's request format:
+Files are embedded with `models.yaml`'s `embedding` block, the one model long-term memory
+uses too (MODELS.md, Embeddings), through the OpenAI embeddings API with openai-go's
+typed client (`internal/providers/embed.go`): no request format per provider.
 
-```yaml
-files:
-  embedding_model: deepinfra/google/embeddinggemma-2
-  dimensions: 768        # file_chunks.json is sized for it
-  format: deepinfra      # or vllm
-```
+- **Text** goes as the API has it, `input: [texts]`, 64 a request, each after the
+  block's `document_prefix` (a query after its `query_prefix`; both empty unless the
+  model was trained with them, like EmbeddingGemma 2).
+- **An image, audio or video** has no place in that API, so `input` holds one chat
+  message with the file as a content part, the way chat requests carry media; the rest
+  of the request is the same typed call. vLLM (main since 2026-06) and OpenRouter's
+  Gemini Embedding 2 both take that and embed it into one vector. An image is OpenAI's
+  `image_url` (a data URL), audio OpenAI's `input_audio` (`{data, format: wav | mp3}`),
+  video vLLM's `video_url` (OpenAI has none).
 
-The model is **EmbeddingGemma 2** (open weights, Apache-2.0): text, images, audio and
-video in one vector space. In development DeepInfra serves it (the `deepinfra` provider,
-skipped without `DEEPINFRA_BASE_URL`, like OpenRouter); offline, vLLM serves the same
-weights (`vllm serve google/embeddinggemma-2 --runner pooling --dtype bfloat16`, a vLLM
-from after 2026-10-06), so vectors from either match. The two formats
-(`internal/files/embed.go`):
-
-- `deepinfra`: `POST /embeddings {model, task: "document" | "search_query", dimensions,
-  encoding_format: "float", input: [...]}`, 32 inputs a request; an input is a text or a
-  list with one content part: `image_url` and `video_url` with a data URL, `input_audio`
-  with `{data, format: wav | mp3}`. DeepInfra adds EmbeddingGemma's task prompts.
-- `vllm`: one request per input, `{model, messages: [{role: "user", content: [part]}],
-  add_special_tokens: true, encoding_format: "float"}`, the same parts; a text gets the
-  task prompt written in (`task: search result | query: …`, `title: none | text: …`).
-  `dimensions` is not sent (vLLM caps it at 512 for this model); vectors are cut to
-  `dimensions` here, which Matryoshka training allows.
+In development the block names OpenRouter's **Gemini Embedding 2** (768 dimensions): it
+embeds text and images; it refuses `input_audio` without a data URL and wants
+`input_video` for video, so there audio and video uploads are refused (`502`).
+Offline, **EmbeddingGemma 2** on vLLM (open weights, Apache-2.0; a vLLM from after
+2026-10-06, `--runner pooling --dtype bfloat16`) takes all four. Vectors of different
+models don't mix: switching model means re-embedding (Gaps).
 
 An upload is embedded before anything is kept, and answers when it is done: a text in
-chunks of about 2,000 characters (cut at a space, each starting with a whole word up to
-200 characters before the last one ended), an image, audio or video whole. A model
-refusal (say, audio longer than the model's window) is `502` with the model's message,
-and nothing is kept; a failed upload's body and chunks are removed even if the client
-has gone. A text is searchable up to 2 MiB; a bigger one is
-`400`. The chunks go to the `file_chunks` index (`deploy/opensearch/file_chunks.json`:
-`{id: <file id>:<seq>, file_id, name, media_type, workspace_id?, seq, text?, embedding}`,
-a 768-dimension kNN vector, cosine, HNSW on Lucene), repeating the file's name, type and
+chunks of about `chunk_chars` characters overlapping by `chunk_overlap` (langchaingo's
+`textsplitter.RecursiveCharacter`, which splits at paragraphs, then lines, then words),
+an image, audio or video whole. A model refusal is `502` with the model's message, and
+nothing is kept; a failed upload's body and chunks are removed even if the client has
+gone. A text is searchable up to `searchable_text_mb`; a bigger one is `400`.
+
+The chunks go to the `embeddings` index (`deploy/opensearch/embeddings.json`), which
+holds long-term memory too, told apart by `kind`: a file chunk is `{id: <file id>:<seq>,
+kind: "file", file_id, name, media_type, workspace_id?, seq, text?, embedding}`, a
+768-dimension kNN vector (cosine, HNSW on Lucene), repeating the file's name, type and
 workspace so a search needs no second lookup. Deleting a file deletes its chunks;
 deleting a workspace moves them out with the file.
 
-`search_userfiles {query, files?}` is a harness tool (`Store.Search` behind it), offered when the block is there. It
-embeds the query (task `search_query`) and returns the 8 nearest chunks (HNSW looks at
-100 candidates: asked for 8, it missed the one differing passage of a long report),
-`{hits: [{fileId, name, mediaType, seq, text?}]}`, of the files of the conversation's
-workspace (the unfiled ones for a conversation in none), and of those only the files it
-names, if it names any: a file of another workspace is never searched.
+`search_userfiles {query, files?, all?}` (`internal/tools/builtin/search_userfiles.go`,
+`Store.Search` behind it) is offered when files are searchable. It embeds the query and
+returns the `search_hits` nearest chunks (HNSW looks at 100 candidates: asked for 8, it
+missed the one differing passage of a long report), `{hits: [{fileId, name, mediaType,
+seq, text?}]}`:
+- of the files it names, from any workspace (a `#id` the user picked);
+- else, by default, of the conversation's workspace's files (the unfiled ones for a
+  conversation in none);
+- else, with `all`, of every workspace's: the agent can look more broadly when its own
+  workspace has nothing.
 
-**Image, audio and video hits** come back by name and id, with a note: the model can't
-see or hear them in a tool result (adk-go drops media there), and can tell the user to
-reference an image with `#id`, which sends it. Attaching the hits to the next model
-request (ADK's `load_artifacts` pattern) would need a request hook in `pkg/toolx`; not
-built.
+**Image and PDF hits are shown to the model** when its card lists `vision`
+(`modelcatalog.Model.HasVision`): adk leaves media out of tool results, so a
+before-model callback (`builtin.ShowFound`) adds them, up to `search_media` files each
+within `inline_media_mb`, as a user message after the result, on the call that reads
+it; the next call no longer ends with the result, so they are sent once. A model
+without vision gets a note to name them to the user. Audio and video hits are named
+only: adk-go refuses audio and video parts.
 
 **PDFs** are kept and sent to the model natively with `#id`, but not embedded: no open
 embedding model takes a PDF and nothing here converts files. A pipeline that extracts a
 PDF's text plugs into one place: `Store.index` in `internal/files/index.go`, the switch
 that decides what of a file is embedded. A separate system can instead write a PDF's
-chunks to `file_chunks` itself (the fields above, the same model and size) and set the
-record's `status` to `ready`.
+chunks to the `embeddings` index itself (`kind: "file"` and the fields above, the same
+model and size) and set the record's `status` to `ready`.
 
 ## API
 
 | Method | Path | |
 |---|---|---|
-| POST | `/v1/rag/files` | multipart: `file`, optionally `workspaceId`, and `tags` repeated (trimmed; blanks and repeats dropped, sorted; at most `max_tags` of at most `max_tag_chars`). `201` with the record, once embedded; `400` for an empty file, an unknown workspace, bad tags or a text over 2 MiB to embed, `413` over `max_upload_mb`, `415` for a kind not accepted, `502` when the embedding model refuses it |
+| POST | `/v1/rag/files` | multipart: `file`, optionally `workspaceId`, and `tags` repeated (trimmed; blanks and repeats dropped, sorted; at most `max_tags` of at most `max_tag_chars`). `201` with the record, once embedded; `400` for an empty file, an unknown workspace, bad tags or a text over `searchable_text_mb` to embed, `413` over `max_upload_mb`, `415` for a kind not accepted, `502` when the embedding model refuses it |
 | GET | `/v1/rag/files` | `{object: "list", data: [record]}`, newest first (capped at 1,000); `?workspace=<id>` one workspace's, `?workspace=none` the unfiled ones |
 | GET | `/v1/rag/files/{id}` | the record |
 | GET | `/v1/rag/files/{id}/content` | the file, as its media type, sandboxed (`Content-Security-Policy: sandbox`, `nosniff`), `Content-Disposition: attachment` with its name, so it is always downloaded, never opened as a page (an `<img>` ignores it, so thumbnails show); byte ranges |
@@ -148,8 +150,8 @@ session rebuilt from OpenSearch (`agents/seed.go`) has the text only.
   first, so a file saved while the workspace goes can keep its id. Clients treat an
   unknown workspace as none, as they do for threads.
 - **Access control.** Files are not scoped to a user, and `#` reaches any workspace's
-  file. When workspaces are shared, the `userfiles` and `file_chunks` indices need the
+  file. When workspaces are shared, the `userfiles` and `embeddings` indices need the
   document-level security the threads index gets (by `workspace_id`), and `#` and the
   list must only offer what the user may read.
-- **Changing the embedding model** means re-embedding every file; there is no reindex.
-  Vectors of two models (or sizes) must not share the index.
+- **Changing the embedding model** means re-embedding every file and memory; there is
+  no reindex. Vectors of two models (or sizes) must not share the index.

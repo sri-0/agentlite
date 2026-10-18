@@ -29,9 +29,9 @@ Echo server (internal/server, internal/handler, internal/ws)
    │    rewritten to the provider's own id (MODELS.md)
    │
    ├─ Valkey: event logs, runs, queues, leases, adk sessions, interrupt records
-   ├─ OpenSearch: threads, messages (the stored AG-UI events), memories, sources, artifacts,
+   ├─ OpenSearch: threads, messages (the stored AG-UI events), sources, artifacts,
    │    counters (each conversation's last source number and artifact versions), skills,
-   │    workspaces, files, file_chunks
+   │    workspaces, userfiles, embeddings (memory and the files' chunks)
    └─ S3 (MinIO locally): artifact bodies, skill files, uploaded files
 ```
 
@@ -46,8 +46,8 @@ implements it, so imports run one way.
 | `internal/agents` | `runtime.go` (Runtime, running a segment), `build.go` (roster → adk agents and tools), `connectors.go` (a client and toolset per connector), `mcptools.go` (the MCP tool hooks), `compaction.go`, `seed.go` (rebuild a session), `resume.go` (answers → adk responses) |
 | `internal/sources`, `internal/artifacts` | numbering and storing sources; storing artifacts (TOOLS.md) |
 | `internal/images` | `images.go` (making an image, keeping it as an artifact); its tool is `internal/tools/builtin/generate_image.go` (TOOLS.md) |
-| `internal/files` | `files.go` (keeping a file, what is accepted), `resolve.go` (`#id`), `handler.go` (the routes), `index.go` (what is embedded, chunks), `embed.go` (the multimodal embedder), `search.go` (the search behind `search_userfiles`, whose tool is `internal/tools/builtin/search_userfiles.go`) (FILES.md) |
-| `internal/providers` | provider clients, model resolution, discovery, the pass-through, embeddings (MODELS.md) |
+| `internal/files` | `files.go` (keeping a file, what is accepted), `resolve.go` (`#id`), `handler.go` (the routes), `index.go` (what is embedded, chunks), `search.go` (the search behind `search_userfiles`, whose tool is `internal/tools/builtin/search_userfiles.go`) (FILES.md) |
+| `internal/providers` | provider clients, model resolution, discovery, the pass-through, `embed.go` (the one embedder, memory's and the files', MODELS.md) |
 | `internal/voice` | the voice prompt: `voice.go` (a recording to text, `POST /v1/voice/transcriptions`); apart from the agents (MODELS.md) |
 | `pkg/toolx`, `pkg/citations`, `pkg/transport`, `pkg/s3`, `pkg/modelcatalog` | the tool wrapper; the source contract; HTTP clients; S3 through minio-go; models and model cards |
 
@@ -208,11 +208,12 @@ Valkey is split into logical databases, set by environment:
 | `REDIS_DB_SESSIONS` | 2 | adk sessions: agent state and history | `session:{app}:{user}:{id}` (metadata), `…:events`, `…:state` (30 days), `state:{app}` and `state:{app}:{user}` (adk's `app:` and `user:` state), `sessions:{app}` (index for adk's launcher); adk's own `sessiontestsuite` runs against it |
 | `REDIS_DB_HITL` | 3 | interrupts | `hitl:{interruptId}` (record and decision, 7 days), `hitl:thread:{id}:pending` (open), `hitl:thread:{id}:decided` (answered, waiting for the rest) |
 
-OpenSearch indices: `threads`, `messages` (events stored unindexed), `memories`
-(kNN vectors), `sources`, `artifacts`, `counters` (each conversation's source
-numbers and artifact versions), `skills` (the skills library, one record per skill;
-its files are in S3; SKILLS.md), `workspaces`, `userfiles` (the records of files
-users upload for RAG; FILES.md), `file_chunks` (their embedded chunks, kNN vectors).
+OpenSearch indices: `threads`, `messages` (events stored unindexed), `sources`,
+`artifacts`, `counters` (each conversation's source numbers and artifact versions),
+`skills` (the skills library, one record per skill; its files are in S3; SKILLS.md),
+`workspaces`, `userfiles` (the records of files users upload for RAG; FILES.md),
+`embeddings` (kNN vectors of one model: long-term memory entries and the files'
+chunks, told apart by `kind`; MEMORY.md, FILES.md).
 Every name starts with `OPENSEARCH_INDEX_PREFIX` (default `user_ai_`:
 `user_ai_threads`, `user_ai_userfiles`, …), added in one place
 (`opensearch.Client.ix`), so deployments can share a cluster; `make indices` uses the

@@ -78,7 +78,7 @@ func ModelOf(m modelcatalog.Model) Model {
 	out := Model{
 		Name:       m.Name,
 		Reasoning:  slices.Contains(m.Capabilities, modelcatalog.CapReasoning),
-		Attachment: slices.Contains(m.Capabilities, modelcatalog.CapVision),
+		Attachment: m.HasVision(),
 	}
 	if len(m.Capabilities) > 0 { // known: a model without tool calls says so
 		tools := slices.Contains(m.Capabilities, modelcatalog.CapToolCalling)
