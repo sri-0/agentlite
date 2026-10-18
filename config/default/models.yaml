@@ -34,12 +34,12 @@ providers:
         name: GPT-4.1 Mini
         owned_by: openai
         context_length: 1047576
-        capabilities: [tool_calling, vision]
+        capabilities: [tool_calling, vision, files]
       - id: openai/gpt-5-mini
         name: GPT-5 Mini
         owned_by: openai
         context_length: 400000
-        capabilities: [tool_calling, reasoning]
+        capabilities: [tool_calling, reasoning, vision, files]
         supported_parameters: [reasoning_effort]
       - id: openai/text-embedding-3-small   # for clients of the /v1/embeddings pass-through
         name: Text Embedding 3 Small
@@ -85,8 +85,8 @@ default_model: openrouter/openai/gpt-4.1-mini
 # Omit the block to disable.
 compaction: { token_threshold: 0.85, keep_events: 20 }
 
-# The embedding model, for long-term memory and the files' search: both are in
-# the embeddings index, sized for its vectors (deploy/opensearch/embeddings.json,
+# The embedding model, for long-term memory and the files' search: the memories
+# and userfile_chunks indexes are sized for its vectors (deploy/opensearch,
 # 768). It is called through the OpenAI embeddings API; an image, audio or
 # video goes as one chat message in its input (docs/MODELS.md). `dimensions`
 # is sent as the request's dimensions (0 or left out: not sent, for a model

@@ -159,7 +159,8 @@ checked out locally and named by `MODEL_CARDS_DIR`. Empty, there are no cards.
 A card's path mirrors the model's OpenRouter id (`anthropic/claude-sonnet-4.5.md`),
 so one card serves every provider of that model; `aliases` lists the names other
 providers use. The frontmatter holds the model's fields (name, description,
-context length, max output tokens, capabilities, architecture, pricing in US
+context length, max output tokens, capabilities (`tool_calling`, `reasoning`, `vision`
+for images and `files` for PDFs as input, two separate things), architecture, pricing in US
 dollars per million tokens, benchmarks, licence, release date, knowledge cutoff,
 sources), and the body is notes on what the model is good at and its limits. The
 cards are reread every refresh (10 minutes), so a pulled card needs no restart; a
@@ -214,8 +215,8 @@ openai-go's typed client and nothing per provider:
   no part for, vLLM's `video_url`.
 
 The prefixes are for a model trained with them (EmbeddingGemma 2: `task: search result |
-query: ` and `title: none | text: `); empty, nothing is added. Both memory and files
-live in the `embeddings` index (768 dimensions), so the model's vectors must be that
+query: ` and `title: none | text: `); empty, nothing is added. The memory and file
+chunk indexes are both sized for 768 dimensions, so the model's vectors must be that
 size, and changing the model means re-embedding both.
 
 ## Voice
@@ -246,7 +247,7 @@ local servers, and declare the non-LLM models under the provider's `models:` wit
 | Feature | `models.yaml` | Local server |
 |---|---|---|
 | Agents and chat | `default_model: vllm/<llm>` | vLLM, chat completions (or `/v1/responses` through LiteLLM) |
-| Embeddings: long-term memory and file search | `embedding: {model: vllm/google/embeddinggemma-2, dimensions: 0, query_prefix: "task: search result \| query: ", document_prefix: "title: none \| text: "}` (`type: embedding`) | vLLM with EmbeddingGemma 2 support (main since 2026-10-06, so a nightly until the next release): `--runner pooling --dtype bfloat16`; text, images, audio and video. Its vectors are 768, the `embeddings` index's size. Avoid sm_86 and sm_120 GPUs until vllm#60847 is fixed |
+| Embeddings: long-term memory and file search | `embedding: {model: vllm/google/embeddinggemma-2, dimensions: 0, query_prefix: "task: search result \| query: ", document_prefix: "title: none \| text: "}` (`type: embedding`) | vLLM with EmbeddingGemma 2 support (main since 2026-10-06, so a nightly until the next release): `--runner pooling --dtype bfloat16`; text, images, audio and video. Its vectors are 768, the size of the `memories` and `userfile_chunks` indexes. Avoid sm_86 and sm_120 GPUs until vllm#60847 is fixed |
 | Voice prompt | `voice.model: vllm/mistralai/Voxtral-Small-24B-2507` (`type: transcription`) | vLLM serves Voxtral on `/v1/audio/transcriptions` |
 | Image generation | `images.model: vllm/<image model>` (`type: image`) | vLLM-Omni, `/v1/images/generations`. Edits send the original as OpenRouter's `input_references`, which vLLM-Omni doesn't read (TOOLS.md) |
 | Model descriptions | `MODEL_CARDS_DIR`: a checkout of the model-cards repository | none |

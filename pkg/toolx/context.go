@@ -7,6 +7,7 @@ import (
 	"google.golang.org/adk/v2/agent"
 
 	"agentlite/pkg/citations"
+	"agentlite/pkg/modelcatalog"
 )
 
 // Context is what a tool's function receives: adk's tool context (the call
@@ -24,9 +25,10 @@ type Context struct {
 // Run is what the harness knows about the run a tool call belongs to.
 type Run struct {
 	Thread     Thread
-	Model      string    // the model the run uses; a sub-agent runs on it too
-	Connectors *[]string // the connectors switched on; nil means all
-	ImageModel string    // the image model the user picked for generate_image; "" is the default
+	Model      string              // the model the run uses; a sub-agent runs on it too
+	Card       *modelcatalog.Model // that model's card: what it takes as input, among the rest
+	Connectors *[]string           // the connectors switched on; nil means all
+	ImageModel string              // the image model the user picked for generate_image; "" is the default
 	// Authorization is the user's Authorization header, when the request
 	// that started the run carried one.
 	Authorization string

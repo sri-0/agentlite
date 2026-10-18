@@ -33,7 +33,7 @@ type Service struct {
 	log      zerolog.Logger
 }
 
-// New returns the memory; its entries are in the embeddings index, created
+// New returns the memory; its entries are in the memories index, created
 // with the others (deploy/opensearch) and sized for the embedding model.
 func New(store *opensearch.Client, embedder Embedder, log zerolog.Logger) *Service {
 	return &Service{store: store, embedder: embedder, log: log}

@@ -8,18 +8,6 @@
       "id": {
         "type": "keyword"
       },
-      "kind": {
-        "type": "keyword"
-      },
-      "thread_id": {
-        "type": "keyword"
-      },
-      "author": {
-        "type": "keyword"
-      },
-      "created_at": {
-        "type": "date"
-      },
       "file_id": {
         "type": "keyword"
       },
@@ -36,7 +24,8 @@
         "type": "integer"
       },
       "text": {
-        "type": "text"
+        "type": "text",
+        "index": false
       },
       "embedding": {
         "type": "knn_vector",
