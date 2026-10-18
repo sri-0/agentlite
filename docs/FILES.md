@@ -52,7 +52,7 @@ Deleting a workspace moves its files out of it, as it does its threads.
 | POST | `/v1/files` | multipart: `file`, and optionally `workspaceId`. `201` with the record; `400` for an empty file or an unknown workspace, `413` over 25 MiB, `415` for a kind not accepted |
 | GET | `/v1/files` | `{object: "list", data: [record]}`, newest first (capped at 1,000); `?workspace=<id>` one workspace's, `?workspace=none` the unfiled ones |
 | GET | `/v1/files/{id}` | the record |
-| GET | `/v1/files/{id}/content` | the file, as its media type, sandboxed (`Content-Security-Policy: sandbox`, `nosniff`), `Content-Disposition: inline` with its name; byte ranges, so audio and video seek |
+| GET | `/v1/files/{id}/content` | the file, as its media type, sandboxed (`Content-Security-Policy: sandbox`, `nosniff`), `Content-Disposition: attachment` with its name, so it is always downloaded, never opened as a page (an `<img>` ignores it, so thumbnails show); byte ranges |
 | DELETE | `/v1/files/{id}` | its body, then its record; `204` |
 
 ## References: `#id`
