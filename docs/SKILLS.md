@@ -122,9 +122,9 @@ call does not give.
 ## References: `/name`
 
 A word of a message that is a sigil and a name is a reference (`internal/refs`).
-`/name`, where `name` is a skill, is the only kind so far; the same seam is meant for
-`/compact`, `@agent` and `#id`: each sigil has a `refs.Resolver`, and the library is
-the one for `/` (`Library.Resolve`). For each reference, once each and at most ten words
+`/name`, where `name` is a skill, and `#id`, where `id` is an uploaded file (FILES.md),
+are the kinds so far; the same seam is meant for `/compact` and `@agent`: each sigil
+has a `refs.Resolver`, and the library is the one for `/` (`Library.Resolve`). For each reference, once each and at most ten words
 looked up per message, the turn's content gets what it resolves to ahead of the
 message, and the turn starts with an activity that shows it:
 

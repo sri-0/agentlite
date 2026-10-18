@@ -37,7 +37,8 @@ func run() error {
 
 	h := &handler.Handler{
 		Config: app.Config, Registry: app.Registry, Runs: app.Runs, Runtime: app.Agents,
-		Store: app.Store, Artifacts: app.Artifacts, Skills: app.Skills, Voice: app.Voice, Images: app.Images, Log: app.Log,
+		Store: app.Store, Artifacts: app.Artifacts, Skills: app.Skills, Files: app.Files, Voice: app.Voice, Images: app.Images,
+		Log: app.Log,
 	}
 	e := server.New(app.Config, h)
 	app.Log.Info().Int("port", app.Config.Port).Int("agents", len(app.Config.Agents)).Msg("listening")

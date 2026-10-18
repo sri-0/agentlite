@@ -14,6 +14,7 @@ in depth.
 | [AG-UI-RENDERING.md](AG-UI-RENDERING.md) | Every AG-UI event the backend emits, which code emits it, and what the UI's reducer and components make of it. |
 | [OPENCODE.md](OPENCODE.md) | Pointing opencode at agentlite: `/.well-known/opencode` (models, exposed MCP servers, skills) and the MCP proxy. |
 | [SKILLS.md](SKILLS.md) | The skills library: storage, uploads, adk's skill toolset and `write_skill`, `/name`, installing with `npx skills`, MCP servers' skills. |
+| [FILES.md](FILES.md) | Uploaded files: what is accepted, storage, the API, `#id` references, the gaps. |
 | [MEMORY.md](MEMORY.md) | Long-term memory: what is stored, how it is searched, how to switch preload on, how to swap the implementation. |
 
 Historical, kept for the reasoning behind decisions; they no longer describe the

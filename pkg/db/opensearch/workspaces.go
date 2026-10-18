@@ -38,21 +38,21 @@ func (c *Client) Workspaces(ctx context.Context) ([]Workspace, error) {
 	})
 }
 
-// DeleteWorkspace removes a workspace. Its threads stay, outside any
-// workspace; they are moved out first, so a failure can be retried. A thread
-// being written at that moment can keep the id (writes replace the whole
-// document); clients treat an unknown workspace as none.
+// DeleteWorkspace removes a workspace. Its threads and files stay, outside
+// any workspace; they are moved out first, so a failure can be retried. A
+// thread being written at that moment can keep the id (writes replace the
+// whole document); clients treat an unknown workspace as none.
 func (c *Client) DeleteWorkspace(ctx context.Context, id string) error {
 	q, _ := json.Marshal(map[string]any{
 		"query":  map[string]any{"term": map[string]any{"workspace_id": id}},
 		"script": map[string]any{"lang": "painless", "source": "ctx._source.remove('workspace_id')"},
 	})
 	_, err := c.api.UpdateByQuery(ctx, &opensearchapi.UpdateByQueryReq{
-		Indices: []string{indexThreads}, BodyReader: bytes.NewReader(q),
+		Indices: []string{indexThreads, indexFiles}, BodyReader: bytes.NewReader(q),
 		Params: &opensearchapi.UpdateByQueryParams{Refresh: "true", Conflicts: opensearchapi.ConflictsProceed},
 	})
 	if err != nil {
-		return fmt.Errorf("move threads out of workspace %s: %w", id, err)
+		return fmt.Errorf("move threads and files out of workspace %s: %w", id, err)
 	}
 	return c.delete(ctx, indexWorkspaces, id)
 }

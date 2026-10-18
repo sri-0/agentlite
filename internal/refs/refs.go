@@ -1,8 +1,8 @@
 // Package refs reads the references a user's message makes: a word that is a
-// sigil and a name, such as /name for a command (a skill, so far), and in
-// time @agent for an agent and #id for a file. Each sigil has a Resolver. A
-// reference that resolves gives the model content ahead of the message,
-// which stays as typed, and the thread an activity that shows it.
+// sigil and a name, such as /name for a command (a skill, so far), #id for a
+// file (internal/files), and in time @agent for an agent. Each sigil has a
+// Resolver. A reference that resolves gives the model content ahead of the
+// message, which stays as typed, and the thread an activity that shows it.
 package refs
 
 import (
@@ -20,10 +20,11 @@ const maxRefs = 10
 
 // Ref is what a reference resolves to.
 type Ref struct {
-	Kind     string // the activity type that shows it, e.g. stream.ActivitySkill
-	ID       string // what it refers to, unique within its kind
-	Content  string // what the model gets ahead of the message
-	Activity any    // the activity's content
+	Kind     string      // the activity type that shows it, e.g. stream.ActivitySkill
+	ID       string      // what it refers to, unique within its kind
+	Content  string      // what the model gets ahead of the message
+	Part     *genai.Part // and, when set, after Content: a file the model reads natively
+	Activity any         // the activity's content
 }
 
 // A Resolver resolves the references of one sigil: ok is false when name
@@ -58,6 +59,9 @@ func (rs Resolvers) Expand(ctx context.Context, turnID, text string) (*genai.Con
 		}
 		if ok {
 			parts = append(parts, genai.NewPartFromText(ref.Content))
+			if ref.Part != nil {
+				parts = append(parts, ref.Part)
+			}
 			events = append(events, stream.Activity(ref.Kind+":"+turnID+":"+ref.ID, ref.Kind, ref.Activity))
 		}
 	}

@@ -79,7 +79,8 @@ type Deps struct {
 	Sources   *sources.Recorder
 	Skills    *skills.Library
 	Artifacts *artifacts.Store
-	Tools     []toolx.Tool // harness tools of other packages, such as generate_image
+	Tools     []toolx.Tool   // harness tools of other packages, such as generate_image
+	Refs      refs.Resolvers // other packages' reference sigils, such as #id for a file
 	Log       zerolog.Logger
 }
 
@@ -93,6 +94,7 @@ func New(cfg *config.Config, d Deps) *Runtime {
 		connectors: cfg.Connectors, transport: cfg.Transport,
 		mcpTools: newMCPTools(cfg.Connectors),
 	}
+	maps.Copy(rt.refs, d.Refs)
 	if m := cfg.Models.Memory; m != nil {
 		rt.preload = m.Preload
 	}

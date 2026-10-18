@@ -15,6 +15,7 @@ import (
 	"github.com/labstack/echo/v5/middleware"
 
 	"agentlite/config"
+	"agentlite/internal/files"
 	"agentlite/internal/handler"
 	"agentlite/internal/handler/wellknown"
 	"agentlite/internal/runs"
@@ -76,6 +77,14 @@ func New(cfg *config.Config, h *handler.Handler) *echo.Echo {
 	skill.DELETE("", h.DeleteSkill)
 	skill.GET("/files/*", h.SkillFile, sandboxed)
 	skill.PUT("/files/*", h.WriteSkillFile, middleware.BodyLimit(skills.MaxBytes))
+
+	// Files users uploaded, which a message names with #id (internal/files).
+	e.GET("/v1/files", h.Files.ListFiles)
+	e.POST("/v1/files", h.Files.PostFile, middleware.BodyLimit(files.MaxBytes+1<<20)) // the file, and the form around it
+	file := e.Group("/v1/files/:id", uuidID)
+	file.GET("", h.Files.GetFile)
+	file.GET("/content", h.Files.FileContent, sandboxed)
+	file.DELETE("", h.Files.DeleteFile)
 
 	// What opencode and npx skills set themselves up from (docs/OPENCODE.md).
 	wk := &wellknown.Handler{Config: cfg, Registry: h.Registry, Skills: h.Skills}
