@@ -11,7 +11,8 @@ import (
 )
 
 // PostFile is POST /v1/files: a multipart form with the file and, to file it
-// under a workspace, its workspaceId. The reply is the file's record.
+// under a workspace, its workspaceId; tags, repeated, tag it. The reply is the
+// file's record.
 func (s *Store) PostFile(c *echo.Context) error {
 	upload, header, err := c.Request().FormFile("file")
 	switch {
@@ -28,7 +29,8 @@ func (s *Store) PostFile(c *echo.Context) error {
 	if err != nil {
 		return err
 	}
-	f, err := s.Add(c.Request().Context(), header.Filename, c.FormValue("workspaceId"), body)
+	form := c.Request().MultipartForm // parsed by FormFile
+	f, err := s.Add(c.Request().Context(), header.Filename, c.FormValue("workspaceId"), form.Value["tags"], body)
 	switch {
 	case errors.Is(err, ErrInvalid):
 		return echo.NewHTTPError(http.StatusBadRequest, err.Error())

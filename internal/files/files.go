@@ -29,6 +29,12 @@ const MaxBytes = 25 << 20
 // maxName bounds a file's name, which the UI shows whole.
 const maxName = 200
 
+// A file has at most maxTags tags, each at most maxTag runes.
+const (
+	maxTags = 10
+	maxTag  = 40
+)
+
 // Errors for a file that cannot be kept: a request no upload can satisfy
 // (an empty file, a text too big to search; an unknown workspace is
 // opensearch.ErrUnknownWorkspace), a kind of file that is not accepted, and
@@ -62,9 +68,13 @@ func New(records *opensearch.Client, bodies *s3.Client, embedder *Embedder) *Sto
 
 // Add keeps a file under a workspace ("" files it under none), embedded for
 // search first: a file the model refuses is not kept.
-func (s *Store) Add(ctx context.Context, name, workspaceID string, body []byte) (*opensearch.File, error) {
+func (s *Store) Add(ctx context.Context, name, workspaceID string, tags []string, body []byte) (*opensearch.File, error) {
 	if len(body) == 0 {
 		return nil, fmt.Errorf("%w: the file is empty", ErrInvalid)
+	}
+	tags, err := cleanTags(tags)
+	if err != nil {
+		return nil, err
 	}
 	if err := s.records.CheckWorkspace(ctx, workspaceID); err != nil {
 		return nil, err
@@ -75,7 +85,7 @@ func (s *Store) Add(ctx context.Context, name, workspaceID string, body []byte) 
 	}
 	f := &opensearch.File{
 		ID: uuid.Must(uuid.NewV7()).String(), Name: cleanName(name), MediaType: mediaType, Size: len(body),
-		WorkspaceID: workspaceID, Status: opensearch.FileStored, CreatedAt: time.Now(),
+		WorkspaceID: workspaceID, Tags: tags, Status: opensearch.FileStored, CreatedAt: time.Now(),
 	}
 	chunks, err := s.index(ctx, f, body)
 	if err != nil {
@@ -181,6 +191,29 @@ func kind(mediaType string) string {
 func base(mediaType string) string {
 	t, _, _ := strings.Cut(mediaType, ";")
 	return t
+}
+
+// cleanTags are a file's tags: trimmed, without blanks or repeats (ignoring
+// case, keeping the first spelling); more than maxTags, or one longer than
+// maxTag runes, is invalid.
+func cleanTags(tags []string) ([]string, error) {
+	var out []string
+	seen := map[string]bool{}
+	for _, t := range tags {
+		t = strings.TrimSpace(t)
+		if t == "" || seen[strings.ToLower(t)] {
+			continue
+		}
+		if utf8.RuneCountInString(t) > maxTag {
+			return nil, fmt.Errorf("%w: a tag is at most %d characters", ErrInvalid, maxTag)
+		}
+		seen[strings.ToLower(t)] = true
+		out = append(out, t)
+	}
+	if len(out) > maxTags {
+		return nil, fmt.Errorf("%w: a file has at most %d tags", ErrInvalid, maxTags)
+	}
+	return out, nil
 }
 
 // cleanName is the name a file is listed under: the upload's own name

@@ -46,7 +46,7 @@ Deleting a workspace moves its files out of it, as it does its threads.
 ## Storage
 
 - the record in the OpenSearch index `files` (`deploy/opensearch/files.json`):
-  `{id, name, media_type, size, workspace_id?, status, created_at}`; the id is a UUIDv7;
+  `{id, name, media_type, size, workspace_id?, tags?, status, created_at}`; the id is a UUIDv7;
 - the body in S3 at `files/{id}`, served as its media type.
 
 `status` is `ready` once the file is embedded and searchable, `stored` when it is kept
@@ -118,7 +118,7 @@ record's `status` to `ready`.
 
 | Method | Path | |
 |---|---|---|
-| POST | `/v1/files` | multipart: `file`, and optionally `workspaceId`. `201` with the record, once embedded; `400` for an empty file, an unknown workspace or a text over 2 MiB to embed, `413` over 25 MiB, `415` for a kind not accepted, `502` when the embedding model refuses it |
+| POST | `/v1/files` | multipart: `file`, optionally `workspaceId`, and `tags` repeated (trimmed; repeats in any case dropped; at most 10 of at most 40 characters). `201` with the record, once embedded; `400` for an empty file, an unknown workspace, bad tags or a text over 2 MiB to embed, `413` over 25 MiB, `415` for a kind not accepted, `502` when the embedding model refuses it |
 | GET | `/v1/files` | `{object: "list", data: [record]}`, newest first (capped at 1,000); `?workspace=<id>` one workspace's, `?workspace=none` the unfiled ones |
 | GET | `/v1/files/{id}` | the record |
 | GET | `/v1/files/{id}/content` | the file, as its media type, sandboxed (`Content-Security-Policy: sandbox`, `nosniff`), `Content-Disposition: attachment` with its name, so it is always downloaded, never opened as a page (an `<img>` ignores it, so thumbnails show); byte ranges |

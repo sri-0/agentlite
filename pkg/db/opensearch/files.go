@@ -29,6 +29,7 @@ type File struct {
 	MediaType   string    `json:"media_type"`
 	Size        int       `json:"size"`
 	WorkspaceID string    `json:"workspace_id,omitempty"`
+	Tags        []string  `json:"tags,omitempty"` // the uploader's, for finding it
 	Status      string    `json:"status"`
 	CreatedAt   time.Time `json:"created_at"`
 }

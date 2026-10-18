@@ -2,6 +2,7 @@ package files
 
 import (
 	"errors"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -56,6 +57,33 @@ func TestCleanName(t *testing.T) {
 		if got := cleanName(in); got != want {
 			t.Errorf("cleanName(%q) = %q, want %q", in, got, want)
 		}
+	}
+}
+
+// TestCleanTags: trimmed, blanks and repeats (any case) dropped, the first
+// spelling kept; too many or too long is invalid.
+func TestCleanTags(t *testing.T) {
+	got, err := cleanTags([]string{" Finance ", "", "finance", "Q3", "  "})
+	if err != nil || strings.Join(got, "|") != "Finance|Q3" {
+		t.Errorf("cleanTags = %q, %v; want [Finance Q3]", got, err)
+	}
+	if got, err := cleanTags(nil); err != nil || got != nil {
+		t.Errorf("cleanTags(nil) = %q, %v", got, err)
+	}
+	eleven := make([]string, maxTags+1)
+	for i := range eleven {
+		eleven[i] = fmt.Sprint("t", i)
+	}
+	for name, tags := range map[string][]string{
+		"too many": eleven,
+		"too long": {strings.Repeat("é", maxTag+1)},
+	} {
+		if _, err := cleanTags(tags); !errors.Is(err, ErrInvalid) {
+			t.Errorf("%s: err = %v, want ErrInvalid", name, err)
+		}
+	}
+	if _, err := cleanTags(eleven[:maxTags]); err != nil {
+		t.Errorf("%d tags: %v", maxTags, err)
 	}
 }
 
