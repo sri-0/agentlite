@@ -14,6 +14,7 @@ import (
 	"agentlite/internal/providers"
 	"agentlite/internal/runs"
 	"agentlite/internal/skills"
+	"agentlite/internal/voice"
 	"agentlite/pkg/db/opensearch"
 )
 
@@ -26,7 +27,8 @@ type Handler struct {
 	Store     *opensearch.Client
 	Artifacts *artifacts.Store
 	Skills    *skills.Library
-	Images    *images.Studio // nil when image generation is not configured
+	Voice     *voice.Transcriber // nil when the voice prompt is not configured
+	Images    *images.Studio     // nil when image generation is not configured
 	Log       zerolog.Logger
 }
 

@@ -22,6 +22,7 @@ import (
 	"agentlite/internal/runs"
 	"agentlite/internal/skills"
 	"agentlite/internal/sources"
+	"agentlite/internal/voice"
 	"agentlite/pkg/db/opensearch"
 	"agentlite/pkg/db/valkey"
 	"agentlite/pkg/logging"
@@ -39,8 +40,9 @@ type App struct {
 	Registry  *providers.Registry
 	Store     *opensearch.Client
 	Sessions  session.Service
-	Memory    *memory.Service // nil when memory is not configured
-	Images    *images.Studio  // nil when image generation is not configured
+	Memory    *memory.Service    // nil when memory is not configured
+	Voice     *voice.Transcriber // nil when the voice prompt is not configured
+	Images    *images.Studio     // nil when image generation is not configured
 	Artifacts *artifacts.Store
 	Skills    *skills.Library
 	Agents    *agents.Runtime
@@ -100,6 +102,9 @@ func New(ctx context.Context) (_ *App, err error) {
 		app.Memory = memory.New(app.Store, app.Registry.Embedder(m.EmbeddingModel), app.Log)
 		mem = app.Memory
 	}
+	if v := cfg.Models.Voice; v != nil {
+		app.Voice = voice.New(app.Registry, v.Model)
+	}
 	recorder := sources.New(app.Store)
 	files, err := s3.New(ctx, cfg.S3) // artifact bodies and skill files
 	if err != nil {
@@ -158,11 +163,11 @@ func (a *App) Close() {
 }
 
 // checkConfiguredModels checks the models models.yaml names: default_model
-// (a run that names none uses it), memory's embedding model and the default
-// image model. Each must be
-// in the model list after the start's first discovery (declared in
-// models.yaml, or listed by its provider), as the type it is used for, so a
-// mistake fails the start rather than every run or memory.
+// (a run that names none uses it), memory's embedding model, the voice
+// prompt's transcription model and the default image model. Each must be in
+// the model list after the start's first discovery (declared in models.yaml,
+// or listed by its provider), as the type it is used for, so a mistake fails
+// the start rather than every run, memory write, recording or image.
 func checkConfiguredModels(m *config.ModelsConfig, registry *providers.Registry) error {
 	check := func(id, typ string) error {
 		if _, err := registry.ResolveAs(id, typ); err != nil {
@@ -175,6 +180,11 @@ func checkConfiguredModels(m *config.ModelsConfig, registry *providers.Registry)
 	}
 	if m.Memory != nil {
 		if err := check(m.Memory.EmbeddingModel, modelcatalog.TypeEmbedding); err != nil {
+			return err
+		}
+	}
+	if m.Voice != nil {
+		if err := check(m.Voice.Model, modelcatalog.TypeTranscription); err != nil {
 			return err
 		}
 	}

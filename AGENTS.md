@@ -61,6 +61,7 @@ internal/
   refs/                references in a message (/name; later @agent, #id), by sigil
   sources/             numbers and stores the sources tools return
   artifacts/           artifact records (OpenSearch) and bodies (S3)
+  voice/               the voice prompt: a recording to text, and its route; apart from the agents
   images/              image generation: the generate_image tool, the Images page's route; every
                        image an artifact
   mcp/                 mcp connectors → adk toolsets
@@ -90,7 +91,7 @@ Agents are markdown files in `config/default/agents/`; there is no Go per agent.
 
 ## Interfaces
 
-**New thread** `POST /v1/agent/chat {messages, agentId?, model?, connectors?}` creates a
+**New thread** `POST /v1/agent/chat {messages, agentId?, model?, connectors?, workspaceId?}` creates a
 thread with its first turn and starts the run; `201 {threadId, runId, seq}` once the thread
 is stored. It is HTTP so the request can be checked before the thread exists.
 
@@ -108,7 +109,9 @@ document-level security, is `not_found`. ARCHITECTURE.md has the frames.
 | GET | `/v1/models`, `/v1/agents` | merged model list; pickable agents with their definitions |
 | GET | `/v1/connectors`, `/v1/connectors/{id}` | tool groups; one in full, an MCP server's tools listed live |
 | GET | `/v1/threads` | root threads, newest first (capped at 200), with `run_status` from each thread's lease |
-| GET/PATCH/DELETE | `/v1/threads/{id}` | thread; `PATCH {title?, connectors?}`; delete removes its family (`409` while a run is active) |
+| GET/PATCH/DELETE | `/v1/threads/{id}` | thread; `PATCH {title?, connectors?, workspace_id?}` (`""` takes it out of its workspace); delete removes its family (`409` while a run is active) |
+| GET/POST | `/v1/workspaces` | the workspaces threads are filed under, by name; `POST {name}` |
+| PATCH/DELETE | `/v1/workspaces/{id}` | rename (`{name}`); delete, which moves its threads out of it |
 | GET | `/v1/threads/{id}/messages?before=&limit=` | `{data: [{id, thread_id, role, seq, created_at, text, events}], cursor}` |
 | GET | `/v1/threads/{id}/interrupts` | the paused run's pending interrupts |
 | GET | `/v1/threads/{id}/sources`, `/v1/threads/{id}/sources/{n}` | the conversation's sources by number; one source, what `[source:n]` refers to |
@@ -117,6 +120,7 @@ document-level security, is `not_found`. ARCHITECTURE.md has the frames.
 | GET/POST | `/v1/skills` | the skills library (needs S3), filtered by `?q=&category=&source=`, with category and source counts; `POST` a multipart form: `file` (a skill's zip or its SKILL.md) and optional `title`, `description`, `category`, `source` (SKILLS.md) |
 | GET/PATCH/DELETE | `/v1/skills/{id}` | one skill by its uuid; change its title, description, category or source; remove it and its files |
 | GET/PUT | `/v1/skills/{id}/files/{path}` | one file of a skill, sandboxed; replace or add one |
+| POST | `/v1/voice/transcriptions` | the voice prompt: a multipart `file` (a recording, WAV) in, `{text}` out, by `models.yaml`'s `voice.model`; absent without a `voice` block (MODELS.md) |
 | GET | `/.well-known/agent-skills/index.json`, `/.well-known/agent-skills/{name}/{path}` | the skills discovery index and files `npx skills add <server>` reads (no credentials) |
 | GET | `/.well-known/opencode` | what `opencode auth login <server>` configures: models, exposed MCP servers, skills (docs/OPENCODE.md) |
 | any | `/mcp/{id}` | an MCP connector with `mcp.expose: true`, proxied for clients such as opencode |

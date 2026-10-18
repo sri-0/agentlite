@@ -20,6 +20,7 @@ type ModelsConfig struct {
 	Memory       *MemoryConfig `yaml:"memory"`
 	DefaultModel string        `yaml:"default_model"` // answers when a request names no model
 	Compaction   *Compaction   `yaml:"compaction"`    // nil disables context compaction
+	Voice        *VoiceConfig  `yaml:"voice"`         // nil disables the voice prompt
 	Images       *ImagesConfig `yaml:"images"`        // nil disables image generation
 }
 
@@ -69,6 +70,12 @@ type MemoryConfig struct {
 	// Preload searches memory before every model call of a user-started run;
 	// off, the agent decides when to search with the load_memory tool.
 	Preload bool `yaml:"preload"`
+}
+
+// VoiceConfig enables the voice prompt: the transcription model that turns a
+// recording into the text of a message (internal/voice).
+type VoiceConfig struct {
+	Model string `yaml:"model"`
 }
 
 // ImagesConfig enables image generation (internal/images): the image model

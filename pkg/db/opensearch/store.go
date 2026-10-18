@@ -39,9 +39,10 @@ type Thread struct {
 	AgentID  string `json:"agent_id,omitempty"`
 	Model    string `json:"model,omitempty"`
 	// Connectors switched on for the thread; nil means every connector.
-	Connectors *[]string `json:"connectors,omitempty"`
-	CreatedAt  time.Time `json:"created_at"`
-	UpdatedAt  time.Time `json:"updated_at"`
+	Connectors  *[]string `json:"connectors,omitempty"`
+	WorkspaceID string    `json:"workspace_id,omitempty"` // the workspace a root thread is filed under
+	CreatedAt   time.Time `json:"created_at"`
+	UpdatedAt   time.Time `json:"updated_at"`
 }
 
 // Message is one turn's record: compacted AG-UI events and the extracted text.
@@ -89,9 +90,24 @@ func pageSize(limit int) int {
 	return min(limit, 200)
 }
 
-// listCap bounds the lists of one conversation's sources and artifacts, and
-// the skills library.
+// listCap bounds the lists of one conversation's sources and artifacts, the
+// skills library and the workspaces.
 const listCap = 1000
+
+// delete removes a document and refreshes the index; ErrNotFound when there
+// is none.
+func (c *Client) delete(ctx context.Context, index, id string) error {
+	_, err := c.api.Document.Delete(ctx, opensearchapi.DeleteReq{
+		Index: index, ID: id, Params: &opensearchapi.DeleteParams{Refresh: "true"},
+	})
+	switch {
+	case errStatus(err) == 404:
+		return ErrNotFound
+	case err != nil:
+		return fmt.Errorf("delete %s/%s: %w", index, id, err)
+	}
+	return nil
+}
 
 // refreshed makes a write readable by searches as soon as it returns.
 var refreshed = opensearchapi.IndexParams{Refresh: "true"}

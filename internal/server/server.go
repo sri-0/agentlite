@@ -19,6 +19,7 @@ import (
 	"agentlite/internal/handler/wellknown"
 	"agentlite/internal/runs"
 	"agentlite/internal/skills"
+	"agentlite/internal/voice"
 	"agentlite/pkg/db/opensearch"
 	"agentlite/pkg/s3"
 )
@@ -59,6 +60,13 @@ func New(cfg *config.Config, h *handler.Handler) *echo.Echo {
 	thread.GET("/artifacts/:artifactId/content", h.ArtifactContent, sandboxed)
 	e.GET("/v1/artifacts", h.RecentArtifacts)
 
+	// Workspaces: the folders threads are filed under.
+	e.GET("/v1/workspaces", h.Workspaces)
+	e.POST("/v1/workspaces", h.CreateWorkspace)
+	workspace := e.Group("/v1/workspaces/:id", uuidID)
+	workspace.PATCH("", h.RenameWorkspace)
+	workspace.DELETE("", h.DeleteWorkspace)
+
 	// The skills library.
 	e.GET("/v1/skills", h.ListSkills)
 	e.POST("/v1/skills", h.CreateSkill, middleware.BodyLimit(skills.MaxBytes+1<<20)) // the zip, and the form around it
@@ -75,6 +83,11 @@ func New(cfg *config.Config, h *handler.Handler) *echo.Echo {
 	e.GET("/.well-known/agent-skills/index.json", wk.SkillsIndex)
 	e.GET("/.well-known/agent-skills/:name/*", wk.SkillFile, sandboxed)
 	e.Any("/mcp/:id", h.MCPProxy)
+
+	// The voice prompt: a recording in, its text out (internal/voice).
+	if h.Voice != nil {
+		e.POST("/v1/voice/transcriptions", h.Voice.Handle, middleware.BodyLimit(voice.MaxBytes+1<<20))
+	}
 
 	// The Images page: one image made and kept as an artifact (internal/images).
 	if h.Images != nil {
