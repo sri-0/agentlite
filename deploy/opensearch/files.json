@@ -7,6 +7,7 @@
       "media_type": {"type": "keyword"},
       "size": {"type": "long"},
       "workspace_id": {"type": "keyword"},
+      "tags": {"type": "keyword"},
       "status": {"type": "keyword"},
       "created_at": {"type": "date"}
     }
