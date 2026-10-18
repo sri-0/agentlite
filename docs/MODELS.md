@@ -252,7 +252,7 @@ local servers, and declare the non-LLM models under the provider's `models:` wit
 | Agents and chat | `default_model: vllm/<llm>` | vLLM, chat completions (or `/v1/responses` through LiteLLM) |
 | Embeddings: long-term memory and file search | `embedding: {model: vllm/google/embeddinggemma-2, dimensions: 0, query_prefix: "task: search result \| query: ", document_prefix: "title: none \| text: "}` (`type: embedding`) | vLLM with EmbeddingGemma 2 support (main since 2026-10-06, so a nightly until the next release): `--runner pooling --dtype bfloat16`; text, images, audio and video. Its vectors are 768, the size of the `memories` and `userfile_chunks` indexes. Avoid sm_86 and sm_120 GPUs until vllm#60847 is fixed |
 | Voice prompt | `voice.model: vllm/mistralai/Voxtral-Small-24B-2507` (`type: transcription`) | vLLM serves Voxtral on `/v1/audio/transcriptions` |
-| Image generation | `images.model: vllm/<image model>` (`type: image`) | vLLM-Omni, `/v1/images/generations`. Edits send the original as OpenRouter's `input_references`, which vLLM-Omni doesn't read (TOOLS.md) |
+| Image generation and edits | `images: {model: vllm/Qwen/Qwen-Image-2.1, edit_model: vllm/Qwen/Qwen-Image-2.1}` (`type: image`, each with the `base_url` of its server) | vLLM-Omni (`vllm serve <model> --omni`, one model per server): makes on `/v1/images/generations`, edits on `/v1/images/edits`. Qwen-Image 2.1 does both; earlier Qwen-Image models edit with Qwen-Image-Edit on a second server, its `edit_model` (TOOLS.md) |
 | Model descriptions | `MODEL_CARDS_DIR`: a checkout of the model-cards repository | none |
 
 Leave out a feature's block and the feature is off: no voice route, no
