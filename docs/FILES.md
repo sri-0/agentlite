@@ -14,7 +14,7 @@ rendering, no Office documents):
 
 | Kind | Media types | What the model gets for `#id` |
 |---|---|---|
-| text | any `text/*` and `application/json`; `.md`, `.csv` and `.json` refine `text/plain` | the text inline, in a `<file id name>` block, up to 20,000 characters; longer, a note to search it |
+| text | any `text/*` and `application/json`; `.md`, `.csv` and `.json` refine `text/plain` | the text inline, in a `<file name>` block, up to 20,000 characters; longer, a note to search it |
 | image | PNG, JPEG, WebP, GIF | the image itself, up to 10 MiB (an inline part; adk's openaimodel sends it as `image_url`); bigger, a note |
 | pdf | `application/pdf` | the PDF itself, up to 10 MiB (an inline part, sent as a `file` part); bigger, a note |
 | audio | WAV, MP3 | a note naming the file: adk-go refuses audio parts, so the model cannot listen |
@@ -32,8 +32,10 @@ What goes in as it is stays in the conversation's adk session, and is sent again
 every later turn; hence the 10 MiB cap, so one file a provider refuses can't break a
 conversation for good.
 
-A note says what the file is (`#id is the file "name" (type, size)`) and, when the file
-is searchable, tells the model to call `search_userfiles` with `files: [id]`; otherwise
+Whatever the model gets starts by naming the file: `File "name" (type), which the
+message calls #id; call it "name", never by its id`, so answers name files the way the
+user does instead of repeating ids. A note then gives the size and, when the file is
+searchable, tells the model to call `search_userfiles` with `files: [id]`; otherwise
 that it can't be read or searched here.
 
 ## Workspaces

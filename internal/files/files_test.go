@@ -75,15 +75,15 @@ func TestReference(t *testing.T) {
 		content string // what Content starts with
 		search  bool   // the note offers search_userfiles
 	}{
-		{"image", file("image/png", 4, opensearch.FileReady), "\x89PNG", "image/png", "#f1 is the file", false},
-		{"pdf", file("application/pdf", 4, opensearch.FileStored), "%PDF", "application/pdf", "#f1 is the file", false},
-		{"short text", file("text/markdown; charset=utf-8", 2, opensearch.FileReady), "hi", "", "<file id=\"f1\" name=\"x\">\nhi\n</file>", false},
-		{"text at the limit", file("text/plain; charset=utf-8", inlineText, opensearch.FileReady), long[:inlineText], "", "<file", false},
-		{"long text", file("text/plain; charset=utf-8", len(long), opensearch.FileReady), long, "", "#f1 is the file", true},
-		{"text not read", file("text/plain; charset=utf-8", 1<<20, opensearch.FileReady), "", "", "#f1 is the file", true},
-		{"audio", file("audio/wave", 10, opensearch.FileReady), "", "", "#f1 is the file", true},
-		{"video, not embedded", file("video/mp4", 10, opensearch.FileStored), "", "", "#f1 is the file", false},
-		{"image not read", file("image/png", inlineBytes+1, opensearch.FileReady), "", "", "#f1 is the file", true},
+		{"image", file("image/png", 4, opensearch.FileReady), "\x89PNG", "image/png", `File "x"`, false},
+		{"pdf", file("application/pdf", 4, opensearch.FileStored), "%PDF", "application/pdf", `File "x"`, false},
+		{"short text", file("text/markdown; charset=utf-8", 2, opensearch.FileReady), "hi", "", `File "x"`, false},
+		{"text at the limit", file("text/plain; charset=utf-8", inlineText, opensearch.FileReady), long[:inlineText], "", `File "x"`, false},
+		{"long text", file("text/plain; charset=utf-8", len(long), opensearch.FileReady), long, "", `File "x"`, true},
+		{"text not read", file("text/plain; charset=utf-8", 1<<20, opensearch.FileReady), "", "", `File "x"`, true},
+		{"audio", file("audio/wave", 10, opensearch.FileReady), "", "", `File "x"`, true},
+		{"video, not embedded", file("video/mp4", 10, opensearch.FileStored), "", "", `File "x"`, false},
+		{"image not read", file("image/png", inlineBytes+1, opensearch.FileReady), "", "", `File "x"`, true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			var body []byte
@@ -100,6 +100,10 @@ func TestReference(t *testing.T) {
 				t.Errorf("content %q: search offered = %v, want %v", ref.Content, !tc.search, tc.search)
 			case ref.Kind != "file" || ref.ID != "f1":
 				t.Errorf("kind %q id %q", ref.Kind, ref.ID)
+			case !strings.Contains(ref.Content, `call it "x", never by its id`):
+				t.Errorf("content %.120q does not tell the model to name the file", ref.Content)
+			case tc.body != "" && tc.part == "" && !tc.search && !strings.Contains(ref.Content, "<file name=\"x\">\n"+tc.body+"\n</file>"):
+				t.Errorf("text not inline: %.120q", ref.Content)
 			}
 		})
 	}
