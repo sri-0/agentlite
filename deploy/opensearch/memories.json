@@ -1,0 +1,34 @@
+{
+  "settings": {
+    "index.knn": true
+  },
+  "mappings": {
+    "dynamic": "strict",
+    "properties": {
+      "id": {
+        "type": "keyword"
+      },
+      "thread_id": {
+        "type": "keyword"
+      },
+      "author": {
+        "type": "keyword"
+      },
+      "text": {
+        "type": "text"
+      },
+      "created_at": {
+        "type": "date"
+      },
+      "embedding": {
+        "type": "knn_vector",
+        "dimension": 768,
+        "method": {
+          "name": "hnsw",
+          "space_type": "cosinesimil",
+          "engine": "lucene"
+        }
+      }
+    }
+  }
+}

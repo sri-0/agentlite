@@ -67,8 +67,8 @@ func (c *Compaction) check() error {
 }
 
 // EmbeddingConfig is the one embedding model, for long-term memory and the
-// files: both are in the embeddings index, sized for its vectors
-// (deploy/opensearch/embeddings.json). It is called through the OpenAI
+// files: the memories and userfile_chunks indexes are sized for its vectors
+// (deploy/opensearch). It is called through the OpenAI
 // embeddings API (docs/MODELS.md). Dimensions is sent as the request's
 // dimensions; 0 leaves it out, for a model whose vectors are that size anyway
 // (vLLM refuses dimensions for EmbeddingGemma 2, vllm#60977). The prefixes go

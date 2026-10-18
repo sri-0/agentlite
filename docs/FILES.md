@@ -89,9 +89,9 @@ an image, audio or video whole. A model refusal is `502` with the model's messag
 nothing is kept; a failed upload's body and chunks are removed even if the client has
 gone. A text is searchable up to `searchable_text_mb`; a bigger one is `400`.
 
-The chunks go to the `embeddings` index (`deploy/opensearch/embeddings.json`), which
-holds long-term memory too, told apart by `kind`: a file chunk is `{id: <file id>:<seq>,
-kind: "file", file_id, name, media_type, workspace_id?, seq, text?, embedding}`, a
+The chunks go to the `userfile_chunks` index (`deploy/opensearch/userfile_chunks.json`):
+a chunk is `{id: <file id>:<seq>, file_id, name, media_type, workspace_id?, seq, text?,
+embedding}`, a
 768-dimension kNN vector (cosine, HNSW on Lucene), repeating the file's name, type and
 workspace so a search needs no second lookup. Deleting a file deletes its chunks;
 deleting a workspace moves them out with the file.
@@ -119,8 +119,8 @@ only: adk-go refuses audio and video parts.
 embedding model takes a PDF and nothing here converts files. A pipeline that extracts a
 PDF's text plugs into one place: `Store.index` in `internal/files/index.go`, the switch
 that decides what of a file is embedded. A separate system can instead write a PDF's
-chunks to the `embeddings` index itself (`kind: "file"` and the fields above, the same
-model and size) and set the record's `status` to `ready`.
+chunks to the `userfile_chunks` index itself (the fields above, the same model and
+size) and set the record's `status` to `ready`.
 
 ## API
 
@@ -150,7 +150,7 @@ session rebuilt from OpenSearch (`agents/seed.go`) has the text only.
   first, so a file saved while the workspace goes can keep its id. Clients treat an
   unknown workspace as none, as they do for threads.
 - **Access control.** Files are not scoped to a user, and `#` reaches any workspace's
-  file. When workspaces are shared, the `userfiles` and `embeddings` indices need the
+  file. When workspaces are shared, the `userfiles` and `userfile_chunks` indices need the
   document-level security the threads index gets (by `workspace_id`), and `#` and the
   list must only offer what the user may read.
 - **Changing the embedding model** means re-embedding every file and memory; there is

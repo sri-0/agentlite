@@ -31,7 +31,7 @@ Echo server (internal/server, internal/handler, internal/ws)
    ├─ Valkey: event logs, runs, queues, leases, adk sessions, interrupt records
    ├─ OpenSearch: threads, messages (the stored AG-UI events), sources, artifacts,
    │    counters (each conversation's last source number and artifact versions), skills,
-   │    workspaces, userfiles, embeddings (memory and the files' chunks)
+   │    workspaces, userfiles, userfile_chunks, memories
    └─ S3 (MinIO locally): artifact bodies, skill files, uploaded files
 ```
 
@@ -212,8 +212,8 @@ OpenSearch indices: `threads`, `messages` (events stored unindexed), `sources`,
 `artifacts`, `counters` (each conversation's source numbers and artifact versions),
 `skills` (the skills library, one record per skill; its files are in S3; SKILLS.md),
 `workspaces`, `userfiles` (the records of files users upload for RAG; FILES.md),
-`embeddings` (kNN vectors of one model: long-term memory entries and the files'
-chunks, told apart by `kind`; MEMORY.md, FILES.md).
+`userfile_chunks` (the files' chunks, kNN vectors; FILES.md), `memories` (long-term
+memory entries, kNN vectors of the same model; MEMORY.md).
 Every name starts with `OPENSEARCH_INDEX_PREFIX` (default `user_ai_`:
 `user_ai_threads`, `user_ai_userfiles`, …), added in one place
 (`opensearch.Client.ix`), so deployments can share a cluster; `make indices` uses the

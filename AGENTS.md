@@ -77,7 +77,7 @@ pkg/
                        proxy the pass-through and the MCP proxy share
   opencode/            what opencode reads from /.well-known/opencode
   s3/                  S3-compatible object storage (minio-go)
-  db/opensearch/       threads, messages, embeddings (kNN: memory, file chunks), sources, artifacts,
+  db/opensearch/       threads, messages, memories and file chunks (kNN), sources, artifacts,
                        skills, userfiles; typed queries
   db/valkey/           Valkey settings and a client per logical database
   memory/              adk memory.Service on OpenSearch
