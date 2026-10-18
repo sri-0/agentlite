@@ -72,8 +72,9 @@ func (s *Store) GetFile(c *echo.Context) error {
 	return c.JSON(http.StatusOK, f)
 }
 
-// FileContent is GET /v1/files/:id/content, the file itself, with ranges, so
-// audio and video can seek (and Safari plays video at all).
+// FileContent is GET /v1/files/:id/content, the file itself, with ranges. It
+// is always a download: a browser never opens an uploaded file as a page. An
+// <img> ignores Content-Disposition, so the Files page's thumbnails still show.
 func (s *Store) FileContent(c *echo.Context) error {
 	ctx := c.Request().Context()
 	f, err := s.records.File(ctx, c.Param("id"))
@@ -87,7 +88,7 @@ func (s *Store) FileContent(c *echo.Context) error {
 	defer body.Close()
 	w := c.Response()
 	w.Header().Set("Content-Type", f.MediaType)
-	w.Header().Set("Content-Disposition", mime.FormatMediaType("inline", map[string]string{"filename": f.Name}))
+	w.Header().Set("Content-Disposition", mime.FormatMediaType("attachment", map[string]string{"filename": f.Name}))
 	http.ServeContent(w, c.Request(), f.Name, f.CreatedAt, body)
 	return nil
 }
