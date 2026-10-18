@@ -25,6 +25,17 @@ const (
 	Question = "question" // answered by the user, not approved
 )
 
+// Switchable are the builtin tools that do work in the world, and cost: the
+// runtime offers each as a connector of its own, so a thread can switch it
+// off like any connector. One tool each; a tool that isn't built (its model
+// isn't configured) has no connector.
+var Switchable = []config.Connector{
+	{ID: "images", Name: "Image generation", Description: "Make and edit images with the image model.",
+		Icon: "image", Type: config.ConnectorTools, Tools: []string{generateImageTool}},
+	{ID: "files", Name: "Your files", Description: "Search the files uploaded to the chat's workspace.",
+		Icon: "files", Type: config.ConnectorTools, Tools: []string{searchFilesTool}},
+}
+
 // Dispatcher starts, follows and stops child runs; runs.Manager implements it.
 type Dispatcher interface {
 	Start(ctx context.Context, in runs.StartInput) (*runs.Run, error)

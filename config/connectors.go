@@ -172,13 +172,3 @@ func hasAuthorization(headers map[string]string) bool {
 	}
 	return false
 }
-
-// CheckConnectors rejects ids that are not configured.
-func (c *Config) CheckConnectors(ids []string) error {
-	for _, id := range ids {
-		if !slices.ContainsFunc(c.Connectors, func(k Connector) bool { return k.ID == id }) {
-			return fmt.Errorf("unknown connector %q", id)
-		}
-	}
-	return nil
-}

@@ -137,7 +137,8 @@ whose thread, skill or workspace id is not a UUIDv7 gets 400. Documents that mus
 - its **messages** in OpenSearch (one document per turn: the coalesced AG-UI
   events plus the extracted text);
 - at most one **active run**, held by the lease `thread:{id}:run`;
-- the **connectors** the user switched on, stored on the thread document;
+- the **connectors** the user switched on, stored on the thread document (connectors.yaml's,
+  plus the server's own `images` and `files`, TOOLS.md);
 - for a root thread, the **workspace** it is filed under (`workspace_id`), if any.
 
 A workspace (`internal/handler/workspaces.go`, index `workspaces`) is a folder of
