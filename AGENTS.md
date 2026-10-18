@@ -89,7 +89,7 @@ Agents are markdown files in `config/default/agents/`; there is no Go per agent.
 
 ## Interfaces
 
-**New thread** `POST /v1/agent/chat {messages, agentId?, model?, connectors?}` creates a
+**New thread** `POST /v1/agent/chat {messages, agentId?, model?, connectors?, workspaceId?}` creates a
 thread with its first turn and starts the run; `201 {threadId, runId, seq}` once the thread
 is stored. It is HTTP so the request can be checked before the thread exists.
 
@@ -107,7 +107,9 @@ document-level security, is `not_found`. ARCHITECTURE.md has the frames.
 | GET | `/v1/models`, `/v1/agents` | merged model list; pickable agents with their definitions |
 | GET | `/v1/connectors`, `/v1/connectors/{id}` | tool groups; one in full, an MCP server's tools listed live |
 | GET | `/v1/threads` | root threads, newest first (capped at 200), with `run_status` from each thread's lease |
-| GET/PATCH/DELETE | `/v1/threads/{id}` | thread; `PATCH {title?, connectors?}`; delete removes its family (`409` while a run is active) |
+| GET/PATCH/DELETE | `/v1/threads/{id}` | thread; `PATCH {title?, connectors?, workspace_id?}` (`""` takes it out of its workspace); delete removes its family (`409` while a run is active) |
+| GET/POST | `/v1/workspaces` | the workspaces threads are filed under, by name; `POST {name}` |
+| PATCH/DELETE | `/v1/workspaces/{id}` | rename (`{name}`); delete, which moves its threads out of it |
 | GET | `/v1/threads/{id}/messages?before=&limit=` | `{data: [{id, thread_id, role, seq, created_at, text, events}], cursor}` |
 | GET | `/v1/threads/{id}/interrupts` | the paused run's pending interrupts |
 | GET | `/v1/threads/{id}/sources`, `/v1/threads/{id}/sources/{n}` | the conversation's sources by number; one source, what `[source:n]` refers to |

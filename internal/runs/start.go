@@ -25,8 +25,11 @@ type StartInput struct {
 	AgentID    string
 	Model      string
 	Connectors *[]string // replaces the thread's choice when set
-	MessageID  string
-	Text       string
+	// WorkspaceID files a new conversation under a workspace; the caller
+	// checks it exists.
+	WorkspaceID string
+	MessageID   string
+	Text        string
 	// Authorization is the user's Authorization header, forwarded to the
 	// systems the run's tools call (connectors with http.forward).
 	Authorization string
@@ -172,7 +175,7 @@ func (m *Manager) upsertThread(ctx context.Context, in StartInput) (thread *open
 	thread, err = m.history.Thread(ctx, in.ThreadID)
 	switch {
 	case errors.Is(err, opensearch.ErrNotFound) && in.newThread:
-		thread = &opensearch.Thread{ID: in.ThreadID, RootID: in.ThreadID, CreatedAt: now}
+		thread = &opensearch.Thread{ID: in.ThreadID, RootID: in.ThreadID, WorkspaceID: in.WorkspaceID, CreatedAt: now}
 	case errors.Is(err, opensearch.ErrNotFound) && in.ParentID != "":
 		parent, err := m.history.Thread(ctx, in.ParentID)
 		if err != nil {

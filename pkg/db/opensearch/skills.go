@@ -2,13 +2,10 @@ package opensearch
 
 import (
 	"context"
-	"fmt"
 	"maps"
 	"slices"
 	"strings"
 	"time"
-
-	"github.com/opensearch-project/opensearch-go/v5/opensearchapi"
 )
 
 // indexSkills is the skills library: one document per skill, a uuid its id.
@@ -136,14 +133,5 @@ func facets(counts map[string]int64) []Facet {
 
 // DeleteSkill removes a skill; ErrNotFound when there is none.
 func (c *Client) DeleteSkill(ctx context.Context, id string) error {
-	_, err := c.api.Document.Delete(ctx, opensearchapi.DeleteReq{
-		Index: indexSkills, ID: id, Params: &opensearchapi.DeleteParams{Refresh: "true"},
-	})
-	switch {
-	case errStatus(err) == 404:
-		return ErrNotFound
-	case err != nil:
-		return fmt.Errorf("delete %s/%s: %w", indexSkills, id, err)
-	}
-	return nil
+	return c.delete(ctx, indexSkills, id)
 }

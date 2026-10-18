@@ -60,6 +60,13 @@ func New(cfg *config.Config, h *handler.Handler) *echo.Echo {
 	thread.GET("/artifacts/:artifactId/content", h.ArtifactContent, sandboxed)
 	e.GET("/v1/artifacts", h.RecentArtifacts)
 
+	// Workspaces: the folders threads are filed under.
+	e.GET("/v1/workspaces", h.Workspaces)
+	e.POST("/v1/workspaces", h.CreateWorkspace)
+	workspace := e.Group("/v1/workspaces/:id", uuidID)
+	workspace.PATCH("", h.RenameWorkspace)
+	workspace.DELETE("", h.DeleteWorkspace)
+
 	// The skills library.
 	e.GET("/v1/skills", h.ListSkills)
 	e.POST("/v1/skills", h.CreateSkill, middleware.BodyLimit(skills.MaxBytes+1<<20)) // the zip, and the form around it

@@ -124,7 +124,7 @@ reconnect and resume from their cursors.
 A thread is a conversation: a root thread the user started, or a child thread a
 `subagent` call started for a sub-agent (`parent_id`, `root_id`). Ids are UUIDv7, like
 every id the server makes (adk's event ids too), and always the server's; a path or frame
-whose thread or skill id is not a UUIDv7 gets 400. Documents that must not be stored twice
+whose thread, skill or workspace id is not a UUIDv7 gets 400. Documents that must not be stored twice
 (a conversation's sources and artifacts) have name-based UUIDs instead. Each thread has:
 
 - one **event log** in Valkey (`thread:{id}:log`), the live channel and the
@@ -133,7 +133,12 @@ whose thread or skill id is not a UUIDv7 gets 400. Documents that must not be st
 - its **messages** in OpenSearch (one document per turn: the coalesced AG-UI
   events plus the extracted text);
 - at most one **active run**, held by the lease `thread:{id}:run`;
-- the **connectors** the user switched on, stored on the thread document.
+- the **connectors** the user switched on, stored on the thread document;
+- for a root thread, the **workspace** it is filed under (`workspace_id`), if any.
+
+A workspace (`internal/handler/workspaces.go`, index `workspaces`) is a folder of
+conversations with a name; deleting one moves its threads out of it rather than
+deleting them. Later it is what people share; today it only groups the sidebar.
 
 A sub-agent's thread is followed like any other; the parent's agent card also
 mirrors its status, progress and pending requests (AGENT-ARCHITECTURE.md).
@@ -145,8 +150,8 @@ was said.
 
 ## Creating a thread
 
-`POST /v1/agent/chat {messages, agentId?, model?, connectors?}` creates a
-thread with its first turn and starts the run. It replies `201 {threadId,
+`POST /v1/agent/chat {messages, agentId?, model?, connectors?, workspaceId?}` creates a
+thread with its first turn and starts the run (an unknown workspace is 400). It replies `201 {threadId,
 runId, seq}` only after the thread document is written (with a refresh), so the
 subscribe the client sends next finds it. Creation is HTTP rather than a socket
 frame so a gateway or middleware can check the request's headers before the
@@ -203,7 +208,7 @@ Valkey is split into logical databases, set by environment:
 OpenSearch indices: `threads`, `messages` (events stored unindexed), `memories`
 (kNN vectors), `sources`, `artifacts`, `counters` (each conversation's source
 numbers and artifact versions), `skills` (the skills library, one record per skill;
-its files are in S3; SKILLS.md). The service never creates or changes an index, so it
+its files are in S3; SKILLS.md), `workspaces`. The service never creates or changes an index, so it
 needs no rights beyond reading and writing documents: each index's mapping is a file
 in `deploy/opensearch`, applied with `make indices` (curl: it creates a missing index,
 and adds new fields to an existing one; a changed type needs a reindex). Mappings are
