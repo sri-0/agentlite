@@ -106,7 +106,7 @@ func (c *Client) Cite(ctx context.Context, rootID, ref string, numbers []int) er
 	var body bytes.Buffer
 	for _, s := range cited {
 		action, _ := json.Marshal(map[string]any{
-			"update": map[string]any{"_index": indexSources, "_id": s.ID, "retry_on_conflict": 3},
+			"update": map[string]any{"_index": c.ix(indexSources), "_id": s.ID, "retry_on_conflict": 3},
 		})
 		body.Write(action)
 		body.WriteByte('\n')

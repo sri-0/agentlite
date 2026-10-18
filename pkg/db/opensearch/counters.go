@@ -58,7 +58,7 @@ func (c *Client) increment(ctx context.Context, rootID, script string, params ma
 		return err
 	}
 	resp, err := c.api.Update(ctx, opensearchapi.UpdateReq{
-		Index: indexCounters, ID: rootID, BodyReader: bytes.NewReader(body),
+		Index: c.ix(indexCounters), ID: rootID, BodyReader: bytes.NewReader(body),
 		Params: &opensearchapi.UpdateParams{RetryOnConflict: counterRetries, Source: "true"},
 	})
 	if err != nil {

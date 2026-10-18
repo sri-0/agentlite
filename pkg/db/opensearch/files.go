@@ -10,9 +10,9 @@ import (
 	"github.com/opensearch-project/opensearch-go/v5/opensearchapi"
 )
 
-// indexFiles holds the records of the files users uploaded; their bodies are
-// in S3 (internal/files).
-const indexFiles = "files"
+// indexFiles holds the records of the files users uploaded for RAG; their
+// bodies are in S3 (internal/files).
+const indexFiles = "userfiles"
 
 // File statuses: a ready file is embedded and searchable, a stored one is
 // kept and can be referenced but is not searchable (a PDF, or any file when
@@ -91,7 +91,7 @@ func (c *Client) SaveFileChunks(ctx context.Context, chunks []FileChunk) error {
 	var body bytes.Buffer
 	enc := json.NewEncoder(&body)
 	for _, ch := range chunks {
-		if err := enc.Encode(map[string]any{"index": map[string]any{"_index": indexFileChunks, "_id": ch.ID}}); err != nil {
+		if err := enc.Encode(map[string]any{"index": map[string]any{"_index": c.ix(indexFileChunks), "_id": ch.ID}}); err != nil {
 			return err
 		}
 		if err := enc.Encode(ch); err != nil {
