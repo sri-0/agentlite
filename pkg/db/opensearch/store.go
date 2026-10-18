@@ -44,6 +44,8 @@ type Thread struct {
 	// Connectors switched on for the thread; nil means every connector.
 	Connectors  *[]string `json:"connectors,omitempty"`
 	WorkspaceID string    `json:"workspace_id,omitempty"` // the workspace a root thread is filed under
+	Pinned      bool      `json:"pinned,omitempty"`       // kept at the top of the sidebar
+	Archived    bool      `json:"archived,omitempty"`     // left out of the sidebar
 	CreatedAt   time.Time `json:"created_at"`
 	UpdatedAt   time.Time `json:"updated_at"`
 }
