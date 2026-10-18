@@ -248,8 +248,8 @@ the encoder makes of it, is a summary without the body (`artifacts.Summary`): `{
 title, kind, version, language?, url?}`. The UI fetches the body from
 `GET /v1/threads/{id}/artifacts/{artifactId}/content`, served with the kind's content
 type and `Content-Security-Policy: sandbox`; `GET /v1/threads/{id}/artifacts` lists the
-conversation's artifacts, and `GET /v1/artifacts?after=&limit=` lists every
-conversation's, newest first, with each one's thread title; a full page carries `next`,
+conversation's artifacts, and `GET /v1/artifacts?kind=&after=&limit=` lists every
+conversation's (of one kind, when set), newest first, with each one's thread title; a full page carries `next`,
 an opaque cursor (OpenSearch `search_after` on update time, conversation and id) for the
 next page's `after`, so ties never drop an artifact.
 
@@ -257,18 +257,20 @@ next page's `after`, so ties never drop an artifact.
 
 `internal/images` makes images and keeps each as an `image` artifact, so every image is
 on the artifacts page; the agents only see its tool. `generate_image {prompt, edit?}` is a
-harness tool, offered when `models.yaml` has an `images` block: it makes the image with
-`images.model`, saves it, and shows it in the thread as an `artifact` activity (its calls
-carry the UI renderer `generate_image`). `edit` names an image of the conversation: the
-result is that artifact's next version, under its title.
+harness tool, offered when `models.yaml` has an `images` block: it makes the image, saves
+it, and shows it in the thread as an `artifact` activity (its calls carry the UI renderer
+`generate_image`). `edit` names an image of the conversation: the result is that
+artifact's next version, under its title. The image model is the turn's `imageModel`
+(`POST /v1/agent/chat` and the socket's `run`; the run keeps it, and a sub-agent inherits
+it), else `images.model`; an unknown or non-image model, no prompt, or an edit of what is
+not an image fails the call with the reason. A generation has 3 minutes and is not
+retried (each is paid for).
 
-The Images page uses `POST /v1/images {prompt, model?, threadId?, edit?}` →
-`{threadId, artifact}`, with any image model: 400 for no prompt, an unknown or non-image
-model, or an edit of what is not an image; 502 with the model's message when it refuses.
-A generation has 3 minutes, is not retried (each is paid for), and finishes even if the
-client goes away. Its conversations are threads with `agent_id: "images"` (so no agent may
-be called `images`), created once the first image is made and titled by its prompt; the UI
-opens them on that page. `GET /v1/threads/{id}/artifacts/{artifactId}/content?v=N` serves
+The Images page starts a conversation with the `images` agent
+(`config/default/agents/images.md`, whose one tool is `generate_image`) and the image
+model picked there; the conversation is an ordinary chat, where a follow-up such as "make
+it blue" edits the image. `GET /v1/artifacts?kind=image` lists every conversation's
+images for the page. `GET /v1/threads/{id}/artifacts/{artifactId}/content?v=N` serves
 version N, so an image shown in a chat keeps showing the version it made.
 
 The `media_type` field is new in `deploy/opensearch/artifacts.json`: run `make indices`.

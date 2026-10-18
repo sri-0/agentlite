@@ -14,8 +14,9 @@ type toolArgs struct {
 	Edit   string `json:"edit,omitempty" jsonschema:"id of an image artifact of this conversation to edit; omit for a new image"`
 }
 
-// Tool is generate_image: it makes an image with the default image model,
-// saves it as an artifact of the conversation and shows it in the thread.
+// Tool is generate_image: it makes an image with the image model the user
+// picked for the turn (the default otherwise), saves it as an artifact of the
+// conversation and shows it in the thread.
 func (s *Studio) Tool() (toolx.Tool, error) {
 	return toolx.New(toolx.Spec{
 		Name: ToolName,
@@ -25,6 +26,7 @@ func (s *Studio) Tool() (toolx.Tool, error) {
 	}, func(tc toolx.Context, a toolArgs) (map[string]any, error) {
 		img, err := s.Make(tc, Request{
 			RootID: tc.Thread.RootID, ThreadID: tc.Thread.ID, RunID: tc.Thread.RunID, Prompt: a.Prompt, Edit: a.Edit,
+			Model: toolx.RunFrom(tc).ImageModel,
 		})
 		if err != nil {
 			return nil, err

@@ -26,6 +26,7 @@ type Run struct {
 	Thread     Thread
 	Model      string    // the model the run uses; a sub-agent runs on it too
 	Connectors *[]string // the connectors switched on; nil means all
+	ImageModel string    // the image model the user picked for generate_image; "" is the default
 	// Authorization is the user's Authorization header, when the request
 	// that started the run carried one.
 	Authorization string

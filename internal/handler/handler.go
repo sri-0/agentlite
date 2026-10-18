@@ -11,7 +11,6 @@ import (
 	"agentlite/internal/agents"
 	"agentlite/internal/artifacts"
 	"agentlite/internal/files"
-	"agentlite/internal/images"
 	"agentlite/internal/providers"
 	"agentlite/internal/runs"
 	"agentlite/internal/skills"
@@ -30,7 +29,6 @@ type Handler struct {
 	Skills    *skills.Library
 	Files     *files.Store
 	Voice     *voice.Transcriber // nil when the voice prompt is not configured
-	Images    *images.Studio     // nil when image generation is not configured
 	Log       zerolog.Logger
 }
 

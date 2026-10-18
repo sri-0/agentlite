@@ -44,7 +44,6 @@ type App struct {
 	Sessions  session.Service
 	Memory    *memory.Service    // nil when memory is not configured
 	Voice     *voice.Transcriber // nil when the voice prompt is not configured
-	Images    *images.Studio     // nil when image generation is not configured
 	Artifacts *artifacts.Store
 	Skills    *skills.Library
 	Files     *files.Store
@@ -118,8 +117,7 @@ func New(ctx context.Context) (_ *App, err error) {
 	app.Files = files.New(app.Store, bucket)
 	var tools []toolx.Tool // harness tools of feature packages
 	if m := cfg.Models.Images; m != nil {
-		app.Images = images.New(app.Registry, app.Artifacts, app.Store, m.Model)
-		img, err := app.Images.Tool()
+		img, err := images.New(app.Registry, app.Artifacts, app.Store, m.Model).Tool()
 		if err != nil {
 			return nil, err
 		}
