@@ -132,7 +132,7 @@ func New(ctx context.Context) (_ *App, err error) {
 	app.Files = files.New(app.Store, bucket, cfg.Models.Files, filesEmbedder)
 	var studio *images.Studio // nil without an image model: no generate_image
 	if m := cfg.Models.Images; m != nil {
-		studio = images.New(app.Registry, app.Artifacts, app.Store, m.Model)
+		studio = images.New(app.Registry, app.Artifacts, app.Store, m.Model, m.EditModel)
 	}
 	servers, err := mcp.Servers(cfg.Connectors, cfg.Transport, app.Log)
 	if err != nil {
@@ -211,6 +211,9 @@ func checkConfiguredModels(m *config.ModelsConfig, registry *providers.Registry)
 	if m.Images != nil {
 		if err := check(m.Images.Model, modelcatalog.TypeImage); err != nil {
 			return err
+		}
+		if m.Images.EditModel != "" {
+			return check(m.Images.EditModel, modelcatalog.TypeImage)
 		}
 	}
 	return nil
