@@ -223,6 +223,40 @@ On OpenRouter use `mistralai/voxtral-small-24b-2507-stt`: through that route
 `voxtral-mini-3b-2507` answers the recording instead of transcribing it. vLLM serves
 Voxtral's weights on `/v1/audio/transcriptions` with its transcription prompt.
 
+## Disconnected deployment
+
+The server itself fetches nothing from the internet: every model call goes to a
+provider in `models.yaml`. `openrouter` and `deepinfra` are for development only:
+without `OPENROUTER_BASE_URL` / `DEEPINFRA_BASE_URL` they are skipped, and a model id
+naming them is refused, never sent. `config/default/models.yaml` names OpenRouter and
+DeepInfra models for every feature, so a disconnected deployment brings its own config
+(`CONFIG_DIR`) that names local models. Run them on `vllm`, or `litellm` in front of
+local servers, and declare the non-LLM models under the provider's `models:` with their
+`type` (discovery reads `/models`, which doesn't say what a model is):
+
+| Feature | `models.yaml` | Local server |
+|---|---|---|
+| Agents and chat | `default_model: vllm/<llm>` | vLLM, chat completions (or `/v1/responses` through LiteLLM) |
+| Long-term memory | `memory.embedding_model: vllm/<text embedder>` (`type: embedding`) | vLLM `--runner pooling`. Its vectors must match `memories.json` (1,536 dimensions); another size means changing the mapping |
+| Voice prompt | `voice.model: vllm/mistralai/Voxtral-Small-24B-2507` (`type: transcription`) | vLLM serves Voxtral on `/v1/audio/transcriptions` |
+| Image generation | `images.model: vllm/<image model>` (`type: image`) | vLLM-Omni, `/v1/images/generations`. Edits send the original as OpenRouter's `input_references`, which vLLM-Omni doesn't read (TOOLS.md) |
+| File search | `files: {embedding_model: vllm/google/embeddinggemma-2, format: vllm, dimensions: 768}` (`type: embedding`) | vLLM with EmbeddingGemma 2 support (main since 2026-10-06, so a nightly until the next release): `--runner pooling --dtype bfloat16`. Avoid sm_86 and sm_120 GPUs until vllm#60847 is fixed (FILES.md) |
+| Model descriptions | `MODEL_CARDS_DIR`: a checkout of the model-cards repository | none |
+
+Leave out a feature's block and the feature is off: no voice route, no
+`generate_image`, files kept but not searchable, no memory.
+
+Also check, outside `models.yaml`:
+- **Connectors:** the `web` connector (`webfetch`) reads public web pages. Drop it from
+  `connectors.yaml`, or limit it to internal sites. MCP connectors (`slides`:
+  `OPEN_SLIDE_MCP_URL`) must point at servers inside the network.
+- **Tracing:** exported only when `OTEL_EXPORTER_OTLP_ENDPOINT` is set (to the local
+  Jaeger, say).
+- **Building and running:** Go modules (an internal `GOPROXY`, or `go mod vendor`), the
+  container images in `docker-compose.yaml` (OpenSearch, Valkey, MinIO, Jaeger) from an
+  internal registry, and the UI's npm packages. The UI's fonts are an npm package
+  (sri-0/agentui#28), not Google Fonts.
+
 ## Code map
 
 | File | Role |
