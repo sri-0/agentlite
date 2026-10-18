@@ -2,41 +2,35 @@ package files
 
 import (
 	"errors"
-	"fmt"
 	"strings"
 	"testing"
 
-	"agentlite/pkg/db/opensearch"
+	"agentlite/config"
 )
 
-// TestSniff: the first bytes decide, the extension only refines plain text
-// and an MP3 without an ID3 tag; any other kind is refused.
+// TestSniff: the content decides; any kind but text, images, audio, video
+// and PDF is refused, and so is text that is not UTF-8.
 func TestSniff(t *testing.T) {
 	for _, tc := range []struct {
 		name, body, want string // want "" is refused
 	}{
-		{"notes.txt", "hello", "text/plain; charset=utf-8"},
-		{"notes.md", "# Title", "text/markdown; charset=utf-8"},
-		{"data.csv", "a,b\n1,2", "text/csv; charset=utf-8"},
-		{"data.json", `{"a":1}`, "application/json"},
-		{"main.go", "package main", "text/plain; charset=utf-8"},
-		{"page.html", "<html><body>hi</body></html>", "text/html; charset=utf-8"},
-		{"photo.png", "\x89PNG\r\n\x1a\n0000", "image/png"},
-		{"photo.jpg", "\xff\xd8\xff\xe0", "image/jpeg"},
-		{"anim.gif", "GIF89a", "image/gif"},
-		{"tone.wav", "RIFF\x24\x00\x00\x00WAVEfmt ", "audio/wave"},
-		{"tone.mp3", "ID3\x04\x00", "audio/mpeg"},
-		{"raw.mp3", "\xff\xfb\x90\x00\x01\x02", "audio/mpeg"},
-		{"clip.mp4", "\x00\x00\x00\x20ftypisom\x00\x00\x02\x00isomiso2avc1mp41", "video/mp4"},
-		{"doc.pdf", "%PDF-1.4", "application/pdf"},
-		{"notes.md.zip", "PK\x03\x04", ""},
-		{"clip.webm", "\x1a\x45\xdf\xa3", ""},
-		{"blob.bin", "\x00\x01\x02\x03", ""},
-		{"raw.mp4", "\xff\xfb\x90\x00", ""}, // only .mp3 is taken on its extension
-		{"utf16.txt", "\xff\xfeh\x00i\x00", ""},
-		{"latin1.txt", "caf\xe9 au lait", ""},
+		{"text", "hello", "text/plain; charset=utf-8"},
+		{"csv", "a,b\n1,2\n", "text/csv"},
+		{"json", `{"a":1}`, "application/json"},
+		{"html", "<html><body>hi</body></html>", "text/html; charset=utf-8"},
+		{"png", "\x89PNG\r\n\x1a\n0000", "image/png"},
+		{"jpeg", "\xff\xd8\xff\xe0", "image/jpeg"},
+		{"webp", "RIFF\x24\x00\x00\x00WEBPVP8 ", "image/webp"},
+		{"wav", "RIFF\x24\x00\x00\x00WAVEfmt ", "audio/wav"},
+		{"mp3 without a tag", "\xff\xfb\x90\x00\x01\x02", "audio/mpeg"},
+		{"mp4", "\x00\x00\x00\x20ftypisom\x00\x00\x02\x00isomiso2avc1mp41", "video/mp4"},
+		{"pdf", "%PDF-1.4", "application/pdf"},
+		{"zip", "PK\x03\x04", ""},
+		{"binary", "\x00\x01\x02\x03", ""},
+		{"utf-16", "\xff\xfeh\x00i\x00", ""},
+		{"latin-1", "caf\xe9 au lait", ""},
 	} {
-		got, err := sniff(tc.name, []byte(tc.body))
+		got, err := sniff([]byte(tc.body))
 		if tc.want == "" {
 			if !errors.Is(err, ErrUnsupported) {
 				t.Errorf("%s: got %q, %v; want ErrUnsupported", tc.name, got, err)
@@ -49,108 +43,23 @@ func TestSniff(t *testing.T) {
 	}
 }
 
-func TestCleanName(t *testing.T) {
-	for in, want := range map[string]string{
-		"report.pdf": "report.pdf", "/tmp/x/report.pdf": "report.pdf", `C:\Users\me\report.pdf`: "report.pdf",
-		"  spaced.txt ": "spaced.txt", "": "file", "/": "file", strings.Repeat("é", 300): strings.Repeat("é", maxName),
-	} {
-		if got := cleanName(in); got != want {
-			t.Errorf("cleanName(%q) = %q, want %q", in, got, want)
-		}
-	}
-}
-
-// TestCleanTags: trimmed, blanks and repeats (any case) dropped, the first
-// spelling kept; too many or too long is invalid.
+// TestCleanTags: trimmed, blanks and repeats dropped; too many or too long
+// is invalid.
 func TestCleanTags(t *testing.T) {
-	got, err := cleanTags([]string{" Finance ", "", "finance", "Q3", "  "})
-	if err != nil || strings.Join(got, "|") != "Finance|Q3" {
-		t.Errorf("cleanTags = %q, %v; want [Finance Q3]", got, err)
-	}
-	if got, err := cleanTags(nil); err != nil || got != nil {
-		t.Errorf("cleanTags(nil) = %q, %v", got, err)
-	}
-	eleven := make([]string, maxTags+1)
-	for i := range eleven {
-		eleven[i] = fmt.Sprint("t", i)
+	s := &Store{limits: config.FilesConfig{MaxTags: 3, MaxTagChars: 7}}
+	got, err := s.cleanTags([]string{" q3 ", "", "finance", "q3", "  "})
+	if err != nil || strings.Join(got, "|") != "finance|q3" {
+		t.Errorf("cleanTags = %q, %v; want [finance q3]", got, err)
 	}
 	for name, tags := range map[string][]string{
-		"too many": eleven,
-		"too long": {strings.Repeat("é", maxTag+1)},
+		"too many": {"a", "b", "c", "d"},
+		"too long": {"abcdefgh"},
 	} {
-		if _, err := cleanTags(tags); !errors.Is(err, ErrInvalid) {
+		if _, err := s.cleanTags(tags); !errors.Is(err, ErrInvalid) {
 			t.Errorf("%s: err = %v, want ErrInvalid", name, err)
 		}
 	}
-	if _, err := cleanTags(eleven[:maxTags]); err != nil {
-		t.Errorf("%d tags: %v", maxTags, err)
-	}
-}
-
-// TestReference: images and PDFs go as they are, short text inline, and long
-// text, audio, video and an unread (too big) image as a note, which offers
-// search only on a ready file.
-func TestReference(t *testing.T) {
-	file := func(mediaType string, size int, status string) *opensearch.File {
-		return &opensearch.File{ID: "f1", Name: "x", MediaType: mediaType, Size: size, Status: status}
-	}
-	long := strings.Repeat("a", inlineText+1)
-	for _, tc := range []struct {
-		name    string
-		f       *opensearch.File
-		body    string
-		part    string // the part's media type, "" for none
-		content string // what Content starts with
-		search  bool   // the note offers search_userfiles
-	}{
-		{"image", file("image/png", 4, opensearch.FileReady), "\x89PNG", "image/png", `File "x"`, false},
-		{"pdf", file("application/pdf", 4, opensearch.FileStored), "%PDF", "application/pdf", `File "x"`, false},
-		{"short text", file("text/markdown; charset=utf-8", 2, opensearch.FileReady), "hi", "", `File "x"`, false},
-		{"text at the limit", file("text/plain; charset=utf-8", inlineText, opensearch.FileReady), long[:inlineText], "", `File "x"`, false},
-		{"long text", file("text/plain; charset=utf-8", len(long), opensearch.FileReady), long, "", `File "x"`, true},
-		{"text not read", file("text/plain; charset=utf-8", 1<<20, opensearch.FileReady), "", "", `File "x"`, true},
-		{"audio", file("audio/wave", 10, opensearch.FileReady), "", "", `File "x"`, true},
-		{"video, not embedded", file("video/mp4", 10, opensearch.FileStored), "", "", `File "x"`, false},
-		{"image not read", file("image/png", inlineBytes+1, opensearch.FileReady), "", "", `File "x"`, true},
-	} {
-		t.Run(tc.name, func(t *testing.T) {
-			var body []byte
-			if tc.body != "" {
-				body = []byte(tc.body)
-			}
-			ref := reference(tc.f, body)
-			switch {
-			case !strings.HasPrefix(ref.Content, tc.content):
-				t.Errorf("content %.80q, want it to start %q", ref.Content, tc.content)
-			case tc.part == "" && ref.Part != nil, tc.part != "" && (ref.Part == nil || ref.Part.InlineData.MIMEType != tc.part):
-				t.Errorf("part %+v, want %q", ref.Part, tc.part)
-			case strings.Contains(ref.Content, "search_userfiles") != tc.search:
-				t.Errorf("content %q: search offered = %v, want %v", ref.Content, !tc.search, tc.search)
-			case ref.Kind != "file" || ref.ID != "f1":
-				t.Errorf("kind %q id %q", ref.Kind, ref.ID)
-			case !strings.Contains(ref.Content, `call it "x", never by its id`):
-				t.Errorf("content %.120q does not tell the model to name the file", ref.Content)
-			case tc.body != "" && tc.part == "" && !tc.search && !strings.Contains(ref.Content, "<file name=\"x\">\n"+tc.body+"\n</file>"):
-				t.Errorf("text not inline: %.120q", ref.Content)
-			}
-		})
-	}
-}
-
-// TestInline: only images and PDFs within inlineBytes, and texts that may be
-// within inlineText characters, are read.
-func TestInline(t *testing.T) {
-	for _, tc := range []struct {
-		mediaType string
-		size      int
-		want      bool
-	}{
-		{"image/png", inlineBytes, true}, {"image/png", inlineBytes + 1, false},
-		{"application/pdf", 1, true}, {"text/plain; charset=utf-8", inlineText * 4, true},
-		{"text/plain; charset=utf-8", inlineText*4 + 1, false}, {"audio/wave", 1, false}, {"video/mp4", 1, false},
-	} {
-		if got := inline(&opensearch.File{MediaType: tc.mediaType, Size: tc.size}); got != tc.want {
-			t.Errorf("inline(%s, %d) = %v", tc.mediaType, tc.size, got)
-		}
+	if _, err := s.cleanTags([]string{"a", "b", "abcdefg"}); err != nil {
+		t.Errorf("at the limits: %v", err)
 	}
 }

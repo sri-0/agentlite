@@ -115,8 +115,8 @@ document-level security, is `not_found`. ARCHITECTURE.md has the frames.
 | GET/PATCH/DELETE | `/v1/threads/{id}` | thread; `PATCH {title?, connectors?, workspace_id?}` (`""` takes it out of its workspace); delete removes its family (`409` while a run is active) |
 | GET/POST | `/v1/workspaces` | the workspaces threads are filed under, by name; `POST {name}` |
 | PATCH/DELETE | `/v1/workspaces/{id}` | rename (`{name}`); delete, which moves its threads and files out of it |
-| GET/POST | `/v1/files` | uploaded files, newest first (`?workspace=<id>` or `none`); `POST` a multipart `file` and optional `workspaceId` (docs/FILES.md) |
-| GET/DELETE | `/v1/files/{id}`, `/v1/files/{id}/content` | one file's record; the file itself, sandboxed; delete it |
+| GET/POST | `/v1/rag/files` | files users upload for RAG, newest first (`?workspace=<id>` or `none`); `POST` a multipart `file`, optional `workspaceId` and `tags` (docs/FILES.md) |
+| GET/DELETE | `/v1/rag/files/{id}`, `/v1/rag/files/{id}/content` | one file's record; the file itself, as a download; delete it |
 | GET | `/v1/threads/{id}/messages?before=&limit=` | `{data: [{id, thread_id, role, seq, created_at, text, events}], cursor}` |
 | GET | `/v1/threads/{id}/interrupts` | the paused run's pending interrupts |
 | GET | `/v1/threads/{id}/sources`, `/v1/threads/{id}/sources/{n}` | the conversation's sources by number; one source, what `[source:n]` refers to |
@@ -143,7 +143,7 @@ server as clients reach it), `CONFIG_DIR`,
 `LOG_LEVEL`, `LOG_JSON`, `ALLOWED_ORIGINS` (CORS), `WS_ALLOWED_ORIGINS` (the socket's browser
 origins; `*` allows any), `MAX_BODY_MB`
 (the largest request body, default 32), `REDIS_HOST/PORT/USER/PASS`,
-`REDIS_DB_RUNS/SESSIONS/HITL` (default 1/2/3), `OPENSEARCH_URL/USERNAME/PASSWORD`,
+`REDIS_DB_RUNS/SESSIONS/HITL` (default 1/2/3), `OPENSEARCH_URL/USERNAME/PASSWORD`, `OPENSEARCH_INDEX_PREFIX` (default `user_ai_`; starts every index name),
 `S3_ENDPOINT/ACCESS_KEY/SECRET_KEY/BUCKET/REGION/USE_SSL` (required: artifact bodies and
 skill files), `TRANSPORT_SENSITIVE_HEADERS` (a caller's headers a forward drops),
 `TRANSPORT_RESPONSE_HEADER_TIMEOUT` (default 5m),

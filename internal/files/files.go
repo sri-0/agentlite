@@ -1,9 +1,9 @@
-// Package files keeps the files users upload: the record in OpenSearch, the
-// body in S3, and, with an embedding model, what the file holds embedded for
-// search_userfiles. Only kinds a model takes as they are get in (text,
-// images, audio, video and PDF); nothing is converted. A message names a
-// file with #id (Resolve) and the model gets it: images and PDFs as they
-// are, small text inline, anything else as a note.
+// Package files keeps the files users upload for RAG: the record in
+// OpenSearch, the body in S3, and, with an embedding model, what the file
+// holds embedded for search_userfiles. Only kinds a model takes as they are
+// get in (text, images, audio, video and PDF); nothing is converted. A
+// message names a file with #id (Resolve) and the model gets it: images and
+// PDFs as they are, small text inline, anything else as a note.
 package files
 
 import (
@@ -11,34 +11,24 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"net/http"
-	"path/filepath"
+	"mime"
+	"slices"
 	"strings"
 	"time"
 	"unicode/utf8"
 
+	"github.com/gabriel-vasile/mimetype"
 	"github.com/google/uuid"
 
+	"agentlite/config"
 	"agentlite/pkg/db/opensearch"
 	"agentlite/pkg/s3"
 )
 
-// MaxBytes is the largest file accepted.
-const MaxBytes = 25 << 20
-
-// maxName bounds a file's name, which the UI shows whole.
-const maxName = 200
-
-// A file has at most maxTags tags, each at most maxTag runes.
-const (
-	maxTags = 10
-	maxTag  = 40
-)
-
 // Errors for a file that cannot be kept: a request no upload can satisfy
-// (an empty file, a text too big to search; an unknown workspace is
-// opensearch.ErrUnknownWorkspace), a kind of file that is not accepted, and
-// one the embedding model refused or failed.
+// (an empty file, bad tags, a text too big to search; an unknown workspace
+// is opensearch.ErrUnknownWorkspace), a kind of file that is not accepted,
+// and one the embedding model refused or failed.
 var (
 	ErrInvalid     = errors.New("invalid file")
 	ErrUnsupported = errors.New("unsupported file type")
@@ -54,21 +44,31 @@ const (
 	kindPDF   = "pdf"
 )
 
+// kinds are the media types accepted other than text, by kind.
+var kinds = map[string]string{
+	"image/png": kindImage, "image/jpeg": kindImage, "image/webp": kindImage, "image/gif": kindImage,
+	"audio/wav": kindAudio, "audio/mpeg": kindAudio, "video/mp4": kindVideo, "application/pdf": kindPDF,
+}
+
 // Store keeps files.
 type Store struct {
 	records  *opensearch.Client
 	bodies   *s3.Client
+	limits   config.FilesConfig
 	embedder *Embedder // nil: files are kept, not searchable
 }
 
 // New returns a store; with an embedder, files are searchable.
-func New(records *opensearch.Client, bodies *s3.Client, embedder *Embedder) *Store {
-	return &Store{records: records, bodies: bodies, embedder: embedder}
+func New(records *opensearch.Client, bodies *s3.Client, limits config.FilesConfig, embedder *Embedder) *Store {
+	return &Store{records: records, bodies: bodies, limits: limits, embedder: embedder}
 }
 
 // Searchable reports whether files are embedded, and so searchable; a nil
 // store has none.
 func (s *Store) Searchable() bool { return s != nil && s.embedder != nil }
+
+// MaxBytes is the largest upload.
+func (s *Store) MaxBytes() int64 { return int64(s.limits.MaxUploadMB) << 20 }
 
 // Add keeps a file under a workspace ("" files it under none), embedded for
 // search first: a file the model refuses is not kept.
@@ -76,19 +76,19 @@ func (s *Store) Add(ctx context.Context, name, workspaceID string, tags []string
 	if len(body) == 0 {
 		return nil, fmt.Errorf("%w: the file is empty", ErrInvalid)
 	}
-	tags, err := cleanTags(tags)
+	tags, err := s.cleanTags(tags)
 	if err != nil {
 		return nil, err
 	}
 	if err := s.records.CheckWorkspace(ctx, workspaceID); err != nil {
 		return nil, err
 	}
-	mediaType, err := sniff(name, body)
+	mediaType, err := sniff(body)
 	if err != nil {
 		return nil, err
 	}
 	f := &opensearch.File{
-		ID: uuid.Must(uuid.NewV7()).String(), Name: cleanName(name), MediaType: mediaType, Size: len(body),
+		ID: uuid.Must(uuid.NewV7()).String(), Name: name, MediaType: mediaType, Size: len(body),
 		WorkspaceID: workspaceID, Tags: tags, Status: opensearch.FileStored, CreatedAt: time.Now(),
 	}
 	chunks, err := s.index(ctx, f, body)
@@ -141,33 +141,16 @@ func (s *Store) remove(ctx context.Context, id string) error {
 // key is where a file's body lives in S3.
 func key(id string) string { return "files/" + id }
 
-// textTypes refine plain text by extension; the first bytes cannot tell
-// Markdown, CSV or JSON from other text.
-var textTypes = map[string]string{
-	".md":       "text/markdown; charset=utf-8",
-	".markdown": "text/markdown; charset=utf-8",
-	".csv":      "text/csv; charset=utf-8",
-	".json":     "application/json",
-}
-
-// sniff is a file's media type, from its first bytes (http.DetectContentType)
-// and, for plain text and an MP3 without an ID3 tag, its extension.
-// ErrUnsupported for any kind but text, images, audio, video and PDF, and for
-// text that is not UTF-8 (a UTF-16 export, say).
-func sniff(name string, body []byte) (string, error) {
-	mediaType := http.DetectContentType(body)
-	ext := strings.ToLower(filepath.Ext(name))
-	switch {
-	case strings.HasPrefix(mediaType, "text/plain") && textTypes[ext] != "":
-		mediaType = textTypes[ext]
-	case mediaType == "application/octet-stream" && ext == ".mp3":
-		mediaType = "audio/mpeg"
-	}
+// sniff is a file's media type, from its content (mimetype). ErrUnsupported
+// for any kind but text, images, audio, video and PDF, and for text that is
+// not UTF-8 (a UTF-16 export, say).
+func sniff(body []byte) (string, error) {
+	mediaType := mimetype.Detect(body).String()
 	switch k := kind(mediaType); {
 	case k == "":
 		return "", fmt.Errorf("%w: %s; upload text, PNG, JPEG, WebP or GIF images, WAV or MP3 audio, MP4 video or PDF",
-			ErrUnsupported, base(mediaType))
-	case k == kindText && (strings.Contains(mediaType, "utf-16") || !utf8.Valid(body)):
+			ErrUnsupported, mediaType)
+	case k == kindText && !utf8.Valid(body):
 		return "", fmt.Errorf("%w: text that is not UTF-8; save it as UTF-8", ErrUnsupported)
 	}
 	return mediaType, nil
@@ -175,60 +158,24 @@ func sniff(name string, body []byte) (string, error) {
 
 // kind is what a media type is to the model; "" for one not accepted.
 func kind(mediaType string) string {
-	switch t := base(mediaType); {
-	case strings.HasPrefix(t, "text/"), t == "application/json":
+	t, _, _ := mime.ParseMediaType(mediaType)
+	if strings.HasPrefix(t, "text/") || t == "application/json" {
 		return kindText
-	case t == "image/png", t == "image/jpeg", t == "image/webp", t == "image/gif":
-		return kindImage
-	case t == "audio/wave", t == "audio/mpeg":
-		return kindAudio
-	case t == "video/mp4":
-		return kindVideo
-	case t == "application/pdf":
-		return kindPDF
 	}
-	return ""
+	return kinds[t]
 }
 
-// base is a media type without its parameters: text/plain, not
-// text/plain; charset=utf-8.
-func base(mediaType string) string {
-	t, _, _ := strings.Cut(mediaType, ";")
-	return t
-}
-
-// cleanTags are a file's tags: trimmed, without blanks or repeats (ignoring
-// case, keeping the first spelling); more than maxTags, or one longer than
-// maxTag runes, is invalid.
-func cleanTags(tags []string) ([]string, error) {
-	var out []string
-	seen := map[string]bool{}
-	for _, t := range tags {
-		t = strings.TrimSpace(t)
-		if t == "" || seen[strings.ToLower(t)] {
-			continue
-		}
-		if utf8.RuneCountInString(t) > maxTag {
-			return nil, fmt.Errorf("%w: a tag is at most %d characters", ErrInvalid, maxTag)
-		}
-		seen[strings.ToLower(t)] = true
-		out = append(out, t)
+// cleanTags trims tags and drops blanks and repeats; more than the limit, or
+// a longer tag, is invalid.
+func (s *Store) cleanTags(tags []string) ([]string, error) {
+	for i, t := range tags {
+		tags[i] = strings.TrimSpace(t)
 	}
-	if len(out) > maxTags {
-		return nil, fmt.Errorf("%w: a file has at most %d tags", ErrInvalid, maxTags)
+	slices.Sort(tags)
+	tags = slices.Compact(slices.DeleteFunc(tags, func(t string) bool { return t == "" }))
+	long := slices.ContainsFunc(tags, func(t string) bool { return utf8.RuneCountInString(t) > s.limits.MaxTagChars })
+	if len(tags) > s.limits.MaxTags || long {
+		return nil, fmt.Errorf("%w: at most %d tags of at most %d characters", ErrInvalid, s.limits.MaxTags, s.limits.MaxTagChars)
 	}
-	return out, nil
-}
-
-// cleanName is the name a file is listed under: the upload's own name
-// without a path, cut to maxName runes.
-func cleanName(name string) string {
-	name = strings.TrimSpace(filepath.Base(strings.ReplaceAll(name, `\`, "/")))
-	if name == "" || name == "." || name == "/" {
-		return "file"
-	}
-	if utf8.RuneCountInString(name) > maxName {
-		return string([]rune(name)[:maxName])
-	}
-	return name
+	return tags, nil
 }

@@ -23,7 +23,7 @@ type ModelsConfig struct {
 	Compaction   *Compaction   `yaml:"compaction"`    // nil disables context compaction
 	Voice        *VoiceConfig  `yaml:"voice"`         // nil disables the voice prompt
 	Images       *ImagesConfig `yaml:"images"`        // nil disables image generation
-	Files        *FilesConfig  `yaml:"files"`         // nil: uploaded files are kept, not searchable
+	Files        FilesConfig   `yaml:"files"`         // uploaded files: limits, and the model that makes them searchable
 	// Suggestions names the model that proposes next prompts after a turn
 	// (internal/suggest); nil uses default_model.
 	Suggestions *SuggestionsConfig `yaml:"suggestions"`
@@ -95,12 +95,20 @@ type SuggestionsConfig struct {
 	Model string `yaml:"model"`
 }
 
-// FilesConfig makes uploaded files searchable (internal/files, docs/FILES.md):
-// the multimodal model that embeds them, the size of its vectors (the
-// file_chunks index is sized for it), and the request format its server
-// speaks: deepinfra (an OpenAI-style input list whose items may be content
-// parts) or vllm (vLLM's chat-style embeddings, one request per input).
+// FilesConfig is the files block (internal/files, docs/FILES.md): limits on
+// the files users upload and on what a #reference puts in the model's context
+// as it is, and the multimodal model that embeds files for search_userfiles,
+// with the size of its vectors (file_chunks is sized for it) and the request
+// format its server speaks: deepinfra (an OpenAI-style input list whose items
+// may be content parts) or vllm (vLLM's chat-style embeddings). Without an
+// embedding model files are kept, not searchable. A field left out takes its
+// default.
 type FilesConfig struct {
+	MaxUploadMB    int    `yaml:"max_upload_mb"`   // the largest upload; default 25
+	InlineTextKB   int    `yaml:"inline_text_kb"`  // a text up to this goes inline; default 20
+	InlineMediaMB  int    `yaml:"inline_media_mb"` // an image or PDF up to this goes as it is; default 10
+	MaxTags        int    `yaml:"max_tags"`        // default 10
+	MaxTagChars    int    `yaml:"max_tag_chars"`   // default 40
 	EmbeddingModel string `yaml:"embedding_model"`
 	Dimensions     int    `yaml:"dimensions"` // default 768
 	Format         string `yaml:"format"`     // deepinfra (default) or vllm
@@ -145,12 +153,15 @@ func loadModels(dir string) (*ModelsConfig, error) {
 	if cfg.DefaultModel == "" {
 		return nil, errors.New("models.yaml: default_model is required")
 	}
+	f := &cfg.Files
+	f.MaxUploadMB, f.InlineTextKB, f.InlineMediaMB = cmp.Or(f.MaxUploadMB, 25), cmp.Or(f.InlineTextKB, 20), cmp.Or(f.InlineMediaMB, 10)
+	f.MaxTags, f.MaxTagChars = cmp.Or(f.MaxTags, 10), cmp.Or(f.MaxTagChars, 40)
 	if c := cfg.Compaction; c != nil {
 		if err := c.check(); err != nil {
 			return nil, fmt.Errorf("models.yaml: compaction: %w", err)
 		}
 	}
-	if f := cfg.Files; f != nil {
+	if f.EmbeddingModel != "" {
 		f.Dimensions = cmp.Or(f.Dimensions, 768)
 		f.Format = cmp.Or(f.Format, "deepinfra")
 		if f.Format != "deepinfra" && f.Format != "vllm" {

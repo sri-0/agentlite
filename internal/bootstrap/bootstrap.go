@@ -120,10 +120,10 @@ func New(ctx context.Context) (_ *App, err error) {
 	app.Artifacts = artifacts.New(app.Store, bucket, recorder, app.Log)
 	app.Skills = skills.New(app.Store, bucket, app.Log)
 	var embedder *files.Embedder // nil without an embedding model: files kept, not searchable
-	if f := cfg.Models.Files; f != nil {
+	if f := cfg.Models.Files; f.EmbeddingModel != "" {
 		embedder = files.NewEmbedder(app.Registry, f.EmbeddingModel, f.Format, f.Dimensions)
 	}
-	app.Files = files.New(app.Store, bucket, embedder)
+	app.Files = files.New(app.Store, bucket, cfg.Models.Files, embedder)
 	var studio *images.Studio // nil without an image model: no generate_image
 	if m := cfg.Models.Images; m != nil {
 		studio = images.New(app.Registry, app.Artifacts, app.Store, m.Model)
@@ -207,7 +207,7 @@ func checkConfiguredModels(m *config.ModelsConfig, registry *providers.Registry)
 			return err
 		}
 	}
-	if m.Files != nil {
+	if m.Files.EmbeddingModel != "" {
 		return check(m.Files.EmbeddingModel, modelcatalog.TypeEmbedding)
 	}
 	return nil
