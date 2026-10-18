@@ -95,7 +95,9 @@ a 768-dimension kNN vector, cosine, HNSW on Lucene), repeating the file's name, 
 workspace so a search needs no second lookup. Deleting a file deletes its chunks;
 deleting a workspace moves them out with the file.
 
-`search_userfiles {query, files?}` is a harness tool (`Store.Search` behind it), offered when the block is there. It
+`search_userfiles {query, files?}` is a harness tool (`Store.Search` behind it), offered when the block is there, as
+the **files** connector (Your files): a thread can switch it off like any connector (TOOLS.md). `#id` references
+stay on either way: naming a file is the user's choice, not the model's. It
 embeds the query (task `search_query`) and returns the 8 nearest chunks (HNSW looks at
 100 candidates: asked for 8, it missed the one differing passage of a long report),
 `{hits: [{fileId, name, mediaType, seq, text?}]}`, of the files of the conversation's

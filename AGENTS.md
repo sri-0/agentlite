@@ -159,7 +159,8 @@ headers and MCP endpoints.
 - `connectors.yaml`: `user_agent` and `connectors[]` (`id, name, description, icon, type:
   tools | mcp, tools[], mcp: {endpoint | command, tools, require_confirmation, thread_args,
   ui, artifacts, expose}, http: {headers, user_agent, timeout, forward, tls}`). A tool belongs to
-  one connector at most. The development MCP server is open-slide-mcp
+  one connector at most. The server adds its own after them, when configured: `images`
+  (generate_image) and `files` (search_userfiles), switched per thread like the rest. The development MCP server is open-slide-mcp
   (`~/code/open-slide-mcp`, `make run`, `:8090/mcp`).
 - `agents/*.md`: frontmatter `id, name, description, kind, mode, tools, subagents,
   max_output_tokens` and the instruction (AGENT-ARCHITECTURE.md).

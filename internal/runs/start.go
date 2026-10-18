@@ -60,7 +60,7 @@ func (m *Manager) Start(ctx context.Context, in StartInput) (*Run, error) {
 		return nil, fmt.Errorf("%w: a run needs a message", ErrInvalid)
 	}
 	if in.Connectors != nil {
-		if err := m.cfg.CheckConnectors(*in.Connectors); err != nil {
+		if err := m.runtime.CheckConnectors(*in.Connectors); err != nil {
 			return nil, fmt.Errorf("%w: %v", ErrInvalid, err)
 		}
 	}

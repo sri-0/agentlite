@@ -30,6 +30,8 @@ type Runtime interface {
 	Run(ctx context.Context, in Input, sink stream.Sink) (Result, error)
 	// CheckModel reports whether a model id names a model its provider serves.
 	CheckModel(modelID string) error
+	// CheckConnectors refuses connector ids the runtime doesn't serve.
+	CheckConnectors(ids []string) error
 	Seed(ctx context.Context, threadID, agentID string, history []opensearch.Message) error
 }
 
@@ -80,7 +82,6 @@ type Manager struct {
 	runtime  Runtime
 	hitl     *hitl.Store
 	defs     map[string]config.AgentDef
-	cfg      *config.Config
 	appName  string
 	model    string // the model a run uses when the request names none
 	logger   zerolog.Logger
@@ -91,7 +92,7 @@ type Manager struct {
 func New(cfg *config.Config, d Deps) *Manager {
 	return &Manager{
 		db: d.DB, store: &store{db: d.DB}, log: newValkeyLog(d.DB), history: d.History, sessions: d.Sessions,
-		runtime: d.Runtime, hitl: d.Interrupts, defs: cfg.Defs(), cfg: cfg, appName: cfg.AppName,
+		runtime: d.Runtime, hitl: d.Interrupts, defs: cfg.Defs(), appName: cfg.AppName,
 		model: cfg.Models.DefaultModel, logger: d.Log,
 	}
 }

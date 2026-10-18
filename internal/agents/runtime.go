@@ -129,6 +129,9 @@ func (rt *Runtime) Bind(ctx context.Context, d builtin.Dispatcher) error {
 	if err := rt.connectorSets(); err != nil {
 		return err
 	}
+	if err := rt.switchable(); err != nil {
+		return err
+	}
 	rt.toolUI = maps.Clone(rt.mcpTools.ui)
 	for _, set := range []map[string]toolx.Tool{rt.harness, rt.world} {
 		for name, t := range set {

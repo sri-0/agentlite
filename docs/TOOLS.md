@@ -140,6 +140,14 @@ ready-made toolset for function tools, so `toolx.Toolset` is the small one. A to
 belongs to one connector at most: a run gets every connector by default, and adk
 refuses two tools of one name.
 
+Two harness tools do work in the world, and cost, so a thread switches them like a
+connector: the runtime makes each a connector of its own (`builtin.Switchable`), after
+`connectors.yaml`'s, when it is built: **images** (Image generation: `generate_image`)
+and **files** (Your files: `search_userfiles`). They are listed by `GET /v1/connectors`,
+switched by a thread's `connectors`, and validated with the rest (`Runtime.CheckConnectors`).
+An agent that lists one by name (the `images` agent) still gets it. A `#id` file
+reference is not a tool and stays on: naming a file is the user's own choice.
+
 ```go
 func searchRecords(conn toolx.Connector) (toolx.Tool, error) {
 	return toolx.New(toolx.Spec{
@@ -167,7 +175,7 @@ func searchRecords(conn toolx.Connector) (toolx.Tool, error) {
 - A harness tool (`internal/tools/builtin`, one file per tool) is built the same way from
   `builtin.Deps`; its work lives in its own package (`emit_artifact` → `internal/artifacts`,
   `write_skill` → `internal/skills`, `generate_image` → `internal/images`,
-  `search_userfiles` → `internal/files`).
+  `search_userfiles` → `internal/files`); the last two are switchable connectors (above).
 - Registries and `toolx.Toolset` accept only `toolx.Tool`, and
   `TestOnlyToolxBuildsFunctionTools` fails if any package but `toolx` imports
   `functiontool`.
