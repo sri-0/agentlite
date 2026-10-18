@@ -20,7 +20,6 @@ import (
 	"agentlite/internal/images"
 	"agentlite/internal/mcp"
 	"agentlite/internal/providers"
-	"agentlite/internal/refs"
 	"agentlite/internal/runs"
 	"agentlite/internal/skills"
 	"agentlite/internal/sources"
@@ -125,7 +124,7 @@ func New(ctx context.Context) (_ *App, err error) {
 	app.Agents = agents.New(cfg, agents.Deps{
 		Registry: app.Registry, Sessions: app.Sessions, Memory: mem, Servers: servers,
 		Sources: recorder, Artifacts: app.Artifacts, Skills: app.Skills, Images: studio,
-		Refs: refs.Resolvers{'#': app.Files}, Log: app.Log,
+		Files: app.Files, Log: app.Log,
 	})
 	app.Runs = runs.New(cfg, runs.Deps{
 		DB: runsDB, Interrupts: hitl.NewStore(hitlDB), History: app.Store, Sessions: app.Sessions,

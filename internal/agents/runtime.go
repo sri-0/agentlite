@@ -26,6 +26,7 @@ import (
 
 	"agentlite/config"
 	"agentlite/internal/artifacts"
+	"agentlite/internal/files"
 	"agentlite/internal/images"
 	"agentlite/internal/mcp"
 	"agentlite/internal/providers"
@@ -81,7 +82,7 @@ type Deps struct {
 	Skills    *skills.Library
 	Artifacts *artifacts.Store
 	Images    *images.Studio // nil when no image model is configured
-	Refs      refs.Resolvers // other packages' reference sigils, such as #id for a file
+	Files     *files.Store   // uploaded files, which a message names with #id
 	Log       zerolog.Logger
 }
 
@@ -91,11 +92,10 @@ func New(cfg *config.Config, d Deps) *Runtime {
 		appName: cfg.AppName, defs: cfg.Defs(), registry: d.Registry, sessions: d.Sessions, memory: d.Memory,
 		defaultModel: cfg.Models.DefaultModel, compact: cfg.Models.Compaction, servers: d.Servers,
 		sources: d.Sources, artifacts: d.Artifacts, skills: d.Skills, images: d.Images,
-		refs: refs.Resolvers{'/': d.Skills}, log: d.Log,
+		refs: refs.Resolvers{'/': d.Skills, '#': d.Files}, log: d.Log,
 		connectors: cfg.Connectors, transport: cfg.Transport,
 		mcpTools: newMCPTools(cfg.Connectors),
 	}
-	maps.Copy(rt.refs, d.Refs)
 	if m := cfg.Models.Memory; m != nil {
 		rt.preload = m.Preload
 	}
