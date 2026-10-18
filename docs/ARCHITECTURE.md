@@ -211,7 +211,11 @@ Valkey is split into logical databases, set by environment:
 OpenSearch indices: `threads`, `messages` (events stored unindexed), `memories`
 (kNN vectors), `sources`, `artifacts`, `counters` (each conversation's source
 numbers and artifact versions), `skills` (the skills library, one record per skill;
-its files are in S3; SKILLS.md), `workspaces`, `files` (uploaded files' records; FILES.md). The service never creates or changes an index, so it
+its files are in S3; SKILLS.md), `workspaces`, `userfiles` (the records of files
+users upload for RAG; FILES.md). Every name starts with `OPENSEARCH_INDEX_PREFIX`
+(default `user_ai_`: `user_ai_threads`, `user_ai_userfiles`, …), added in one place
+(`opensearch.Client.ix`), so deployments can share a cluster; `make indices` uses the
+same variable. The service never creates or changes an index, so it
 needs no rights beyond reading and writing documents: each index's mapping is a file
 in `deploy/opensearch`, applied with `make indices` (curl: it creates a missing index,
 and adds new fields to an existing one; a changed type needs a reindex). Mappings are

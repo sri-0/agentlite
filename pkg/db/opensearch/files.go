@@ -5,9 +5,9 @@ import (
 	"time"
 )
 
-// indexFiles holds the records of the files users uploaded; their bodies are
-// in S3 (internal/files).
-const indexFiles = "files"
+// indexFiles holds the records of the files users uploaded for RAG; their
+// bodies are in S3 (internal/files).
+const indexFiles = "userfiles"
 
 // File statuses: a ready file is embedded and searchable, a stored one is
 // kept and can be referenced but is not searchable (a PDF, or any file when

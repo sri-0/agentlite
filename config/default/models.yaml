@@ -98,3 +98,12 @@ voice:
 # Omit the block and there is neither.
 images:
   model: openrouter/qwen/qwen-image-2.1-turbo
+
+# Files users upload for RAG (internal/files, docs/FILES.md). Every limit has
+# this default; leave the block out to keep them.
+files:
+  max_upload_mb: 25     # the largest upload
+  inline_text_kb: 20    # a #referenced text up to this goes in the model's context whole
+  inline_media_mb: 10   # an image or PDF up to this goes as it is; bigger gets a note
+  max_tags: 10
+  max_tag_chars: 40

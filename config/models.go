@@ -1,6 +1,7 @@
 package config
 
 import (
+	"cmp"
 	"errors"
 	"fmt"
 	"os"
@@ -22,6 +23,7 @@ type ModelsConfig struct {
 	Compaction   *Compaction   `yaml:"compaction"`    // nil disables context compaction
 	Voice        *VoiceConfig  `yaml:"voice"`         // nil disables the voice prompt
 	Images       *ImagesConfig `yaml:"images"`        // nil disables image generation
+	Files        FilesConfig   `yaml:"files"`         // limits on uploaded files; defaults when absent
 }
 
 // Compaction configures adk's session compaction for every run. Tail
@@ -84,6 +86,17 @@ type ImagesConfig struct {
 	Model string `yaml:"model"`
 }
 
+// FilesConfig limits the files users upload (internal/files) and what a
+// #reference puts in the model's context as it is. A field left out takes its
+// default.
+type FilesConfig struct {
+	MaxUploadMB   int `yaml:"max_upload_mb"`   // the largest upload; default 25
+	InlineTextKB  int `yaml:"inline_text_kb"`  // a text up to this goes inline; default 20
+	InlineMediaMB int `yaml:"inline_media_mb"` // an image or PDF up to this goes as it is; default 10
+	MaxTags       int `yaml:"max_tags"`        // default 10
+	MaxTagChars   int `yaml:"max_tag_chars"`   // default 40
+}
+
 // Provider is one OpenAI-compatible upstream. Secrets are named by environment
 // variable; base_url and header values may use ${ENV} expansion.
 type Provider struct {
@@ -123,6 +136,9 @@ func loadModels(dir string) (*ModelsConfig, error) {
 	if cfg.DefaultModel == "" {
 		return nil, errors.New("models.yaml: default_model is required")
 	}
+	f := &cfg.Files
+	f.MaxUploadMB, f.InlineTextKB, f.InlineMediaMB = cmp.Or(f.MaxUploadMB, 25), cmp.Or(f.InlineTextKB, 20), cmp.Or(f.InlineMediaMB, 10)
+	f.MaxTags, f.MaxTagChars = cmp.Or(f.MaxTags, 10), cmp.Or(f.MaxTagChars, 40)
 	if c := cfg.Compaction; c != nil {
 		if err := c.check(); err != nil {
 			return nil, fmt.Errorf("models.yaml: compaction: %w", err)

@@ -112,7 +112,7 @@ func New(ctx context.Context) (_ *App, err error) {
 	}
 	app.Artifacts = artifacts.New(app.Store, bucket, recorder, app.Log)
 	app.Skills = skills.New(app.Store, bucket, app.Log)
-	app.Files = files.New(app.Store, bucket)
+	app.Files = files.New(app.Store, bucket, cfg.Models.Files)
 	var studio *images.Studio // nil without an image model: no generate_image
 	if m := cfg.Models.Images; m != nil {
 		studio = images.New(app.Registry, app.Artifacts, app.Store, m.Model)
