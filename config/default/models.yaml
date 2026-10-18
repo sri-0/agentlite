@@ -119,7 +119,18 @@ voice:
   model: openrouter/mistralai/voxtral-small-24b-2507-stt
 # Image generation (internal/images): the image model the generate_image tool
 # uses, and the Images page's default. Every image is kept as an artifact.
-# Omit the block and there is neither.
+# Omit the block and there is neither. A new image is made on the OpenAI
+# /images/generations route. edit_model edits on /images/edits, the original
+# uploaded as a form; without it an edit goes to model on /images/generations
+# with the original in OpenRouter's input_references (development only).
+# Offline, vLLM-Omni serves each image model on a server of its own
+# (`vllm serve Qwen/Qwen-Image-2.1 --omni`), declared under the vllm provider
+# with `type: image` and its own `base_url`. Qwen-Image 2.1 makes and edits:
+#   model: vllm/Qwen/Qwen-Image-2.1
+#   edit_model: vllm/Qwen/Qwen-Image-2.1
+# Earlier Qwen-Image models edit with Qwen-Image-Edit, a second server:
+#   model: vllm/Qwen/Qwen-Image
+#   edit_model: vllm/Qwen/Qwen-Image-Edit-2511
 images:
   model: openrouter/qwen/qwen-image-2.1-turbo
 
