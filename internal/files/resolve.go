@@ -88,31 +88,25 @@ func inline(f *opensearch.File) bool {
 	return false
 }
 
-// reference is what the model gets for a file: an image or a PDF as it is,
-// a text of up to inlineText characters inline, and anything else (a bigger
-// file, audio, video) as a note that names it. body is nil when it was not
-// read.
+// reference is what the model gets for a file, named by its name so that the
+// answer is too: an image or a PDF as it is, a text of up to inlineText
+// characters inline, and anything else (a bigger file, audio, video) as a
+// note. body is nil when it was not read.
 func reference(f *opensearch.File, body []byte) refs.Ref {
 	ref := refs.Ref{Kind: stream.ActivityFile, ID: f.ID, Activity: activity{ID: f.ID, Name: f.Name, MediaType: f.MediaType}}
+	named := fmt.Sprintf("File %q (%s), which the message calls #%s; call it %q, never by its id.",
+		f.Name, base(f.MediaType), f.ID, f.Name)
 	switch k := kind(f.MediaType); {
 	case body != nil && (k == kindImage || k == kindPDF):
-		ref.Content = fmt.Sprintf("#%s is the file %q (%s), attached next.", f.ID, f.Name, base(f.MediaType))
+		ref.Content = named + " It is attached next."
 		ref.Part = genai.NewPartFromBytes(body, base(f.MediaType))
 	case body != nil && k == kindText && utf8.RuneCount(body) <= inlineText:
-		ref.Content = fmt.Sprintf("<file id=%q name=%q>\n%s\n</file>", f.ID, f.Name, body)
+		ref.Content = fmt.Sprintf("%s\n<file name=%q>\n%s\n</file>", named, f.Name, body)
+	case f.Status == opensearch.FileReady:
+		ref.Content = fmt.Sprintf("%s It is %d bytes, too long or not a kind you can read here: search it with "+
+			"search_userfiles, files [%q].", named, f.Size, f.ID)
 	default:
-		ref.Content = note(f)
+		ref.Content = fmt.Sprintf("%s It is %d bytes, and can't be read or searched here.", named, f.Size)
 	}
 	return ref
-}
-
-// note tells the model about a file it cannot read here. A ready file can be
-// searched.
-func note(f *opensearch.File) string {
-	about := fmt.Sprintf("#%s is the file %q (%s, %d bytes)", f.ID, f.Name, base(f.MediaType), f.Size)
-	if f.Status != opensearch.FileReady {
-		return about + "; it can't be read or searched here."
-	}
-	return fmt.Sprintf("%s, too long or not a kind you can read here: search it with search_userfiles, files [%q].",
-		about, f.ID)
 }
