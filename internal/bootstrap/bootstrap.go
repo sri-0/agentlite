@@ -112,7 +112,7 @@ func New(ctx context.Context) (_ *App, err error) {
 	app.Skills = skills.New(app.Store, files, app.Log)
 	var studio *images.Studio // nil without an image model: no generate_image
 	if m := cfg.Models.Images; m != nil {
-		studio = images.New(app.Registry, app.Artifacts, app.Store, m.Model)
+		studio = images.New(app.Registry, app.Artifacts, app.Store, m.Model, m.Edit == "edits")
 	}
 	servers, err := mcp.Servers(cfg.Connectors, cfg.Transport, app.Log)
 	if err != nil {

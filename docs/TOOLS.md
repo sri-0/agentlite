@@ -275,10 +275,11 @@ version N, so an image shown in a chat keeps showing the version it made.
 
 The `media_type` field is new in `deploy/opensearch/artifacts.json`: run `make indices`.
 
-The model is called on the OpenAI route `/images/generations`, which OpenRouter and
-vLLM-Omni serve, reading `data[].b64_json`. An edit's reference image goes in OpenRouter's
-`input_references`; vLLM-Omni edits on `/images/edits` instead, so offline an edit
-generates without its reference until that route is added.
+A new image is made on the OpenAI route `/images/generations`, which OpenRouter and
+vLLM-Omni serve, reading `data[].b64_json`. An edit takes the route `images.edit` names
+in `models.yaml`: `generations` (the default) sends the original there in OpenRouter's
+`input_references`; `edits` uploads it to `/images/edits` (multipart, the original as
+`image`), where vLLM-Omni and other local OpenAI-compatible servers edit.
 
 S3 is any S3-compatible store through `minio-go` (`pkg/s3`); `docker-compose.yaml` runs
 MinIO on `:9000` (console `:9001`, `minioadmin`/`minioadmin`). The bucket is created on

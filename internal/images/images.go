@@ -6,6 +6,7 @@
 package images
 
 import (
+	"bytes"
 	"cmp"
 	"context"
 	"encoding/base64"
@@ -40,12 +41,21 @@ type Studio struct {
 	artifacts *artifacts.Store
 	records   *opensearch.Client
 	model     string // the default image model
+	edits     bool   // edit on /images/edits rather than /images/generations
 }
 
 // New returns a studio whose images come from model unless a request names
-// another image model.
-func New(registry *providers.Registry, store *artifacts.Store, records *opensearch.Client, model string) *Studio {
-	return &Studio{registry: registry, artifacts: store, records: records, model: model}
+// another image model. With edits, an edit goes to the image server's
+// /images/edits route (vLLM-Omni and other local servers); without, to
+// /images/generations with OpenRouter's input_references.
+func New(registry *providers.Registry, store *artifacts.Store, records *opensearch.Client, model string, edits bool) *Studio {
+	return &Studio{registry: registry, artifacts: store, records: records, model: model, edits: edits}
+}
+
+// reference is the image an edit starts from.
+type reference struct {
+	body      []byte
+	mediaType string
 }
 
 // Request is one image to make, in a conversation.
@@ -65,48 +75,48 @@ func (s *Studio) Make(ctx context.Context, r Request) (*opensearch.Artifact, err
 		return nil, fmt.Errorf("%w: describe the image in prompt", ErrInvalid)
 	}
 	a := &opensearch.Artifact{Kind: artifacts.KindImage, RootID: r.RootID, ThreadID: r.ThreadID, RunID: r.RunID}
-	var reference string
+	var ref *reference
 	if r.Edit == "" {
 		a.ID, a.Title = uuid.Must(uuid.NewV7()).String(), title(r.Prompt)
 	} else {
-		original, url, err := s.image(ctx, r.RootID, r.Edit)
+		original, body, err := s.image(ctx, r.RootID, r.Edit)
 		if err != nil {
 			return nil, err
 		}
-		a.ID, a.Title, reference = original.ID, original.Title, url
+		a.ID, a.Title, ref = original.ID, original.Title, &reference{body: body, mediaType: original.MediaType}
 	}
-	img, err := s.generate(ctx, cmp.Or(r.Model, s.model), r.Prompt, reference)
+	img, err := s.generate(ctx, cmp.Or(r.Model, s.model), r.Prompt, ref)
 	if err != nil {
 		return nil, err
 	}
 	return a, s.artifacts.Save(ctx, a, img)
 }
 
-// image is one of the conversation's images, as a data URL of its current
+// image is one of the conversation's images, with the bytes of its current
 // version.
-func (s *Studio) image(ctx context.Context, rootID, id string) (*opensearch.Artifact, string, error) {
+func (s *Studio) image(ctx context.Context, rootID, id string) (*opensearch.Artifact, []byte, error) {
 	a, err := s.records.Artifact(ctx, rootID, id)
 	switch {
 	case errors.Is(err, opensearch.ErrNotFound), err == nil && a.Kind != artifacts.KindImage:
-		return nil, "", fmt.Errorf("%w: edit: %q is not an image of this conversation", ErrInvalid, id)
+		return nil, nil, fmt.Errorf("%w: edit: %q is not an image of this conversation", ErrInvalid, id)
 	case err != nil:
-		return nil, "", err
+		return nil, nil, err
 	}
 	body, err := s.artifacts.Body(ctx, a)
 	if err != nil {
-		return nil, "", err
+		return nil, nil, err
 	}
 	defer body.Close()
 	img, err := io.ReadAll(body)
-	return a, "data:" + a.MediaType + ";base64," + base64.StdEncoding.EncodeToString(img), err
+	return a, img, err
 }
 
-// generate asks the model for one image, through the OpenAI-style
-// /images/generations route. A reference image is sent the way OpenRouter
-// takes one (input_references); servers that edit through /images/edits
-// instead (vLLM-Omni) generate without it. A generation is paid for, so a
-// failed one is not retried.
-func (s *Studio) generate(ctx context.Context, model, prompt, reference string) ([]byte, error) {
+// generate asks the model for one image on the OpenAI-style routes. A new
+// image goes to /images/generations. An edit goes there too, its reference
+// image in OpenRouter's input_references; or, with s.edits, to /images/edits
+// as a multipart upload. A generation is paid for, so a failed one is not
+// retried.
+func (s *Studio) generate(ctx context.Context, model, prompt string, ref *reference) ([]byte, error) {
 	t, err := s.registry.ResolveAs(model, modelcatalog.TypeImage)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrInvalid, err)
@@ -121,13 +131,22 @@ func (s *Studio) generate(ctx context.Context, model, prompt, reference string) 
 		option.WithHTTPClient(t.Client.HTTP),
 		option.WithMaxRetries(0),
 	)
-	var opts []option.RequestOption
-	if reference != "" {
-		opts = append(opts, option.WithJSONSet("input_references", []any{
-			map[string]any{"type": "image_url", "image_url": map[string]any{"url": reference}},
+	params := openai.ImageGenerateParams{Prompt: prompt, Model: t.Model.UpstreamID}
+	var resp *openai.ImagesResponse
+	switch {
+	case ref == nil:
+		resp, err = images.Generate(ctx, params)
+	case s.edits:
+		file := openai.File(bytes.NewReader(ref.body), "image."+strings.TrimPrefix(ref.mediaType, "image/"), ref.mediaType)
+		resp, err = images.Edit(ctx, openai.ImageEditParams{
+			Image: openai.ImageEditParamsImageUnion{OfFile: file}, Prompt: prompt, Model: t.Model.UpstreamID,
+		})
+	default:
+		url := "data:" + ref.mediaType + ";base64," + base64.StdEncoding.EncodeToString(ref.body)
+		resp, err = images.Generate(ctx, params, option.WithJSONSet("input_references", []any{
+			map[string]any{"type": "image_url", "image_url": map[string]any{"url": url}},
 		}))
 	}
-	resp, err := images.Generate(ctx, openai.ImageGenerateParams{Prompt: prompt, Model: t.Model.UpstreamID}, opts...)
 	if err != nil {
 		return nil, fmt.Errorf("generate image: %w", err)
 	}

@@ -82,6 +82,10 @@ type VoiceConfig struct {
 // the generate_image tool uses, and the Images page's default.
 type ImagesConfig struct {
 	Model string `yaml:"model"`
+	// Edit is the route an edit takes: "generations" (the default; the
+	// original goes as OpenRouter's input_references) or "edits" (the OpenAI
+	// /images/edits route, multipart: vLLM-Omni and other local servers).
+	Edit string `yaml:"edit"`
 }
 
 // Provider is one OpenAI-compatible upstream. Secrets are named by environment
@@ -127,6 +131,9 @@ func loadModels(dir string) (*ModelsConfig, error) {
 		if err := c.check(); err != nil {
 			return nil, fmt.Errorf("models.yaml: compaction: %w", err)
 		}
+	}
+	if im := cfg.Images; im != nil && im.Edit != "" && im.Edit != "generations" && im.Edit != "edits" {
+		return nil, fmt.Errorf("models.yaml: images: edit %q is not generations or edits", im.Edit)
 	}
 	seen := map[string]bool{}
 	for i := range cfg.Providers {
