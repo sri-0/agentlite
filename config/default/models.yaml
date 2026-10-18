@@ -110,11 +110,18 @@ voice:
 # Omit the block and there is neither.
 images:
   model: openrouter/qwen/qwen-image-2.1-turbo
-# Uploaded files (docs/FILES.md): the multimodal model that embeds them, so
-# search_userfiles can find them; its vector size (file_chunks.json is sized
-# for it); the request format of its server, deepinfra or vllm. Omit the
-# block and files are kept and referenceable with #id, but not searchable.
+
+# Files users upload for RAG (internal/files, docs/FILES.md): limits, each with
+# this default, and the multimodal model that embeds them so search_userfiles
+# can find them, its vector size (file_chunks.json is sized for it) and its
+# server's request format, deepinfra or vllm. Without embedding_model, files
+# are kept and referenceable with #id, but not searchable.
 files:
+  max_upload_mb: 25     # the largest upload
+  inline_text_kb: 20    # a #referenced text up to this goes in the model's context whole
+  inline_media_mb: 10   # an image or PDF up to this goes as it is; bigger gets a note
+  max_tags: 10
+  max_tag_chars: 40
   embedding_model: deepinfra/google/embeddinggemma-2
   dimensions: 768
   format: deepinfra

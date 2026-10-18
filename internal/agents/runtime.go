@@ -214,7 +214,6 @@ func (rt *Runtime) Run(ctx context.Context, in runs.Input, sink stream.Sink) (ru
 		return fail(err)
 	}
 	ctx = platform.WithUUIDProvider(stream.WithSink(ctx, sink), func() string { return uuid.Must(uuid.NewV7()).String() }) // adk's event ids too
-	// Before the content: a reference resolves in the run's conversation (#id, its workspace's files).
 	ctx = toolx.WithRun(ctx, toolx.Run{
 		Thread: toolx.Thread{ID: run.ThreadID, RootID: run.RootID, RunID: run.ID},
 		Model:  run.Model, Connectors: run.Connectors, ImageModel: run.ImageModel,

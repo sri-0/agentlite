@@ -41,7 +41,7 @@ func (s *Store) index(ctx context.Context, f *opensearch.File, body []byte) ([]o
 			inputs = append(inputs, input{text: c})
 		}
 	case kindImage, kindAudio, kindVideo:
-		inputs = []input{{data: body, mediaType: base(f.MediaType)}}
+		inputs = []input{{data: body, mediaType: f.MediaType}}
 	default: // kindPDF, see above
 		return nil, nil
 	}

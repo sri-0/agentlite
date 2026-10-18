@@ -78,7 +78,7 @@ func TestEmbedDeepInfra(t *testing.T) {
 	}
 	inputs = append(inputs,
 		input{data: []byte("img"), mediaType: "image/png"},
-		input{data: []byte("wav"), mediaType: "audio/wave"},
+		input{data: []byte("wav"), mediaType: "audio/wav"},
 		input{data: []byte("mp3"), mediaType: "audio/mpeg"},
 		input{data: []byte("mp4"), mediaType: "video/mp4"},
 	)

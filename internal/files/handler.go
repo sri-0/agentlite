@@ -2,6 +2,7 @@ package files
 
 import (
 	"errors"
+	"fmt"
 	"io"
 	"mime"
 	"net/http"
@@ -10,7 +11,7 @@ import (
 	"github.com/openai/openai-go/v3"
 )
 
-// PostFile is POST /v1/files: a multipart form with the file and, to file it
+// PostFile is POST /v1/rag/files: a multipart form with the file and, to file it
 // under a workspace, its workspaceId; tags, repeated, tag it. The reply is the
 // file's record.
 func (s *Store) PostFile(c *echo.Context) error {
@@ -22,8 +23,8 @@ func (s *Store) PostFile(c *echo.Context) error {
 		return echo.NewHTTPError(http.StatusBadRequest, "send a multipart form with the file as file").Wrap(err)
 	}
 	defer upload.Close()
-	if header.Size > MaxBytes {
-		return echo.NewHTTPError(http.StatusRequestEntityTooLarge, "a file is at most 25 MiB")
+	if header.Size > s.MaxBytes() {
+		return echo.NewHTTPError(http.StatusRequestEntityTooLarge, fmt.Sprintf("a file is at most %d MiB", s.limits.MaxUploadMB))
 	}
 	body, err := io.ReadAll(upload)
 	if err != nil {
@@ -48,7 +49,7 @@ func (s *Store) PostFile(c *echo.Context) error {
 	return c.JSON(http.StatusCreated, f)
 }
 
-// ListFiles is GET /v1/files, newest first: every file, or with ?workspace=
+// ListFiles is GET /v1/rag/files, newest first: every file, or with ?workspace=
 // one workspace's, "none" for the unfiled ones.
 func (s *Store) ListFiles(c *echo.Context) error {
 	var workspaceID *string
@@ -65,7 +66,7 @@ func (s *Store) ListFiles(c *echo.Context) error {
 	return c.JSON(http.StatusOK, map[string]any{"object": "list", "data": found})
 }
 
-// GetFile is GET /v1/files/:id, a file's record.
+// GetFile is GET /v1/rag/files/:id, a file's record.
 func (s *Store) GetFile(c *echo.Context) error {
 	f, err := s.records.File(c.Request().Context(), c.Param("id"))
 	if err != nil {
@@ -74,7 +75,7 @@ func (s *Store) GetFile(c *echo.Context) error {
 	return c.JSON(http.StatusOK, f)
 }
 
-// FileContent is GET /v1/files/:id/content, the file itself, with ranges. It
+// FileContent is GET /v1/rag/files/:id/content, the file itself, with ranges. It
 // is always a download: a browser never opens an uploaded file as a page. An
 // <img> ignores Content-Disposition, so the Files page's thumbnails still show.
 func (s *Store) FileContent(c *echo.Context) error {
@@ -95,7 +96,7 @@ func (s *Store) FileContent(c *echo.Context) error {
 	return nil
 }
 
-// DeleteFile is DELETE /v1/files/:id.
+// DeleteFile is DELETE /v1/rag/files/:id.
 func (s *Store) DeleteFile(c *echo.Context) error {
 	if err := s.Delete(c.Request().Context(), c.Param("id")); err != nil {
 		return err
