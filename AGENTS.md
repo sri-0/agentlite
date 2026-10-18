@@ -61,7 +61,8 @@ internal/
   refs/                references in a message (/name, #id; later @agent), by sigil
   sources/             numbers and stores the sources tools return
   artifacts/           artifact records (OpenSearch) and bodies (S3)
-  files/               files users upload: records (OpenSearch), bodies (S3), #id, the routes
+  files/               files users upload: records (OpenSearch), bodies (S3), #id, the routes,
+                       multimodal embeddings, search_userfiles
   voice/               the voice prompt: a recording to text, and its route; apart from the agents
   images/              image generation: the generate_image tool, the Images page's route; every
                        image an artifact
@@ -151,7 +152,8 @@ plus what the YAML references (
 headers and MCP endpoints.
 
 - `models.yaml`: `providers[]` (`id, base_url, api_key_env, api: chat_completions|responses,
-  headers, discover, models[], tls`), `default_model`, `compaction`, `memory`. A model id is
+  headers, discover, models[], tls`), `default_model`, `compaction`, `memory`, `voice`,
+  `images`, `files` (FILES.md). A model id is
   `<provider>/<model>` and routes only to that provider (MODELS.md); models are declared by
   the provider's own id and override, field by field, discovery and the model cards, with
   an optional per-model `base_url` and `api`. A provider with an empty `base_url` is skipped.

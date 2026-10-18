@@ -75,7 +75,7 @@ agents can run on it (`modelcatalog.Type*`):
 |---|---|---|
 | `llm` | chat, completions, responses | `/v1/chat/completions`, `/v1/responses`, `/v1/messages`; agent runs |
 | `image` | image generation and editing | `images.model` (the `generate_image` tool, the Images page; `/images/generations`, TOOLS.md); `/v1/chat/completions` (vLLM-Omni serves Qwen-Image and Qwen-Image-Edit there, returning images in `message.content`; OpenRouter generates images there) |
-| `embedding` | embeddings | `/v1/embeddings`; memory |
+| `embedding` | embeddings | `/v1/embeddings`; memory; `files.embedding_model` (FILES.md) |
 | `audio` | speech and audio understanding (Voxtral: transcripts and questions about a recording) | `/v1/chat/completions`, with the audio in an `input_audio` part |
 | `decision` | typed answers to questions | `/v1/decisions`, `/v1/systemone` |
 | `transcription` | speech to text (Voxtral's speech-to-text route, Whisper) | the voice prompt, `POST /v1/voice/transcriptions` |
@@ -103,10 +103,10 @@ picker take `llm` models only, so it stays out of them.
 A type no endpoint takes (LiteLLM's `video_generation` or `ocr`) is kept as reported
 and refused everywhere. A run on a model that is not an `llm` is refused when it is
 queued (`400`), and memory refuses an embedding model of another type.
-`default_model`, `memory.embedding_model`, `voice.model` and `images.model` must be in the list
-after the start's first discovery, declared in models.yaml or listed by their provider, as an
-`llm`, an `embedding`, a `transcription` and an `image` model: the server refuses to start
-otherwise. Declaring them keeps them
+`default_model`, `memory.embedding_model`, `voice.model`, `images.model` and
+`files.embedding_model` must be in the list after the start's first discovery, declared in
+models.yaml or listed by their provider, as an `llm`, an `embedding`, a `transcription`, an
+`image` and an `embedding` model: the server refuses to start otherwise. Declaring them keeps them
 listed even when their provider is down at the start.
 
 `models.yaml` entries, and only they, may also set where a model's requests go
@@ -202,6 +202,12 @@ resolves the id on every call (so a model discovery adds after start works) and
 calls the provider's `/embeddings` with the openai-go client built once per
 provider. It is the server calling a provider itself, not the pass-through.
 
+Uploaded files are embedded by `files.embedding_model`, a multimodal model
+(EmbeddingGemma 2), through `internal/files/embed.go`: the bodies carry images, audio and
+video as content parts, in DeepInfra's format or vLLM's (`files.format`; FILES.md). The
+`deepinfra` provider is for development only, like `openrouter`: without
+`DEEPINFRA_BASE_URL` it is skipped.
+
 ## Voice
 
 The voice prompt (`internal/voice`) is apart from the agents. The composer records,
@@ -231,3 +237,4 @@ Voxtral's weights on `/v1/audio/transcriptions` with its transcription prompt.
 | `internal/providers/embed.go` | embeddings for memory |
 | `config/models.go` | `models.yaml` and its checks |
 | `internal/voice/voice.go` | the voice prompt: a recording to text |
+| `internal/files/embed.go` | multimodal embeddings for uploaded files |

@@ -115,8 +115,19 @@ func New(ctx context.Context) (_ *App, err error) {
 	}
 	app.Artifacts = artifacts.New(app.Store, bucket, recorder, app.Log)
 	app.Skills = skills.New(app.Store, bucket, app.Log)
-	app.Files = files.New(app.Store, bucket)
+	var embedder *files.Embedder
+	if f := cfg.Models.Files; f != nil {
+		embedder = files.NewEmbedder(app.Registry, f.EmbeddingModel, f.Format, f.Dimensions)
+	}
+	app.Files = files.New(app.Store, bucket, embedder)
 	var tools []toolx.Tool // harness tools of feature packages
+	if embedder != nil {
+		search, err := app.Files.Tool()
+		if err != nil {
+			return nil, err
+		}
+		tools = append(tools, search)
+	}
 	if m := cfg.Models.Images; m != nil {
 		app.Images = images.New(app.Registry, app.Artifacts, app.Store, m.Model)
 		img, err := app.Images.Tool()
@@ -169,10 +180,11 @@ func (a *App) Close() {
 
 // checkConfiguredModels checks the models models.yaml names: default_model
 // (a run that names none uses it), memory's embedding model, the voice
-// prompt's transcription model and the default image model. Each must be in
+// prompt's transcription model, the default image model and the files'
+// embedding model. Each must be in
 // the model list after the start's first discovery (declared in models.yaml,
 // or listed by its provider), as the type it is used for, so a mistake fails
-// the start rather than every run, memory write, recording or image.
+// the start rather than every run, memory write, recording, image or upload.
 func checkConfiguredModels(m *config.ModelsConfig, registry *providers.Registry) error {
 	check := func(id, typ string) error {
 		if _, err := registry.ResolveAs(id, typ); err != nil {
@@ -194,7 +206,12 @@ func checkConfiguredModels(m *config.ModelsConfig, registry *providers.Registry)
 		}
 	}
 	if m.Images != nil {
-		return check(m.Images.Model, modelcatalog.TypeImage)
+		if err := check(m.Images.Model, modelcatalog.TypeImage); err != nil {
+			return err
+		}
+	}
+	if m.Files != nil {
+		return check(m.Files.EmbeddingModel, modelcatalog.TypeEmbedding)
 	}
 	return nil
 }

@@ -38,6 +38,8 @@ func (s *Store) PostFile(c *echo.Context) error {
 		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 	case errors.Is(err, ErrUnsupported):
 		return echo.NewHTTPError(http.StatusUnsupportedMediaType, err.Error())
+	case errors.Is(err, ErrEmbed):
+		return echo.NewHTTPError(http.StatusBadGateway, err.Error()).Wrap(err)
 	case err != nil:
 		return err
 	}

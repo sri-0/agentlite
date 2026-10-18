@@ -54,6 +54,18 @@ providers:
         name: Qwen Image 2.1 Turbo
         type: image
 
+  # Development only, like openrouter: without DEEPINFRA_BASE_URL it is skipped.
+  # It serves EmbeddingGemma 2, the files' embedding model; offline, vLLM
+  # serves the same weights (format: vllm below), so the vectors match.
+  - id: deepinfra
+    name: DeepInfra
+    base_url: ${DEEPINFRA_BASE_URL}
+    api_key_env: DEEPINFRA_API_KEY
+    models:
+      - id: google/embeddinggemma-2   # text, images, audio and video into one space
+        name: EmbeddingGemma 2
+        type: embedding
+
 # A model id is "<provider>/<model>": the provider's id, then the provider's
 # own name for the model (openrouter/openai/gpt-4.1-mini). A request goes to
 # the provider its model id names and to no other; an unknown provider or a
@@ -98,3 +110,11 @@ voice:
 # Omit the block and there is neither.
 images:
   model: openrouter/qwen/qwen-image-2.1-turbo
+# Uploaded files (docs/FILES.md): the multimodal model that embeds them, so
+# search_userfiles can find them; its vector size (file_chunks.json is sized
+# for it); the request format of its server, deepinfra or vllm. Omit the
+# block and files are kept and referenceable with #id, but not searchable.
+files:
+  embedding_model: deepinfra/google/embeddinggemma-2
+  dimensions: 768
+  format: deepinfra

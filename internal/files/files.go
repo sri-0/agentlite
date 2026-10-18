@@ -1,8 +1,9 @@
 // Package files keeps the files users upload: the record in OpenSearch, the
-// body in S3. Only kinds a model takes as they are get in (text, images,
-// audio, video and PDF); nothing is converted. A message names a file with
-// #id (Resolve) and the model gets it: images and PDFs as they are, small
-// text inline, anything else as a note.
+// body in S3, and, with an embedding model, what the file holds embedded for
+// search_userfiles. Only kinds a model takes as they are get in (text,
+// images, audio, video and PDF); nothing is converted. A message names a
+// file with #id (Resolve) and the model gets it: images and PDFs as they
+// are, small text inline, anything else as a note.
 package files
 
 import (
@@ -29,11 +30,12 @@ const MaxBytes = 25 << 20
 const maxName = 200
 
 // Errors for a file that cannot be kept: a request no upload can satisfy
-// (an empty file, an unknown workspace), and a kind of file that is not
-// accepted.
+// (an empty file, an unknown workspace, a text too big to search), a kind of
+// file that is not accepted, and one the embedding model refused or failed.
 var (
 	ErrInvalid     = errors.New("invalid file")
 	ErrUnsupported = errors.New("unsupported file type")
+	ErrEmbed       = errors.New("the embedding model could not embed the file")
 )
 
 // Kinds of file, by what a model can do with them.
@@ -47,16 +49,18 @@ const (
 
 // Store keeps files.
 type Store struct {
-	records *opensearch.Client
-	bodies  *s3.Client
+	records  *opensearch.Client
+	bodies   *s3.Client
+	embedder *Embedder // nil: files are kept, not searchable
 }
 
-// New returns a store.
-func New(records *opensearch.Client, bodies *s3.Client) *Store {
-	return &Store{records: records, bodies: bodies}
+// New returns a store; with an embedder, files are searchable.
+func New(records *opensearch.Client, bodies *s3.Client, embedder *Embedder) *Store {
+	return &Store{records: records, bodies: bodies, embedder: embedder}
 }
 
-// Add keeps a file under a workspace ("" files it under none).
+// Add keeps a file under a workspace ("" files it under none), embedded for
+// search first: a file the model refuses is not kept.
 func (s *Store) Add(ctx context.Context, name, workspaceID string, body []byte) (*opensearch.File, error) {
 	if len(body) == 0 {
 		return nil, fmt.Errorf("%w: the file is empty", ErrInvalid)
@@ -78,11 +82,25 @@ func (s *Store) Add(ctx context.Context, name, workspaceID string, body []byte) 
 		ID: uuid.Must(uuid.NewV7()).String(), Name: cleanName(name), MediaType: mediaType, Size: len(body),
 		WorkspaceID: workspaceID, Status: opensearch.FileStored, CreatedAt: time.Now(),
 	}
+	chunks, err := s.index(ctx, f, body)
+	if err != nil {
+		return nil, err
+	}
+	if len(chunks) > 0 {
+		f.Status = opensearch.FileReady
+	}
+	// The record goes last: a file is listed only once its body and chunks are in.
 	if err := s.bodies.Put(ctx, key(f.ID), mediaType, body); err != nil {
 		return nil, err
 	}
+	if len(chunks) > 0 {
+		if err := s.records.SaveFileChunks(ctx, chunks); err != nil {
+			_ = s.remove(ctx, f.ID)
+			return nil, err
+		}
+	}
 	if err := s.records.SaveFile(ctx, f); err != nil {
-		_ = s.bodies.Delete(ctx, key(f.ID))
+		_ = s.remove(ctx, f.ID)
 		return nil, err
 	}
 	return f, nil
@@ -93,16 +111,24 @@ func (s *Store) Body(ctx context.Context, f *opensearch.File) (io.ReadCloser, er
 	return s.bodies.Get(ctx, key(f.ID))
 }
 
-// Delete removes a file: its body, then its record, so a failure can be
-// retried; opensearch.ErrNotFound when there is none.
+// Delete removes a file: its body and chunks, then its record, so a failure
+// can be retried; opensearch.ErrNotFound when there is none.
 func (s *Store) Delete(ctx context.Context, id string) error {
 	if _, err := s.records.File(ctx, id); err != nil {
 		return err
 	}
-	if err := s.bodies.Delete(ctx, key(id)); err != nil {
+	if err := s.remove(ctx, id); err != nil {
 		return err
 	}
 	return s.records.DeleteFile(ctx, id)
+}
+
+// remove deletes what a file has besides its record: its body and chunks.
+func (s *Store) remove(ctx context.Context, id string) error {
+	if err := s.bodies.Delete(ctx, key(id)); err != nil {
+		return err
+	}
+	return s.records.DeleteFileChunks(ctx, id)
 }
 
 // read is a file's whole body.

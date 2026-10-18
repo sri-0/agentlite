@@ -1,8 +1,13 @@
 package opensearch
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
+	"fmt"
 	"time"
+
+	"github.com/opensearch-project/opensearch-go/v5/opensearchapi"
 )
 
 // indexFiles holds the records of the files users uploaded; their bodies are
@@ -55,4 +60,73 @@ func (c *Client) Files(ctx context.Context, workspaceID *string) ([]File, error)
 // DeleteFile removes a file's record; ErrNotFound when there is none.
 func (c *Client) DeleteFile(ctx context.Context, id string) error {
 	return c.delete(ctx, indexFiles, id)
+}
+
+// indexFileChunks holds what files hold, embedded for search: a text file's
+// chunks, an image, audio or video whole.
+const indexFileChunks = "file_chunks"
+
+// FileChunk is one embedded piece of a file. It repeats the file's name,
+// media type and workspace, so a search needs no second lookup.
+type FileChunk struct {
+	ID          string    `json:"id"` // <file id>:<seq>
+	FileID      string    `json:"file_id"`
+	Name        string    `json:"name"`
+	MediaType   string    `json:"media_type"`
+	WorkspaceID string    `json:"workspace_id,omitempty"`
+	Seq         int       `json:"seq"`
+	Text        string    `json:"text,omitempty"` // a text file's chunk
+	Embedding   []float32 `json:"embedding,omitempty"`
+}
+
+// SaveFileChunks stores a file's chunks in one bulk request, readable by
+// searches when it returns.
+func (c *Client) SaveFileChunks(ctx context.Context, chunks []FileChunk) error {
+	var body bytes.Buffer
+	enc := json.NewEncoder(&body)
+	for _, ch := range chunks {
+		if err := enc.Encode(map[string]any{"index": map[string]any{"_index": indexFileChunks, "_id": ch.ID}}); err != nil {
+			return err
+		}
+		if err := enc.Encode(ch); err != nil {
+			return err
+		}
+	}
+	resp, err := c.api.Bulk(ctx, opensearchapi.BulkReq{Body: &body, Params: &opensearchapi.BulkParams{Refresh: "true"}})
+	if err != nil {
+		return fmt.Errorf("bulk %s: %w", indexFileChunks, err)
+	}
+	for _, item := range resp.Items {
+		if r := item.Index; r != nil && r.Error != nil {
+			cause, _ := json.Marshal(r.Error)
+			return fmt.Errorf("bulk %s: %s", indexFileChunks, cause)
+		}
+	}
+	return nil
+}
+
+// SearchFileChunks returns the k chunks nearest to the vector, best first:
+// of the given files when fileIDs is not empty, else of one workspace's files
+// ("" for the unfiled ones).
+func (c *Client) SearchFileChunks(
+	ctx context.Context, vector []float32, k int, workspaceID string, fileIDs []string,
+) ([]FileChunk, error) {
+	var filter map[string]any
+	switch {
+	case len(fileIDs) > 0:
+		filter = map[string]any{"terms": map[string]any{"file_id": fileIDs}}
+	case workspaceID == "":
+		filter = map[string]any{"bool": map[string]any{"must_not": map[string]any{"exists": map[string]any{"field": "workspace_id"}}}}
+	default:
+		filter = map[string]any{"term": map[string]any{"workspace_id": workspaceID}}
+	}
+	return search[FileChunk](ctx, c, indexFileChunks, map[string]any{
+		"size": k, "_source": map[string]any{"excludes": []string{"embedding"}},
+		"query": map[string]any{"knn": map[string]any{"embedding": map[string]any{"vector": vector, "k": k, "filter": filter}}},
+	})
+}
+
+// DeleteFileChunks removes a file's chunks.
+func (c *Client) DeleteFileChunks(ctx context.Context, fileID string) error {
+	return c.deleteWhere(ctx, indexFileChunks, "file_id", fileID)
 }

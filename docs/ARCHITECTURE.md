@@ -31,7 +31,7 @@ Echo server (internal/server, internal/handler, internal/ws)
    ├─ Valkey: event logs, runs, queues, leases, adk sessions, interrupt records
    ├─ OpenSearch: threads, messages (the stored AG-UI events), memories, sources, artifacts,
    │    counters (each conversation's last source number and artifact versions), skills,
-   │    workspaces, files
+   │    workspaces, files, file_chunks
    └─ S3 (MinIO locally): artifact bodies, skill files, uploaded files
 ```
 
@@ -46,7 +46,7 @@ implements it, so imports run one way.
 | `internal/agents` | `runtime.go` (Runtime, running a segment), `build.go` (roster → adk agents and tools), `connectors.go` (a client and toolset per connector), `mcptools.go` (the MCP tool hooks), `compaction.go`, `seed.go` (rebuild a session), `resume.go` (answers → adk responses) |
 | `internal/sources`, `internal/artifacts` | numbering and storing sources; storing artifacts (TOOLS.md) |
 | `internal/images` | `images.go` (making an image, keeping it as an artifact), `tool.go` (`generate_image`), `handler.go` (the Images page's route) (TOOLS.md) |
-| `internal/files` | `files.go` (keeping a file, what is accepted), `resolve.go` (`#id`), `handler.go` (the routes) (FILES.md) |
+| `internal/files` | `files.go` (keeping a file, what is accepted), `resolve.go` (`#id`), `handler.go` (the routes), `index.go` (what is embedded, chunks), `embed.go` (the multimodal embedder), `search.go` (`search_userfiles`) (FILES.md) |
 | `internal/providers` | provider clients, model resolution, discovery, the pass-through, embeddings (MODELS.md) |
 | `internal/voice` | the voice prompt: `voice.go` (a recording to text, `POST /v1/voice/transcriptions`); apart from the agents (MODELS.md) |
 | `pkg/toolx`, `pkg/citations`, `pkg/transport`, `pkg/s3`, `pkg/modelcatalog` | the tool wrapper; the source contract; HTTP clients; S3 through minio-go; models and model cards |
@@ -211,7 +211,8 @@ Valkey is split into logical databases, set by environment:
 OpenSearch indices: `threads`, `messages` (events stored unindexed), `memories`
 (kNN vectors), `sources`, `artifacts`, `counters` (each conversation's source
 numbers and artifact versions), `skills` (the skills library, one record per skill;
-its files are in S3; SKILLS.md), `workspaces`, `files` (uploaded files' records; FILES.md). The service never creates or changes an index, so it
+its files are in S3; SKILLS.md), `workspaces`, `files` (uploaded files' records; FILES.md), `file_chunks` (their embedded
+chunks, kNN vectors). The service never creates or changes an index, so it
 needs no rights beyond reading and writing documents: each index's mapping is a file
 in `deploy/opensearch`, applied with `make indices` (curl: it creates a missing index,
 and adds new fields to an existing one; a changed type needs a reindex). Mappings are

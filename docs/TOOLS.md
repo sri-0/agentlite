@@ -165,8 +165,9 @@ func searchRecords(conn toolx.Connector) (toolx.Tool, error) {
   registered by name in `tools.Catalog`; the runtime builds each one with its connector,
   on that connector's one HTTP client. A tool is only offered through a connector.
 - A harness tool (`internal/tools/builtin`) is built the same way from `builtin.Deps`; a
-  feature package's harness tool (`generate_image`) is built by the package and handed to
-  the runtime in `agents.Deps.Tools` (bootstrap), so the agents never import it.
+  feature package's harness tool (`generate_image`, `search_userfiles`) is built by the
+  package and handed to the runtime in `agents.Deps.Tools` (bootstrap), so the agents
+  never import it.
 - Registries and `toolx.Toolset` accept only `toolx.Tool`, and
   `TestOnlyToolxBuildsFunctionTools` fails if any package but `toolx` imports
   `functiontool`.
@@ -281,6 +282,14 @@ generates without its reference until that route is added.
 S3 is any S3-compatible store through `minio-go` (`pkg/s3`); `docker-compose.yaml` runs
 MinIO on `:9000` (console `:9001`, `minioadmin`/`minioadmin`). The bucket is created on
 start. Deleting the root thread deletes its bodies, then its records.
+
+## Files
+
+`internal/files` keeps the files users upload (FILES.md). `search_userfiles {query,
+files?}` is a harness tool, offered when `models.yaml` has a `files` block: a semantic
+search over the files of the conversation's workspace, or the files it names, returning
+the 8 best chunks (`{hits: [{fileId, name, mediaType, seq, text?}]}`; image, audio and
+video hits by name, with a note that the model can't see or hear them).
 
 ## Tool UI renderers
 

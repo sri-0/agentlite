@@ -1,0 +1,22 @@
+{
+  "settings": {
+    "index.knn": true
+  },
+  "mappings": {
+    "dynamic": "strict",
+    "properties": {
+      "id": {"type": "keyword"},
+      "file_id": {"type": "keyword"},
+      "name": {"type": "keyword"},
+      "media_type": {"type": "keyword"},
+      "workspace_id": {"type": "keyword"},
+      "seq": {"type": "integer"},
+      "text": {"type": "text", "index": false},
+      "embedding": {
+        "type": "knn_vector",
+        "dimension": 768,
+        "method": {"name": "hnsw", "space_type": "cosinesimil", "engine": "lucene"}
+      }
+    }
+  }
+}

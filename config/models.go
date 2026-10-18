@@ -1,6 +1,7 @@
 package config
 
 import (
+	"cmp"
 	"errors"
 	"fmt"
 	"os"
@@ -22,6 +23,7 @@ type ModelsConfig struct {
 	Compaction   *Compaction   `yaml:"compaction"`    // nil disables context compaction
 	Voice        *VoiceConfig  `yaml:"voice"`         // nil disables the voice prompt
 	Images       *ImagesConfig `yaml:"images"`        // nil disables image generation
+	Files        *FilesConfig  `yaml:"files"`         // nil: uploaded files are kept, not searchable
 }
 
 // Compaction configures adk's session compaction for every run. Tail
@@ -84,6 +86,17 @@ type ImagesConfig struct {
 	Model string `yaml:"model"`
 }
 
+// FilesConfig makes uploaded files searchable (internal/files, docs/FILES.md):
+// the multimodal model that embeds them, the size of its vectors (the
+// file_chunks index is sized for it), and the request format its server
+// speaks: deepinfra (an OpenAI-style input list whose items may be content
+// parts) or vllm (vLLM's chat-style embeddings, one request per input).
+type FilesConfig struct {
+	EmbeddingModel string `yaml:"embedding_model"`
+	Dimensions     int    `yaml:"dimensions"` // default 768
+	Format         string `yaml:"format"`     // deepinfra (default) or vllm
+}
+
 // Provider is one OpenAI-compatible upstream. Secrets are named by environment
 // variable; base_url and header values may use ${ENV} expansion.
 type Provider struct {
@@ -126,6 +139,13 @@ func loadModels(dir string) (*ModelsConfig, error) {
 	if c := cfg.Compaction; c != nil {
 		if err := c.check(); err != nil {
 			return nil, fmt.Errorf("models.yaml: compaction: %w", err)
+		}
+	}
+	if f := cfg.Files; f != nil {
+		f.Dimensions = cmp.Or(f.Dimensions, 768)
+		f.Format = cmp.Or(f.Format, "deepinfra")
+		if f.Format != "deepinfra" && f.Format != "vllm" {
+			return nil, fmt.Errorf("models.yaml: files: format %q is not deepinfra or vllm", f.Format)
 		}
 	}
 	seen := map[string]bool{}
