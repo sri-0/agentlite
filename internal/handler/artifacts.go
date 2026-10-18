@@ -21,8 +21,9 @@ type recentArtifact struct {
 }
 
 // RecentArtifacts lists artifacts across every conversation, newest first,
-// ?limit= at a time (default 50, at most 200). A full page carries next, an
-// opaque cursor: ?after=<next> fetches the following page.
+// ?limit= at a time (default 50, at most 200), only those of one ?kind= when
+// it is set. A full page carries next, an opaque cursor: ?after=<next>
+// fetches the following page.
 func (h *Handler) RecentArtifacts(c *echo.Context) error {
 	ctx := c.Request().Context()
 	limit, err := echo.QueryParamOr[int](c, "limit", 0)
@@ -39,7 +40,7 @@ func (h *Handler) RecentArtifacts(c *echo.Context) error {
 			return echo.NewHTTPError(http.StatusBadRequest, "after must be a next cursor from this list")
 		}
 	}
-	found, next, err := h.Store.RecentArtifacts(ctx, after, limit)
+	found, next, err := h.Store.RecentArtifacts(ctx, c.QueryParam("kind"), after, limit)
 	if err != nil {
 		return err
 	}

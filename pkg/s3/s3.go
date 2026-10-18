@@ -67,8 +67,8 @@ func (c *Client) Put(ctx context.Context, key, contentType string, body []byte) 
 	return nil
 }
 
-// Get opens an object; the caller closes it.
-func (c *Client) Get(ctx context.Context, key string) (io.ReadCloser, error) {
+// Get opens an object, which can seek; the caller closes it.
+func (c *Client) Get(ctx context.Context, key string) (io.ReadSeekCloser, error) {
 	obj, err := c.mc.GetObject(ctx, c.bucket, key, minio.GetObjectOptions{})
 	if err != nil {
 		return nil, fmt.Errorf("s3 get %s: %w", key, err)

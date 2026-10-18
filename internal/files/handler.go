@@ -7,27 +7,22 @@ import (
 	"net/http"
 
 	"github.com/labstack/echo/v5"
-
-	"agentlite/pkg/db/opensearch"
 )
 
 // PostFile is POST /v1/files: a multipart form with the file and, to file it
 // under a workspace, its workspaceId. The reply is the file's record.
 func (s *Store) PostFile(c *echo.Context) error {
-	header, err := c.FormFile("file")
+	upload, header, err := c.Request().FormFile("file")
 	switch {
 	case errors.Is(err, echo.ErrStatusRequestEntityTooLarge):
 		return err
 	case err != nil:
 		return echo.NewHTTPError(http.StatusBadRequest, "send a multipart form with the file as file").Wrap(err)
-	case header.Size > MaxBytes:
-		return echo.NewHTTPError(http.StatusRequestEntityTooLarge, "a file is at most 25 MiB")
-	}
-	upload, err := header.Open()
-	if err != nil {
-		return err
 	}
 	defer upload.Close()
+	if header.Size > MaxBytes {
+		return echo.NewHTTPError(http.StatusRequestEntityTooLarge, "a file is at most 25 MiB")
+	}
 	body, err := io.ReadAll(upload)
 	if err != nil {
 		return err
@@ -60,9 +55,6 @@ func (s *Store) ListFiles(c *echo.Context) error {
 	if err != nil {
 		return err
 	}
-	if found == nil {
-		found = []opensearch.File{}
-	}
 	return c.JSON(http.StatusOK, map[string]any{"object": "list", "data": found})
 }
 
@@ -75,7 +67,8 @@ func (s *Store) GetFile(c *echo.Context) error {
 	return c.JSON(http.StatusOK, f)
 }
 
-// FileContent is GET /v1/files/:id/content, the file itself.
+// FileContent is GET /v1/files/:id/content, the file itself, with ranges, so
+// audio and video can seek (and Safari plays video at all).
 func (s *Store) FileContent(c *echo.Context) error {
 	ctx := c.Request().Context()
 	f, err := s.records.File(ctx, c.Param("id"))
@@ -87,8 +80,11 @@ func (s *Store) FileContent(c *echo.Context) error {
 		return err
 	}
 	defer body.Close()
-	c.Response().Header().Set("Content-Disposition", mime.FormatMediaType("inline", map[string]string{"filename": f.Name}))
-	return c.Stream(http.StatusOK, f.MediaType, body)
+	w := c.Response()
+	w.Header().Set("Content-Type", f.MediaType)
+	w.Header().Set("Content-Disposition", mime.FormatMediaType("inline", map[string]string{"filename": f.Name}))
+	http.ServeContent(w, c.Request(), f.Name, f.CreatedAt, body)
+	return nil
 }
 
 // DeleteFile is DELETE /v1/files/:id.

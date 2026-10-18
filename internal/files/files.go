@@ -30,8 +30,9 @@ const MaxBytes = 25 << 20
 const maxName = 200
 
 // Errors for a file that cannot be kept: a request no upload can satisfy
-// (an empty file, an unknown workspace, a text too big to search), a kind of
-// file that is not accepted, and one the embedding model refused or failed.
+// (an empty file, a text too big to search; an unknown workspace is
+// opensearch.ErrUnknownWorkspace), a kind of file that is not accepted, and
+// one the embedding model refused or failed.
 var (
 	ErrInvalid     = errors.New("invalid file")
 	ErrUnsupported = errors.New("unsupported file type")
@@ -65,14 +66,8 @@ func (s *Store) Add(ctx context.Context, name, workspaceID string, body []byte) 
 	if len(body) == 0 {
 		return nil, fmt.Errorf("%w: the file is empty", ErrInvalid)
 	}
-	if workspaceID != "" {
-		_, err := s.records.Workspace(ctx, workspaceID)
-		if errors.Is(err, opensearch.ErrNotFound) {
-			return nil, fmt.Errorf("%w: unknown workspace %q", ErrInvalid, workspaceID)
-		}
-		if err != nil {
-			return nil, err
-		}
+	if err := s.records.CheckWorkspace(ctx, workspaceID); err != nil {
+		return nil, err
 	}
 	mediaType, err := sniff(name, body)
 	if err != nil {
@@ -95,19 +90,19 @@ func (s *Store) Add(ctx context.Context, name, workspaceID string, body []byte) 
 	}
 	if len(chunks) > 0 {
 		if err := s.records.SaveFileChunks(ctx, chunks); err != nil {
-			_ = s.remove(ctx, f.ID)
+			_ = s.remove(context.WithoutCancel(ctx), f.ID)
 			return nil, err
 		}
 	}
 	if err := s.records.SaveFile(ctx, f); err != nil {
-		_ = s.remove(ctx, f.ID)
+		_ = s.remove(context.WithoutCancel(ctx), f.ID) // also when the client has gone
 		return nil, err
 	}
 	return f, nil
 }
 
 // Body opens a file's body; the caller closes it.
-func (s *Store) Body(ctx context.Context, f *opensearch.File) (io.ReadCloser, error) {
+func (s *Store) Body(ctx context.Context, f *opensearch.File) (io.ReadSeekCloser, error) {
 	return s.bodies.Get(ctx, key(f.ID))
 }
 
@@ -123,22 +118,10 @@ func (s *Store) Delete(ctx context.Context, id string) error {
 	return s.records.DeleteFile(ctx, id)
 }
 
-// remove deletes what a file has besides its record: its body and chunks.
+// remove deletes what a file has besides its record: its body and chunks,
+// both even when one fails.
 func (s *Store) remove(ctx context.Context, id string) error {
-	if err := s.bodies.Delete(ctx, key(id)); err != nil {
-		return err
-	}
-	return s.records.DeleteFileChunks(ctx, id)
-}
-
-// read is a file's whole body.
-func (s *Store) read(ctx context.Context, f *opensearch.File) ([]byte, error) {
-	body, err := s.Body(ctx, f)
-	if err != nil {
-		return nil, err
-	}
-	defer body.Close()
-	return io.ReadAll(body)
+	return errors.Join(s.bodies.Delete(ctx, key(id)), s.records.DeleteFileChunks(ctx, id))
 }
 
 // key is where a file's body lives in S3.
@@ -155,7 +138,8 @@ var textTypes = map[string]string{
 
 // sniff is a file's media type, from its first bytes (http.DetectContentType)
 // and, for plain text and an MP3 without an ID3 tag, its extension.
-// ErrUnsupported for any kind but text, images, audio, video and PDF.
+// ErrUnsupported for any kind but text, images, audio, video and PDF, and for
+// text that is not UTF-8 (a UTF-16 export, say).
 func sniff(name string, body []byte) (string, error) {
 	mediaType := http.DetectContentType(body)
 	ext := strings.ToLower(filepath.Ext(name))
@@ -165,9 +149,12 @@ func sniff(name string, body []byte) (string, error) {
 	case mediaType == "application/octet-stream" && ext == ".mp3":
 		mediaType = "audio/mpeg"
 	}
-	if kind(mediaType) == "" {
+	switch k := kind(mediaType); {
+	case k == "":
 		return "", fmt.Errorf("%w: %s; upload text, PNG, JPEG, WebP or GIF images, WAV or MP3 audio, MP4 video or PDF",
 			ErrUnsupported, base(mediaType))
+	case k == kindText && (strings.Contains(mediaType, "utf-16") || !utf8.Valid(body)):
+		return "", fmt.Errorf("%w: text that is not UTF-8; save it as UTF-8", ErrUnsupported)
 	}
 	return mediaType, nil
 }

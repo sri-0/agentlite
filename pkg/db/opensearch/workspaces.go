@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
@@ -24,6 +25,21 @@ type Workspace struct {
 // SaveWorkspace upserts a workspace.
 func (c *Client) SaveWorkspace(ctx context.Context, w *Workspace) error {
 	return c.index(ctx, indexWorkspaces, w.ID, w)
+}
+
+// ErrUnknownWorkspace is a workspace id that names no workspace.
+var ErrUnknownWorkspace = errors.New("unknown workspace")
+
+// CheckWorkspace refuses a workspace id that names no workspace; "" is none.
+func (c *Client) CheckWorkspace(ctx context.Context, id string) error {
+	if id == "" {
+		return nil
+	}
+	_, err := c.Workspace(ctx, id)
+	if errors.Is(err, ErrNotFound) {
+		return fmt.Errorf("%w %q", ErrUnknownWorkspace, id)
+	}
+	return err
 }
 
 // Workspace fetches one workspace; ErrNotFound when there is none.

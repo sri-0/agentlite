@@ -45,7 +45,7 @@ implements it, so imports run one way.
 | `internal/runs` | `manager.go` (Manager and the interfaces it needs), `start.go`, `answer.go`, `cancel.go`, `subscribe.go` (subscribe, wait, statuses), `worker.go` (worker loops, executing a segment), `finalizer.go`, `queue.go`, `log.go`, `store.go` (run records, leases), `run.go` |
 | `internal/agents` | `runtime.go` (Runtime, running a segment), `build.go` (roster → adk agents and tools), `connectors.go` (a client and toolset per connector), `mcptools.go` (the MCP tool hooks), `compaction.go`, `seed.go` (rebuild a session), `resume.go` (answers → adk responses) |
 | `internal/sources`, `internal/artifacts` | numbering and storing sources; storing artifacts (TOOLS.md) |
-| `internal/images` | `images.go` (making an image, keeping it as an artifact), `tool.go` (`generate_image`), `handler.go` (the Images page's route) (TOOLS.md) |
+| `internal/images` | `images.go` (making an image, keeping it as an artifact), `tool.go` (`generate_image`) (TOOLS.md) |
 | `internal/files` | `files.go` (keeping a file, what is accepted), `resolve.go` (`#id`), `handler.go` (the routes), `index.go` (what is embedded, chunks), `embed.go` (the multimodal embedder), `search.go` (`search_userfiles`) (FILES.md) |
 | `internal/providers` | provider clients, model resolution, discovery, the pass-through, embeddings (MODELS.md) |
 | `internal/voice` | the voice prompt: `voice.go` (a recording to text, `POST /v1/voice/transcriptions`); apart from the agents (MODELS.md) |
@@ -54,8 +54,8 @@ implements it, so imports run one way.
 ## The life of a run
 
 ```
-client: POST /v1/agent/chat {agentId?, model?, connectors?, messages}   (a new thread)
-     or {type: "run", requestId, threadId, agentId?, model?, connectors?, messages}
+client: POST /v1/agent/chat {agentId?, model?, connectors?, imageModel?, messages}   (a new thread)
+     or {type: "run", requestId, threadId, agentId?, model?, connectors?, imageModel?, messages}
   │
   Manager.Start (internal/runs/start.go)
   ├─ validate the agent and connectors; for the POST, create the thread
@@ -170,7 +170,7 @@ instance can serve any socket. Each frame names its thread:
 
 | Client frame | Purpose | Reply |
 |---|---|---|
-| `run {requestId, threadId, agentId?, model?, connectors?, messages}` | start a turn on the thread, idle or not yet started | `ack {threadId, runId, seq}` |
+| `run {requestId, threadId, agentId?, model?, connectors?, imageModel?, messages}` | start a turn on the thread, idle or not yet started | `ack {threadId, runId, seq}` |
 | `answer {requestId, threadId, interruptId, approved?, justification?, output?}` | answer an interrupt on that thread | `ack {threadId, runId, seq}` |
 | `cancel {requestId, threadId}` | stop the thread's run | `ack {threadId}` |
 | `subscribe {threadId, after?}` | follow a thread from a cursor (empty: the active turn's start) | `event` frames, or `idle` |

@@ -74,7 +74,7 @@ agents can run on it (`modelcatalog.Type*`):
 | Type | What | Endpoints |
 |---|---|---|
 | `llm` | chat, completions, responses | `/v1/chat/completions`, `/v1/responses`, `/v1/messages`; agent runs |
-| `image` | image generation and editing | `images.model` (the `generate_image` tool, the Images page; `/images/generations`, TOOLS.md); `/v1/chat/completions` (vLLM-Omni serves Qwen-Image and Qwen-Image-Edit there, returning images in `message.content`; OpenRouter generates images there) |
+| `image` | image generation and editing | `images.model` (the `generate_image` tool's default; a turn's `imageModel` picks another; `/images/generations`, TOOLS.md); `/v1/chat/completions` (vLLM-Omni serves Qwen-Image and Qwen-Image-Edit there, returning images in `message.content`; OpenRouter generates images there) |
 | `embedding` | embeddings | `/v1/embeddings`; memory; `files.embedding_model` (FILES.md) |
 | `audio` | speech and audio understanding (Voxtral: transcripts and questions about a recording) | `/v1/chat/completions`, with the audio in an `input_audio` part |
 | `decision` | typed answers to questions | `/v1/decisions`, `/v1/systemone` |

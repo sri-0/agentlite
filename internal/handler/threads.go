@@ -76,7 +76,7 @@ func (h *Handler) UpdateThread(c *echo.Context) error {
 		}
 	}
 	if body.WorkspaceID != nil {
-		if err := h.checkWorkspace(ctx, *body.WorkspaceID); err != nil {
+		if err := h.Store.CheckWorkspace(ctx, *body.WorkspaceID); err != nil {
 			return err
 		}
 	}

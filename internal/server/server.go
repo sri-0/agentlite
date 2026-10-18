@@ -98,11 +98,6 @@ func New(cfg *config.Config, h *handler.Handler) *echo.Echo {
 		e.POST("/v1/voice/transcriptions", h.Voice.Handle, middleware.BodyLimit(voice.MaxBytes+1<<20))
 	}
 
-	// The Images page: one image made and kept as an artifact (internal/images).
-	if h.Images != nil {
-		e.POST("/v1/images", h.Images.Handle)
-	}
-
 	// Agent chat: a new thread, then the socket.
 	e.POST("/v1/agent/chat", h.StartThread)
 	e.GET("/v1/agent/chat", h.Chat)
@@ -160,6 +155,7 @@ func errorHandler(next echo.HTTPErrorHandler) echo.HTTPErrorHandler {
 		}{
 			{runs.ErrInvalid, http.StatusBadRequest},
 			{skills.ErrInvalid, http.StatusBadRequest},
+			{opensearch.ErrUnknownWorkspace, http.StatusBadRequest},
 			{runs.ErrNotFound, http.StatusNotFound},
 			{opensearch.ErrNotFound, http.StatusNotFound},
 			{skills.ErrNotFound, http.StatusNotFound},
