@@ -74,7 +74,7 @@ agents can run on it (`modelcatalog.Type*`):
 | Type | What | Endpoints |
 |---|---|---|
 | `llm` | chat, completions, responses | `/v1/chat/completions`, `/v1/responses`, `/v1/messages`; agent runs |
-| `image` | image generation and editing | `images.model` (the `generate_image` tool's default; a turn's `imageModel` picks another; made on `/images/generations`, edited there or, with `images.edit: edits`, on `/images/edits`; TOOLS.md); `/v1/chat/completions` (vLLM-Omni serves Qwen-Image and Qwen-Image-Edit there, returning images in `message.content`; OpenRouter generates images there) |
+| `image` | image generation and editing | `images.model` (the `generate_image` tool's default; a turn's `imageModel` picks another; made on `/images/generations`; edited by `images.edit_model` on `/images/edits`, or without it there with the original in OpenRouter's `input_references`; TOOLS.md); `/v1/images/generations` and `/v1/images/edits` passed through; `/v1/chat/completions` (vLLM-Omni serves Qwen-Image and Qwen-Image-Edit there, returning images in `message.content`; OpenRouter generates images there) |
 | `embedding` | embeddings | `/v1/embeddings`; memory |
 | `audio` | speech and audio understanding (Voxtral: transcripts and questions about a recording) | `/v1/chat/completions`, with the audio in an `input_audio` part |
 | `decision` | typed answers to questions | `/v1/decisions`, `/v1/systemone` |
@@ -103,9 +103,9 @@ picker take `llm` models only, so it stays out of them.
 A type no endpoint takes (LiteLLM's `video_generation` or `ocr`) is kept as reported
 and refused everywhere. A run on a model that is not an `llm` is refused when it is
 queued (`400`), and memory refuses an embedding model of another type.
-`default_model`, `memory.embedding_model`, `voice.model` and `images.model` must be in the list
+`default_model`, `memory.embedding_model`, `voice.model`, `images.model` and `images.edit_model` must be in the list
 after the start's first discovery, declared in models.yaml or listed by their provider, as an
-`llm`, an `embedding`, a `transcription` and an `image` model: the server refuses to start
+`llm`, an `embedding`, a `transcription` and `image` models: the server refuses to start
 otherwise. Declaring them keeps them
 listed even when their provider is down at the start.
 
@@ -178,19 +178,22 @@ there):
 | `/v1/responses` | OpenAI | `llm` |
 | `/v1/messages` | Anthropic | `llm` |
 | `/v1/embeddings` | OpenAI | `embedding` |
+| `/v1/images/generations` | OpenAI (vLLM-Omni) | `image` |
+| `/v1/images/edits` | OpenAI, a multipart form (vLLM-Omni) | `image` |
 | `/v1/decisions` | OpenAI's decisions API (beta, Oct 2026) | `decision` |
 | `/v1/systemone` | TypeSafe's System One API (also vLLM, LiteLLM, DigitalOcean) | `decision` |
 
 The handler (`internal/handler/passthrough.go`) reads the whole body (within the server's
 body limit, `MAX_BODY_MB`, default 32: Echo's `BodyLimit`, a `413` above it) for its
-`model`,
+`model`: a JSON object's, or a multipart form's `model` field (an image edit's upload,
+whose other parts pass as they came, under the same boundary). It
 resolves it, checks its type, rewrites it to the upstream id, and forwards the
 request to that provider (or the model's own `base_url`) with the provider's key
 (`providers.Registry.Forward`), streaming the response back as it arrives. Refusals
 are Echo errors (`{"message": ...}`); a provider that cannot be reached is a `502`. A body without a `model` of the form
 `<provider>/<model>`, or a model of a type the endpoint does not take, is refused with
-a `400` and never sent. Endpoints with no JSON model (multipart uploads: image edits,
-transcriptions, files) are not proxied yet. The two decision APIs differ (`input` and
+a `400` and never sent. vLLM-Omni refuses a `model` that is not the one it serves, so
+the upstream id must be its served name. The two decision APIs differ (`input` and
 a list of questions, against `state` and questions by name); each is passed as it is
 to a provider that serves it. Responses carry the upstream id in their own `model`
 field.

@@ -41,15 +41,15 @@ type Studio struct {
 	artifacts *artifacts.Store
 	records   *opensearch.Client
 	model     string // the default image model
-	edits     bool   // edit on /images/edits rather than /images/generations
+	editModel string // the model that edits on /images/edits; "": none
 }
 
 // New returns a studio whose images come from model unless a request names
-// another image model. With edits, an edit goes to the image server's
-// /images/edits route (vLLM-Omni and other local servers); without, to
-// /images/generations with OpenRouter's input_references.
-func New(registry *providers.Registry, store *artifacts.Store, records *opensearch.Client, model string, edits bool) *Studio {
-	return &Studio{registry: registry, artifacts: store, records: records, model: model, edits: edits}
+// another image model. With editModel, edits go to it on /images/edits
+// (vLLM-Omni); without, to the image's model on /images/generations with
+// OpenRouter's input_references.
+func New(registry *providers.Registry, store *artifacts.Store, records *opensearch.Client, model, editModel string) *Studio {
+	return &Studio{registry: registry, artifacts: store, records: records, model: model, editModel: editModel}
 }
 
 // reference is the image an edit starts from.
@@ -111,12 +111,18 @@ func (s *Studio) image(ctx context.Context, rootID, id string) (*opensearch.Arti
 	return a, img, err
 }
 
-// generate asks the model for one image on the OpenAI-style routes. A new
-// image goes to /images/generations. An edit goes there too, its reference
-// image in OpenRouter's input_references; or, with s.edits, to /images/edits
-// as a multipart upload. A generation is paid for, so a failed one is not
-// retried.
+// generate asks for one image on the OpenAI routes. A new image goes to model
+// on /images/generations. An edit goes to the edit model on /images/edits, the
+// original uploaded as the form's image, as vLLM-Omni takes it; without an
+// edit model, to model on /images/generations, the original in OpenRouter's
+// input_references. Neither sends response_format: b64_json is the default,
+// and the only one vLLM-Omni's edits take. A generation is paid for, so a
+// failed one is not retried.
 func (s *Studio) generate(ctx context.Context, model, prompt string, ref *reference) ([]byte, error) {
+	edits := ref != nil && s.editModel != ""
+	if edits {
+		model = s.editModel
+	}
 	t, err := s.registry.ResolveAs(model, modelcatalog.TypeImage)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrInvalid, err)
@@ -136,7 +142,8 @@ func (s *Studio) generate(ctx context.Context, model, prompt string, ref *refere
 	switch {
 	case ref == nil:
 		resp, err = images.Generate(ctx, params)
-	case s.edits:
+	case edits:
+		// vLLM-Omni checks model against the one it serves: the upstream id.
 		file := openai.File(bytes.NewReader(ref.body), "image."+strings.TrimPrefix(ref.mediaType, "image/"), ref.mediaType)
 		resp, err = images.Edit(ctx, openai.ImageEditParams{
 			Image: openai.ImageEditParamsImageUnion{OfFile: file}, Prompt: prompt, Model: t.Model.UpstreamID,

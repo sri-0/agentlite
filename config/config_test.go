@@ -39,7 +39,6 @@ func TestLoadRefuses(t *testing.T) {
 			"a": "---\nid: a\nrequire_confirmaton: [write_note]\n---\n",
 		}},
 		{name: "unknown models key", want: "unknown field", models: "default_model: p/m\ndefault_modle: p/m\n"},
-		{name: "unknown image edit route", want: `edit "edit"`, models: "default_model: p/m\nimages: {model: p/i, edit: edit}\n"},
 		{name: "no default agent", want: `default agent "assistant"`, agents: map[string]string{
 			"assistant": "---\nid: assistant\nmode: subagent\n---\n",
 		}},
