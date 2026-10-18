@@ -196,6 +196,10 @@ func (rt *Runtime) Run(ctx context.Context, in runs.Input, sink stream.Sink) (ru
 	if err != nil {
 		return fail(err)
 	}
+	target, err := rt.registry.ResolveAs(run.Model, modelcatalog.TypeLLM)
+	if err != nil {
+		return fail(err)
+	}
 	watch := &compactionWatch{sink: sink}
 	compact, err := rt.compaction(ctx, run.Model, watch)
 	if err != nil {
@@ -213,7 +217,7 @@ func (rt *Runtime) Run(ctx context.Context, in runs.Input, sink stream.Sink) (ru
 	ctx = platform.WithUUIDProvider(stream.WithSink(ctx, sink), func() string { return uuid.Must(uuid.NewV7()).String() }) // adk's event ids too
 	ctx = toolx.WithRun(ctx, toolx.Run{
 		Thread: toolx.Thread{ID: run.ThreadID, RootID: run.RootID, RunID: run.ID},
-		Model:  run.Model, Connectors: run.Connectors, ImageModel: run.ImageModel,
+		Model:  run.Model, Card: &target.Model, Connectors: run.Connectors, ImageModel: run.ImageModel,
 		Authorization: in.Authorization,
 		Sources:       rt.sources,
 	})

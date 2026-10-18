@@ -159,7 +159,8 @@ checked out locally and named by `MODEL_CARDS_DIR`. Empty, there are no cards.
 A card's path mirrors the model's OpenRouter id (`anthropic/claude-sonnet-4.5.md`),
 so one card serves every provider of that model; `aliases` lists the names other
 providers use. The frontmatter holds the model's fields (name, description,
-context length, max output tokens, capabilities, architecture, pricing in US
+context length, max output tokens, capabilities (`tool_calling`, `reasoning`, `vision`
+for images and `files` for PDFs as input, two separate things), architecture, pricing in US
 dollars per million tokens, benchmarks, licence, release date, knowledge cutoff,
 sources), and the body is notes on what the model is good at and its limits. The
 cards are reread every refresh (10 minutes), so a pulled card needs no restart; a
