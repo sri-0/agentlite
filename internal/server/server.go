@@ -58,6 +58,7 @@ func New(cfg *config.Config, h *handler.Handler) *echo.Echo {
 	thread.GET("/sources", h.ThreadSources)
 	thread.GET("/sources/:n", h.ThreadSource)
 	thread.GET("/artifacts", h.ThreadArtifacts)
+	thread.POST("/suggestions", h.Suggest.Handle) // next prompts once a turn is answered (internal/suggest)
 	thread.GET("/artifacts/:artifactId/content", h.ArtifactContent, sandboxed)
 	e.GET("/v1/artifacts", h.RecentArtifacts)
 

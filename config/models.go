@@ -24,6 +24,9 @@ type ModelsConfig struct {
 	Voice        *VoiceConfig  `yaml:"voice"`         // nil disables the voice prompt
 	Images       *ImagesConfig `yaml:"images"`        // nil disables image generation
 	Files        *FilesConfig  `yaml:"files"`         // nil: uploaded files are kept, not searchable
+	// Suggestions names the model that proposes next prompts after a turn
+	// (internal/suggest); nil uses default_model.
+	Suggestions *SuggestionsConfig `yaml:"suggestions"`
 }
 
 // Compaction configures adk's session compaction for every run. Tail
@@ -83,6 +86,12 @@ type VoiceConfig struct {
 // ImagesConfig enables image generation (internal/images): the image model
 // the generate_image tool uses, and the Images page's default.
 type ImagesConfig struct {
+	Model string `yaml:"model"`
+}
+
+// SuggestionsConfig is the small LLM that proposes what the user might send
+// next once a turn is answered (internal/suggest).
+type SuggestionsConfig struct {
 	Model string `yaml:"model"`
 }
 

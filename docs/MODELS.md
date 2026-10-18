@@ -103,10 +103,10 @@ picker take `llm` models only, so it stays out of them.
 A type no endpoint takes (LiteLLM's `video_generation` or `ocr`) is kept as reported
 and refused everywhere. A run on a model that is not an `llm` is refused when it is
 queued (`400`), and memory refuses an embedding model of another type.
-`default_model`, `memory.embedding_model`, `voice.model`, `images.model` and
-`files.embedding_model` must be in the list after the start's first discovery, declared in
-models.yaml or listed by their provider, as an `llm`, an `embedding`, a `transcription`, an
-`image` and an `embedding` model: the server refuses to start otherwise. Declaring them keeps them
+`default_model`, `memory.embedding_model`, `voice.model`, `images.model`,
+`files.embedding_model` and `suggestions.model` must be in the list after the start's first
+discovery, declared in models.yaml or listed by their provider, as an `llm`, an `embedding`, a
+`transcription`, an `image`, an `embedding` and an `llm` model: the server refuses to start otherwise. Declaring them keeps them
 listed even when their provider is down at the start.
 
 `models.yaml` entries, and only they, may also set where a model's requests go
@@ -223,6 +223,16 @@ On OpenRouter use `mistralai/voxtral-small-24b-2507-stt`: through that route
 `voxtral-mini-3b-2507` answers the recording instead of transcribing it. vLLM serves
 Voxtral's weights on `/v1/audio/transcriptions` with its transcription prompt.
 
+## Suggestions
+
+Once a turn is answered, the UI asks `POST /v1/threads/{id}/suggestions` for what the user
+might send next (`internal/suggest`, apart from the agents). The server reads the thread's
+last message and its answer (each cut to 4,000 characters), asks `suggestions.model`
+(`default_model` without the block) for three short follow-ups in the user's voice, as JSON
+held to a schema, and replies `{suggestions: [...]}`: at most three, each at most 80
+characters. Nothing is kept; the UI caches them per answer. `409` while the last turn has
+no finished answer (none yet, running, or paused on a question); `502` when the model fails.
+
 ## Code map
 
 | File | Role |
@@ -237,4 +247,5 @@ Voxtral's weights on `/v1/audio/transcriptions` with its transcription prompt.
 | `internal/providers/embed.go` | embeddings for memory |
 | `config/models.go` | `models.yaml` and its checks |
 | `internal/voice/voice.go` | the voice prompt: a recording to text |
+| `internal/suggest/suggest.go` | next-prompt suggestions after a turn |
 | `internal/files/embed.go` | multimodal embeddings for uploaded files |

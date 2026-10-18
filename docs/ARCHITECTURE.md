@@ -49,6 +49,7 @@ implements it, so imports run one way.
 | `internal/files` | `files.go` (keeping a file, what is accepted), `resolve.go` (`#id`), `handler.go` (the routes), `index.go` (what is embedded, chunks), `embed.go` (the multimodal embedder), `search.go` (the search behind `search_userfiles`, whose tool is `internal/tools/builtin/search_userfiles.go`) (FILES.md) |
 | `internal/providers` | provider clients, model resolution, discovery, the pass-through, embeddings (MODELS.md) |
 | `internal/voice` | the voice prompt: `voice.go` (a recording to text, `POST /v1/voice/transcriptions`); apart from the agents (MODELS.md) |
+| `internal/suggest` | next-prompt suggestions: `suggest.go` (`POST /v1/threads/{id}/suggestions`, one call to a small LLM); apart from the agents (MODELS.md) |
 | `pkg/toolx`, `pkg/citations`, `pkg/transport`, `pkg/s3`, `pkg/modelcatalog` | the tool wrapper; the source contract; HTTP clients; S3 through minio-go; models and model cards |
 
 ## The life of a run
