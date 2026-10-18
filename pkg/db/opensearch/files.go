@@ -68,12 +68,14 @@ func (c *Client) DeleteFile(ctx context.Context, id string) error {
 	return c.delete(ctx, indexFiles, id)
 }
 
-// FileChunk is one embedded piece of a file, in the embeddings index: a text
-// file's chunk, or an image, audio or video whole. It repeats the file's
-// name, media type and workspace, so a search needs no second lookup.
+// indexFileChunks holds what files hold, embedded for search: a text file's
+// chunks, an image, audio or video whole.
+const indexFileChunks = "userfile_chunks"
+
+// FileChunk is one embedded piece of a file. It repeats the file's name,
+// media type and workspace, so a search needs no second lookup.
 type FileChunk struct {
-	ID          string    `json:"id"`   // <file id>:<seq>
-	Kind        string    `json:"kind"` // file
+	ID          string    `json:"id"` // <file id>:<seq>
 	FileID      string    `json:"file_id"`
 	Name        string    `json:"name"`
 	MediaType   string    `json:"media_type"`
@@ -89,8 +91,7 @@ func (c *Client) SaveFileChunks(ctx context.Context, chunks []FileChunk) error {
 	var body bytes.Buffer
 	enc := json.NewEncoder(&body)
 	for _, ch := range chunks {
-		ch.Kind = kindFile
-		if err := enc.Encode(map[string]any{"index": map[string]any{"_index": c.ix(indexEmbeddings), "_id": ch.ID}}); err != nil {
+		if err := enc.Encode(map[string]any{"index": map[string]any{"_index": c.ix(indexFileChunks), "_id": ch.ID}}); err != nil {
 			return err
 		}
 		if err := enc.Encode(ch); err != nil {
@@ -99,12 +100,12 @@ func (c *Client) SaveFileChunks(ctx context.Context, chunks []FileChunk) error {
 	}
 	resp, err := c.api.Bulk(ctx, opensearchapi.BulkReq{Body: &body, Params: &opensearchapi.BulkParams{Refresh: "true"}})
 	if err != nil {
-		return fmt.Errorf("bulk %s: %w", indexEmbeddings, err)
+		return fmt.Errorf("bulk %s: %w", indexFileChunks, err)
 	}
 	for _, item := range resp.Items {
 		if r := item.Index; r != nil && r.Error != nil {
 			cause, _ := json.Marshal(r.Error)
-			return fmt.Errorf("bulk %s: %s", indexEmbeddings, cause)
+			return fmt.Errorf("bulk %s: %s", indexFileChunks, cause)
 		}
 	}
 	return nil
@@ -116,19 +117,16 @@ func (c *Client) SaveFileChunks(ctx context.Context, chunks []FileChunk) error {
 func (c *Client) SearchFileChunks(
 	ctx context.Context, vector []float32, k int, workspaceID *string, fileIDs []string,
 ) ([]FileChunk, error) {
-	filters := []any{ofKind(kindFile)}
+	knn := map[string]any{"vector": vector, "k": max(k, knnCandidates)}
 	switch {
 	case len(fileIDs) > 0:
-		filters = append(filters, map[string]any{"terms": map[string]any{"file_id": fileIDs}})
+		knn["filter"] = map[string]any{"terms": map[string]any{"file_id": fileIDs}}
 	case workspaceID != nil:
-		filters = append(filters, inWorkspace(*workspaceID))
+		knn["filter"] = inWorkspace(*workspaceID)
 	}
-	filter := map[string]any{"bool": map[string]any{"filter": filters}}
-	return search[FileChunk](ctx, c, indexEmbeddings, map[string]any{
+	return search[FileChunk](ctx, c, indexFileChunks, map[string]any{
 		"size": k, "_source": map[string]any{"excludes": []string{"embedding"}},
-		"query": map[string]any{"knn": map[string]any{"embedding": map[string]any{
-			"vector": vector, "k": max(k, knnCandidates), "filter": filter,
-		}}},
+		"query": map[string]any{"knn": map[string]any{"embedding": knn}},
 	})
 }
 
@@ -139,5 +137,5 @@ const knnCandidates = 100
 
 // DeleteFileChunks removes a file's chunks.
 func (c *Client) DeleteFileChunks(ctx context.Context, fileID string) error {
-	return c.deleteWhere(ctx, indexEmbeddings, "file_id", fileID) // only file chunks have one
+	return c.deleteWhere(ctx, indexFileChunks, "file_id", fileID)
 }

@@ -25,8 +25,8 @@ type searchFilesArgs struct {
 }
 
 // mediaNote tells the model what an image, audio or video hit is when it
-// can't see it (ShowFound shows images and PDFs to a model that can).
-const mediaNote = "Images, audio and video match by what they show or sound like. You are shown the images and PDFs " +
+// can't see it (ShowFound shows images to a model that can).
+const mediaNote = "Images, audio and video match by what they show or sound like. You are shown the images " +
 	"found if you can see images; otherwise name the file to the user."
 
 // searchFiles is search_userfiles: a semantic search over the files the user
@@ -56,8 +56,8 @@ func searchFiles(d Deps) (toolx.Tool, error) {
 	})
 }
 
-// ShowFound shows a model that sees images the images and PDFs that
-// search_userfiles found: adk leaves media out of tool results, so they go
+// ShowFound shows a model that sees images the images that search_userfiles
+// found: adk leaves media out of tool results, so they go
 // as a user message after the result, on the call that reads it (the next
 // call no longer ends with the result, so they are sent once).
 func ShowFound(store *files.Store) llmagent.BeforeModelCallback {

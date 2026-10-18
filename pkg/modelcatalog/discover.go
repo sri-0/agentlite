@@ -62,6 +62,9 @@ func capabilitiesFromParameters(params []string, arch Architecture) []string {
 	if slices.Contains(arch.InputModalities, "image") {
 		caps = append(caps, CapVision)
 	}
+	if slices.Contains(arch.InputModalities, "file") {
+		caps = append(caps, CapFiles)
+	}
 	return caps
 }
 

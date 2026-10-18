@@ -64,11 +64,16 @@ const (
 	CapToolCalling = "tool_calling"
 	CapReasoning   = "reasoning"
 	CapVision      = "vision"
+	CapFiles       = "files" // PDFs and other documents as input, apart from images
 )
 
 // HasVision reports whether the model takes images: it lists vision (as
-// discovery does when its input modalities name image).
-func (m *Model) HasVision() bool { return slices.Contains(m.Capabilities, CapVision) }
+// discovery does when its input modalities name image). False for nil.
+func (m *Model) HasVision() bool { return m != nil && slices.Contains(m.Capabilities, CapVision) }
+
+// HasFiles reports whether the model takes PDFs: it lists files (as
+// discovery does when its input modalities name file). False for nil.
+func (m *Model) HasFiles() bool { return m != nil && slices.Contains(m.Capabilities, CapFiles) }
 
 // Architecture mirrors the OpenRouter model metadata shape.
 type Architecture struct {
