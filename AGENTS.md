@@ -55,7 +55,7 @@ internal/
   stream/              AG-UI conventions, adk → AG-UI encoder, storage coalescing
   tools/               world tools (calculate, webfetch, write_note, search_records); the
                        catalog; tools/builtin: subagent, todowrite, question, emit_artifact,
-                       report_progress, write_skill
+                       report_progress, write_skill, generate_image
   skills/              the skills library: records in OpenSearch, files in S3, uploads, adk's
                        skill toolset, /name
   refs/                references in a message (/name, #id; later @agent), by sigil
@@ -63,8 +63,8 @@ internal/
   artifacts/           artifact records (OpenSearch) and bodies (S3)
   files/               files users upload: records (OpenSearch), bodies (S3), #id, the routes
   voice/               the voice prompt: a recording to text, and its route; apart from the agents
-  images/              image generation: the generate_image tool (the images agent's one tool);
-                       every image an artifact
+  images/              image generation and editing (Studio), every image an artifact; its
+                       tool is tools/builtin/generate_image.go
   mcp/                 mcp connectors → adk toolsets
   providers/           provider clients, model resolution and discovery, the pass-through
                        proxy, embeddings

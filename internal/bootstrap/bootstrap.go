@@ -32,7 +32,6 @@ import (
 	"agentlite/pkg/modelcatalog"
 	"agentlite/pkg/s3"
 	valkeysession "agentlite/pkg/session/valkey"
-	"agentlite/pkg/toolx"
 )
 
 // App is the wired application.
@@ -115,13 +114,9 @@ func New(ctx context.Context) (_ *App, err error) {
 	app.Artifacts = artifacts.New(app.Store, bucket, recorder, app.Log)
 	app.Skills = skills.New(app.Store, bucket, app.Log)
 	app.Files = files.New(app.Store, bucket)
-	var tools []toolx.Tool // harness tools of feature packages
+	var studio *images.Studio // nil without an image model: no generate_image
 	if m := cfg.Models.Images; m != nil {
-		img, err := images.New(app.Registry, app.Artifacts, app.Store, m.Model).Tool()
-		if err != nil {
-			return nil, err
-		}
-		tools = append(tools, img)
+		studio = images.New(app.Registry, app.Artifacts, app.Store, m.Model)
 	}
 	servers, err := mcp.Servers(cfg.Connectors, cfg.Transport, app.Log)
 	if err != nil {
@@ -129,7 +124,7 @@ func New(ctx context.Context) (_ *App, err error) {
 	}
 	app.Agents = agents.New(cfg, agents.Deps{
 		Registry: app.Registry, Sessions: app.Sessions, Memory: mem, Servers: servers,
-		Sources: recorder, Artifacts: app.Artifacts, Skills: app.Skills, Tools: tools,
+		Sources: recorder, Artifacts: app.Artifacts, Skills: app.Skills, Images: studio,
 		Refs: refs.Resolvers{'#': app.Files}, Log: app.Log,
 	})
 	app.Runs = runs.New(cfg, runs.Deps{

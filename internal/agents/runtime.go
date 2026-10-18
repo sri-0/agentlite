@@ -26,6 +26,7 @@ import (
 
 	"agentlite/config"
 	"agentlite/internal/artifacts"
+	"agentlite/internal/images"
 	"agentlite/internal/mcp"
 	"agentlite/internal/providers"
 	"agentlite/internal/refs"
@@ -54,7 +55,7 @@ type Runtime struct {
 	sources      *sources.Recorder
 	artifacts    *artifacts.Store
 	skills       *skills.Library
-	extra        []toolx.Tool   // harness tools of other packages (Deps.Tools)
+	images       *images.Studio // nil when no image model is configured
 	refs         refs.Resolvers // what a message's /name, @agent, #id refer to
 	log          zerolog.Logger
 
@@ -79,7 +80,7 @@ type Deps struct {
 	Sources   *sources.Recorder
 	Skills    *skills.Library
 	Artifacts *artifacts.Store
-	Tools     []toolx.Tool   // harness tools of other packages, such as generate_image
+	Images    *images.Studio // nil when no image model is configured
 	Refs      refs.Resolvers // other packages' reference sigils, such as #id for a file
 	Log       zerolog.Logger
 }
@@ -89,7 +90,7 @@ func New(cfg *config.Config, d Deps) *Runtime {
 	rt := &Runtime{
 		appName: cfg.AppName, defs: cfg.Defs(), registry: d.Registry, sessions: d.Sessions, memory: d.Memory,
 		defaultModel: cfg.Models.DefaultModel, compact: cfg.Models.Compaction, servers: d.Servers,
-		sources: d.Sources, artifacts: d.Artifacts, skills: d.Skills, extra: d.Tools,
+		sources: d.Sources, artifacts: d.Artifacts, skills: d.Skills, images: d.Images,
 		refs: refs.Resolvers{'/': d.Skills}, log: d.Log,
 		connectors: cfg.Connectors, transport: cfg.Transport,
 		mcpTools: newMCPTools(cfg.Connectors),
@@ -115,13 +116,10 @@ type Memory interface {
 func (rt *Runtime) Bind(ctx context.Context, d builtin.Dispatcher) error {
 	var err error
 	rt.harness, err = builtin.All(builtin.Deps{
-		Dispatcher: d, Defs: rt.defs, Artifacts: rt.artifacts, Skills: rt.skills, Log: rt.log,
+		Dispatcher: d, Defs: rt.defs, Artifacts: rt.artifacts, Skills: rt.skills, Images: rt.images, Log: rt.log,
 	})
 	if err != nil {
 		return err
-	}
-	for _, t := range rt.extra {
-		rt.harness[t.Name()] = t
 	}
 	if rt.skillset, err = rt.skills.Toolset(ctx); err != nil {
 		return err
