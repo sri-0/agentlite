@@ -24,10 +24,10 @@ session in a detached goroutine, so storing never delays the answer
 last user message and everything after it) and, for each text event in it
 (user or model; tool calls and reasoning are skipped), embeds the texts with the
 embedding block's model (one request) and indexes one document each in the
-OpenSearch `embeddings` index, which holds the files' chunks too:
+OpenSearch `memories` index:
 
 ```
-{ id, kind: "memory", thread_id, author, text, embedding (kNN vector), created_at }
+{ id, thread_id, author, text, embedding (kNN vector), created_at }
 ```
 
 The document id is the event's id (a UUIDv7), so re-storing a session
@@ -74,10 +74,10 @@ memory:
 ```
 
 Omit the `memory` block and there is no memory: no tools, no storing; it needs the
-`embedding` block. Entries are in the `embeddings` index with the files' chunks
-(`kind: "memory"`; `deploy/opensearch/embeddings.json`, created with the others by
-`make indices`, ARCHITECTURE.md), sized for 768-dimension vectors: a model of another
-size needs that file changed and the index recreated, and a new model means
+`embedding` block. Entries are in the `memories` index (`deploy/opensearch/memories.json`,
+created with the others by `make indices`, ARCHITECTURE.md), sized for 768-dimension
+vectors like the files' chunks: a model of another size needs both files changed and the
+indexes recreated, and a new model means
 re-embedding what is there (vectors of two models don't mix). What is remembered is
 embedded as documents, a search as a query (the block's prefixes); a turn's texts go in
 one request.

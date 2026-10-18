@@ -301,7 +301,7 @@ when files are searchable (`models.yaml` has an `embedding` block): a semantic s
 over the files it names (from any workspace), else the conversation's workspace's, else
 with `all` every workspace's, returning the `search_hits` best chunks (`{hits: [{fileId,
 name, mediaType, seq, text?}]}`). A model whose card lists `vision` is shown the images
-and PDFs found, after the result (`builtin.ShowFound`, a before-model callback: adk
+found, after the result (`builtin.ShowFound`, a before-model callback: adk
 leaves media out of tool results); audio and video hits are named only.
 
 ## Tool UI renderers

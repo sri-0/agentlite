@@ -17,8 +17,8 @@ rendering, no Office documents):
 | Kind | Media types | What the model gets for `#id` |
 |---|---|---|
 | text | any `text/*` and `application/json` | the text inline, in a `<file name>` block, up to `inline_text_kb` (20 KB); bigger, a note |
-| image | PNG, JPEG, WebP, GIF | the image itself, up to `inline_media_mb` (10 MiB; an inline part, which adk's openaimodel sends as `image_url`); bigger, a note |
-| pdf | `application/pdf` | the PDF itself, up to `inline_media_mb` (an inline part, sent as a `file` part); bigger, a note |
+| image | PNG, JPEG, WebP, GIF | to a model whose card lists `vision`, the image itself, up to `inline_media_mb` (10 MiB; an inline part, which adk's openaimodel sends as `image_url`); bigger, or to another model, a note |
+| pdf | `application/pdf` | to a model whose card lists `files`, the PDF itself, up to `inline_media_mb` (an inline part, sent as a `file` part); bigger, or to another model, a note |
 | audio | WAV, MP3 | a note naming the file: adk-go refuses audio parts, so the model cannot listen |
 | video | MP4 | a note, as audio |
 
@@ -89,9 +89,9 @@ an image, audio or video whole. A model refusal is `502` with the model's messag
 nothing is kept; a failed upload's body and chunks are removed even if the client has
 gone. A text is searchable up to `searchable_text_mb`; a bigger one is `400`.
 
-The chunks go to the `embeddings` index (`deploy/opensearch/embeddings.json`), which
-holds long-term memory too, told apart by `kind`: a file chunk is `{id: <file id>:<seq>,
-kind: "file", file_id, name, media_type, workspace_id?, seq, text?, embedding}`, a
+The chunks go to the `userfile_chunks` index (`deploy/opensearch/userfile_chunks.json`):
+a chunk is `{id: <file id>:<seq>, file_id, name, media_type, workspace_id?, seq, text?,
+embedding}`, a
 768-dimension kNN vector (cosine, HNSW on Lucene), repeating the file's name, type and
 workspace so a search needs no second lookup. Deleting a file deletes its chunks;
 deleting a workspace moves them out with the file.
@@ -109,20 +109,22 @@ seq, text?}]}`:
 - else, with `all`, of every workspace's: the agent can look more broadly when its own
   workspace has nothing.
 
-**Image and PDF hits are shown to the model** when its card lists `vision`
-(`modelcatalog.Model.HasVision`): adk leaves media out of tool results, so a
-before-model callback (`builtin.ShowFound`) adds them, up to `search_media` files each
-within `inline_media_mb`, as a user message after the result, on the call that reads
-it; the next call no longer ends with the result, so they are sent once. A model
-without vision gets a note to name them to the user. Audio and video hits are named
-only: adk-go refuses audio and video parts.
+**Image hits are shown to the model** when its card lists `vision`
+(`modelcatalog.Model.HasVision`; a PDF is never a hit, as none is embedded): adk leaves
+media out of tool results, so a before-model callback (`builtin.ShowFound`) adds them,
+up to `search_media` files each within `inline_media_mb`, as a user message after the
+result, on the call that reads it; the next call no longer ends with the result, so they
+are sent once. A model without vision gets a note to name them to the user. Audio and
+video hits are named only: adk-go refuses audio and video parts.
 
-**PDFs** are kept and sent to the model natively with `#id`, but not embedded: no open
-embedding model takes a PDF and nothing here converts files. A pipeline that extracts a
-PDF's text plugs into one place: `Store.index` in `internal/files/index.go`, the switch
-that decides what of a file is embedded. A separate system can instead write a PDF's
-chunks to the `embeddings` index itself (`kind: "file"` and the fields above, the same
-model and size) and set the record's `status` to `ready`.
+**PDFs** are kept and sent natively with `#id` to a model that takes files (its card's
+`files`, which discovery sets when OpenRouter's input modalities name `file`; images are
+`vision`, a separate capability: vLLM takes images but has no PDF part), but not
+embedded: no open embedding model takes a PDF and nothing here converts files. A
+pipeline that extracts a PDF's text plugs into one place: `Store.index` in
+`internal/files/index.go`, the switch that decides what of a file is embedded. A
+separate system can instead write a PDF's chunks to the `userfile_chunks` index itself
+(the fields above, the same model and size) and set the record's `status` to `ready`.
 
 ## API
 
@@ -152,7 +154,7 @@ session rebuilt from OpenSearch (`agents/seed.go`) has the text only.
   first, so a file saved while the workspace goes can keep its id. Clients treat an
   unknown workspace as none, as they do for threads.
 - **Access control.** Files are not scoped to a user, and `#` reaches any workspace's
-  file. When workspaces are shared, the `userfiles` and `embeddings` indices need the
+  file. When workspaces are shared, the `userfiles` and `userfile_chunks` indices need the
   document-level security the threads index gets (by `workspace_id`), and `#` and the
   list must only offer what the user may read.
 - **Changing the embedding model** means re-embedding every file and memory; there is

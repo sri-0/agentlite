@@ -13,6 +13,7 @@ import (
 	"agentlite/internal/stream"
 	"agentlite/pkg/db/opensearch"
 	"agentlite/pkg/s3"
+	"agentlite/pkg/toolx"
 )
 
 // activity is the file activity's content: the file a #id named.
@@ -26,8 +27,10 @@ var _ refs.Resolver = (*Store)(nil)
 
 // Resolve resolves #id, any file's id (the user picked it, from any
 // workspace), to a file activity and what the model gets: a line naming the
-// file, then an image or PDF as it is or a text inline, when small enough
-// (files config); anything else stays at the line. Any other #word stays text.
+// file, then, when small enough (files config), a text inline, or as it is an
+// image to a model that takes images and a PDF to one that takes files (the
+// run's card, HasVision and HasFiles); anything else stays at the line. Any
+// other #word stays text.
 func (s *Store) Resolve(ctx context.Context, id string) (refs.Ref, bool, error) {
 	if uuid.Validate(id) != nil {
 		return refs.Ref{}, false, nil
@@ -44,9 +47,9 @@ func (s *Store) Resolve(ctx context.Context, id string) (refs.Ref, bool, error) 
 		Content: fmt.Sprintf("The message names the file %q (%s, %d bytes) by its id; call it %q, never by its id.",
 			f.Name, f.MediaType, f.Size, f.Name),
 	}
-	k := kind(f.MediaType)
+	k, card := kind(f.MediaType), toolx.RunFrom(ctx).Card
 	text := k == kindText && f.Size <= s.limits.InlineTextKB<<10
-	media := (k == kindImage || k == kindPDF) && f.Size <= s.limits.InlineMediaMB<<20
+	media := (k == kindImage && card.HasVision() || k == kindPDF && card.HasFiles()) && f.Size <= s.limits.InlineMediaMB<<20
 	switch {
 	case text || media:
 		body, err := s.Body(ctx, f)

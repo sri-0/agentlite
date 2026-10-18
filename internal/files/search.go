@@ -46,8 +46,8 @@ func (s *Store) Search(ctx context.Context, rootID, query string, fileIDs []stri
 	return hits, nil
 }
 
-// Shown is what the model sees of the images and PDFs among hits: each file
-// once, up to the search_media limit and each within inline_media_mb, as it
+// Shown is what the model sees of the images among hits (a PDF is never one:
+// none is embedded, see index.go): each file once, up to the search_media limit and each within inline_media_mb, as it
 // is after a line naming it. A model that sees images gets them after
 // search_userfiles' result (adk leaves media out of tool results). A file
 // whose record or body is gone is left out.
@@ -55,7 +55,7 @@ func (s *Store) Shown(ctx context.Context, hits []Hit) []*genai.Part {
 	var parts []*genai.Part
 	seen := map[string]bool{}
 	for _, h := range hits {
-		if k := kind(h.MediaType); (k != kindImage && k != kindPDF) || seen[h.FileID] || len(seen) == s.limits.SearchMedia {
+		if kind(h.MediaType) != kindImage || seen[h.FileID] || len(seen) == s.limits.SearchMedia {
 			continue
 		}
 		seen[h.FileID] = true

@@ -235,7 +235,7 @@ func get[T any](ctx context.Context, c *Client, index, id string) (*T, error) {
 // evidence of what was said. The threads go last, so a failure can be retried.
 func (c *Client) DeleteThread(ctx context.Context, rootID string) error {
 	for _, d := range []struct{ index, field string }{
-		{indexMessages, "root_id"}, {indexEmbeddings, "thread_id"}, {indexThreads, "root_id"},
+		{indexMessages, "root_id"}, {indexMemories, "thread_id"}, {indexThreads, "root_id"},
 	} {
 		if err := c.deleteWhere(ctx, d.index, d.field, rootID); err != nil {
 			return err
