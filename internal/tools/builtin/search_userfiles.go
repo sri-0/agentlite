@@ -35,7 +35,7 @@ func searchFiles(d Deps) (toolx.Tool, error) {
 		if query == "" {
 			return nil, errors.New("say what to look for in query")
 		}
-		hits, err := d.FileSearch.Search(tc, tc.Thread.RootID, query, a.Files)
+		hits, err := d.Files.Search(tc, tc.Thread.RootID, query, a.Files)
 		if err != nil {
 			return nil, err
 		}

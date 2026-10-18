@@ -288,7 +288,8 @@ start. Deleting the root thread deletes its bodies, then its records.
 ## Files
 
 `internal/files` keeps the files users upload (FILES.md). `search_userfiles {query,
-files?}` is a harness tool, offered when `models.yaml` has a `files` block: a semantic
+files?}` (`internal/tools/builtin/search_userfiles.go`) is a harness tool, offered when
+`models.yaml` has a `files` block: a semantic
 search over the files of the conversation's workspace, or over those of them it names,
 returning
 the 8 best chunks (`{hits: [{fileId, name, mediaType, seq, text?}]}`; image, audio and

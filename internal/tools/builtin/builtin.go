@@ -40,7 +40,7 @@ type Deps struct {
 	Artifacts  *artifacts.Store
 	Skills     *skills.Library
 	Images     *images.Studio // nil when no image model is configured: no generate_image
-	FileSearch *files.Store   // nil when no embedding model is configured: no search_userfiles
+	Files      *files.Store   // search_userfiles when its files are searchable
 	Log        zerolog.Logger
 }
 
@@ -50,7 +50,7 @@ func All(d Deps) (map[string]toolx.Tool, error) {
 	if d.Images != nil {
 		builders = append(builders, generateImage)
 	}
-	if d.FileSearch != nil {
+	if d.Files.Searchable() {
 		builders = append(builders, searchFiles)
 	}
 	out := make(map[string]toolx.Tool, len(builders))

@@ -20,7 +20,6 @@ import (
 	"agentlite/internal/images"
 	"agentlite/internal/mcp"
 	"agentlite/internal/providers"
-	"agentlite/internal/refs"
 	"agentlite/internal/runs"
 	"agentlite/internal/skills"
 	"agentlite/internal/sources"
@@ -118,10 +117,6 @@ func New(ctx context.Context) (_ *App, err error) {
 		embedder = files.NewEmbedder(app.Registry, f.EmbeddingModel, f.Format, f.Dimensions)
 	}
 	app.Files = files.New(app.Store, bucket, embedder)
-	var search *files.Store // nil without an embedding model: no search_userfiles
-	if embedder != nil {
-		search = app.Files
-	}
 	var studio *images.Studio // nil without an image model: no generate_image
 	if m := cfg.Models.Images; m != nil {
 		studio = images.New(app.Registry, app.Artifacts, app.Store, m.Model)
@@ -132,8 +127,8 @@ func New(ctx context.Context) (_ *App, err error) {
 	}
 	app.Agents = agents.New(cfg, agents.Deps{
 		Registry: app.Registry, Sessions: app.Sessions, Memory: mem, Servers: servers,
-		Sources: recorder, Artifacts: app.Artifacts, Skills: app.Skills, Images: studio, FileSearch: search,
-		Refs: refs.Resolvers{'#': app.Files}, Log: app.Log,
+		Sources: recorder, Artifacts: app.Artifacts, Skills: app.Skills, Images: studio,
+		Files: app.Files, Log: app.Log,
 	})
 	app.Runs = runs.New(cfg, runs.Deps{
 		DB: runsDB, Interrupts: hitl.NewStore(hitlDB), History: app.Store, Sessions: app.Sessions,

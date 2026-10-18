@@ -66,6 +66,10 @@ func New(records *opensearch.Client, bodies *s3.Client, embedder *Embedder) *Sto
 	return &Store{records: records, bodies: bodies, embedder: embedder}
 }
 
+// Searchable reports whether files are embedded, and so searchable; a nil
+// store has none.
+func (s *Store) Searchable() bool { return s != nil && s.embedder != nil }
+
 // Add keeps a file under a workspace ("" files it under none), embedded for
 // search first: a file the model refuses is not kept.
 func (s *Store) Add(ctx context.Context, name, workspaceID string, tags []string, body []byte) (*opensearch.File, error) {

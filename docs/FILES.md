@@ -4,8 +4,9 @@ Users upload files (documents, images, audio, video) to talk about them. A file 
 kept once, named in any message with `#id` (the composer shows it as a chip with the
 file's name), and, with an embedding model configured, searched by the agents with
 `search_userfiles`. Everything files-specific is `internal/files` (the store, the `#`
-resolver, the routes, embedding and the tool) and `pkg/db/opensearch/files.go` (the
-records and chunks).
+resolver, the routes, embedding and the search) and `pkg/db/opensearch/files.go` (the
+records and chunks); the tool's wrapper is `internal/tools/builtin/search_userfiles.go`,
+like the other harness tools.
 
 ## What is accepted
 
@@ -94,7 +95,7 @@ a 768-dimension kNN vector, cosine, HNSW on Lucene), repeating the file's name, 
 workspace so a search needs no second lookup. Deleting a file deletes its chunks;
 deleting a workspace moves them out with the file.
 
-`search_userfiles {query, files?}` is a harness tool, offered when the block is there. It
+`search_userfiles {query, files?}` is a harness tool (`Store.Search` behind it), offered when the block is there. It
 embeds the query (task `search_query`) and returns the 8 nearest chunks (HNSW looks at
 100 candidates: asked for 8, it missed the one differing passage of a long report),
 `{hits: [{fileId, name, mediaType, seq, text?}]}`, of the files of the conversation's
