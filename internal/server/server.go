@@ -155,6 +155,7 @@ func errorHandler(next echo.HTTPErrorHandler) echo.HTTPErrorHandler {
 		}{
 			{runs.ErrInvalid, http.StatusBadRequest},
 			{skills.ErrInvalid, http.StatusBadRequest},
+			{opensearch.ErrUnknownWorkspace, http.StatusBadRequest},
 			{runs.ErrNotFound, http.StatusNotFound},
 			{opensearch.ErrNotFound, http.StatusNotFound},
 			{skills.ErrNotFound, http.StatusNotFound},

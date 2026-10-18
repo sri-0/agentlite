@@ -33,7 +33,7 @@ func (h *Handler) StartThread(c *echo.Context) error {
 	if err != nil {
 		return err
 	}
-	if err := h.checkWorkspace(c.Request().Context(), body.WorkspaceID); err != nil {
+	if err := h.Store.CheckWorkspace(c.Request().Context(), body.WorkspaceID); err != nil {
 		return err
 	}
 	in.WorkspaceID = body.WorkspaceID

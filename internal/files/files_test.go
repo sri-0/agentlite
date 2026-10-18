@@ -32,6 +32,8 @@ func TestSniff(t *testing.T) {
 		{"clip.webm", "\x1a\x45\xdf\xa3", ""},
 		{"blob.bin", "\x00\x01\x02\x03", ""},
 		{"raw.mp4", "\xff\xfb\x90\x00", ""}, // only .mp3 is taken on its extension
+		{"utf16.txt", "\xff\xfeh\x00i\x00", ""},
+		{"latin1.txt", "caf\xe9 au lait", ""},
 	} {
 		got, err := sniff(tc.name, []byte(tc.body))
 		if tc.want == "" {
@@ -58,7 +60,8 @@ func TestCleanName(t *testing.T) {
 }
 
 // TestReference: images and PDFs go as they are, short text inline, and long
-// text, audio and video as a note, which offers search only on a ready file.
+// text, audio, video and an unread (too big) image as a note, which offers
+// search only on a ready file.
 func TestReference(t *testing.T) {
 	file := func(mediaType string, size int, status string) *opensearch.File {
 		return &opensearch.File{ID: "f1", Name: "x", MediaType: mediaType, Size: size, Status: status}
@@ -80,6 +83,7 @@ func TestReference(t *testing.T) {
 		{"text not read", file("text/plain; charset=utf-8", 1<<20, opensearch.FileReady), "", "", "#f1 is the file", true},
 		{"audio", file("audio/wave", 10, opensearch.FileReady), "", "", "#f1 is the file", true},
 		{"video, not embedded", file("video/mp4", 10, opensearch.FileStored), "", "", "#f1 is the file", false},
+		{"image not read", file("image/png", inlineBytes+1, opensearch.FileReady), "", "", "#f1 is the file", true},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			var body []byte
@@ -98,5 +102,23 @@ func TestReference(t *testing.T) {
 				t.Errorf("kind %q id %q", ref.Kind, ref.ID)
 			}
 		})
+	}
+}
+
+// TestInline: only images and PDFs within inlineBytes, and texts that may be
+// within inlineText characters, are read.
+func TestInline(t *testing.T) {
+	for _, tc := range []struct {
+		mediaType string
+		size      int
+		want      bool
+	}{
+		{"image/png", inlineBytes, true}, {"image/png", inlineBytes + 1, false},
+		{"application/pdf", 1, true}, {"text/plain; charset=utf-8", inlineText * 4, true},
+		{"text/plain; charset=utf-8", inlineText*4 + 1, false}, {"audio/wave", 1, false}, {"video/mp4", 1, false},
+	} {
+		if got := inline(&opensearch.File{MediaType: tc.mediaType, Size: tc.size}); got != tc.want {
+			t.Errorf("inline(%s, %d) = %v", tc.mediaType, tc.size, got)
+		}
 	}
 }
