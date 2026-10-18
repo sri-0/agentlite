@@ -35,7 +35,7 @@ and goes there. A provider whose discovery fails keeps its last successful listi
 (only its `models.yaml` models until discovery first succeeds), and a request for
 any other model is refused rather than sent elsewhere. Runs
 check the model before they are queued (`runs.Start`, a `400` on the thread POST),
-`default_model` and `memory.embedding_model` must start with a provider id
+`default_model` and `embedding.model` must start with a provider id
 (checked at start), and the pass-through refuses with a `400`.
 
 A thread can change model between turns. The thread record keeps the last turn's
@@ -75,7 +75,7 @@ agents can run on it (`modelcatalog.Type*`):
 |---|---|---|
 | `llm` | chat, completions, responses | `/v1/chat/completions`, `/v1/responses`, `/v1/messages`; agent runs |
 | `image` | image generation and editing | `images.model` (the `generate_image` tool's default; a turn's `imageModel` picks another; `/images/generations`, TOOLS.md); `/v1/chat/completions` (vLLM-Omni serves Qwen-Image and Qwen-Image-Edit there, returning images in `message.content`; OpenRouter generates images there) |
-| `embedding` | embeddings | `/v1/embeddings`; memory; `files.embedding_model` (FILES.md) |
+| `embedding` | embeddings | `/v1/embeddings`; `embedding.model`: memory and the files (FILES.md) |
 | `audio` | speech and audio understanding (Voxtral: transcripts and questions about a recording) | `/v1/chat/completions`, with the audio in an `input_audio` part |
 | `decision` | typed answers to questions | `/v1/decisions`, `/v1/systemone` |
 | `transcription` | speech to text (Voxtral's speech-to-text route, Whisper) | the voice prompt, `POST /v1/voice/transcriptions` |
@@ -103,10 +103,10 @@ picker take `llm` models only, so it stays out of them.
 A type no endpoint takes (LiteLLM's `video_generation` or `ocr`) is kept as reported
 and refused everywhere. A run on a model that is not an `llm` is refused when it is
 queued (`400`), and memory refuses an embedding model of another type.
-`default_model`, `memory.embedding_model`, `voice.model`, `images.model`,
-`files.embedding_model` and `suggestions.model` must be in the list after the start's first
-discovery, declared in models.yaml or listed by their provider, as an `llm`, an `embedding`, a
-`transcription`, an `image`, an `embedding` and an `llm` model: the server refuses to start otherwise. Declaring them keeps them
+`default_model`, `embedding.model`, `voice.model`, `images.model` and `suggestions.model`
+must be in the list after the start's first discovery, declared in models.yaml or listed by
+their provider, as an `llm`, an `embedding`, a `transcription`, an `image` and an `llm`
+model: the server refuses to start otherwise. Declaring them keeps them
 listed even when their provider is down at the start.
 
 `models.yaml` entries, and only they, may also set where a model's requests go
@@ -147,7 +147,7 @@ reaches a provider.
 The development provider `openrouter` takes its base URL from `OPENROUTER_BASE_URL`;
 unset (production) it is skipped like any provider without a base URL, so a model id
 naming it is refused instead of reaching openrouter.ai. `default_model` and
-`memory.embedding_model` must name a provider the environment has: the server
+`embedding.model` must name a provider the environment has: the server
 refuses to start otherwise, rather than refusing every run that names no model.
 
 ## Model cards
@@ -197,16 +197,26 @@ field.
 
 ## Embeddings
 
-Long-term memory embeds text through `providers.Registry.Embedder(id)`, which
-resolves the id on every call (so a model discovery adds after start works) and
-calls the provider's `/embeddings` with the openai-go client built once per
-provider. It is the server calling a provider itself, not the pass-through.
+One model embeds for long-term memory and the files: `models.yaml`'s `embedding` block
+(`model`, `dimensions`, `query_prefix`, `document_prefix`), behind
+`providers.Registry.Embedder` (`internal/providers/embed.go`), which resolves the model
+on every call (so one discovery adds after start works). It is the server calling a
+provider itself, not the pass-through, and it speaks the OpenAI embeddings API with
+openai-go's typed client and nothing per provider:
 
-Uploaded files are embedded by `files.embedding_model`, a multimodal model
-(EmbeddingGemma 2), through `internal/files/embed.go`: the bodies carry images, audio and
-video as content parts, in DeepInfra's format or vLLM's (`files.format`; FILES.md). The
-`deepinfra` provider is for development only, like `openrouter`: without
-`DEEPINFRA_BASE_URL` it is skipped.
+- texts: `input: [texts]`, `encoding_format: "float"`, and `dimensions` when the block
+  sets it (0 leaves it out, for a model whose vectors are the index's size anyway: vLLM
+  refuses `dimensions` for EmbeddingGemma 2, vllm#60977);
+- an image, audio or video: the API takes only text, so `input` is one chat message
+  holding the file as a content part, `[{role: "user", content: [part]}]`, the rest of
+  the request as typed. vLLM (main since 2026-06) and OpenRouter's Gemini Embedding 2
+  take that. The part is OpenAI's `image_url` or `input_audio`; video, which OpenAI has
+  no part for, vLLM's `video_url`.
+
+The prefixes are for a model trained with them (EmbeddingGemma 2: `task: search result |
+query: ` and `title: none | text: `); empty, nothing is added. Both memory and files
+live in the `embeddings` index (768 dimensions), so the model's vectors must be that
+size, and changing the model means re-embedding both.
 
 ## Voice
 
@@ -239,10 +249,9 @@ there is no text; `502` when the model fails.
 ## Disconnected deployment
 
 The server itself fetches nothing from the internet: every model call goes to a
-provider in `models.yaml`. `openrouter` and `deepinfra` are for development only:
-without `OPENROUTER_BASE_URL` / `DEEPINFRA_BASE_URL` they are skipped, and a model id
-naming them is refused, never sent. `config/default/models.yaml` names OpenRouter and
-DeepInfra models for every feature, so a disconnected deployment brings its own config
+provider in `models.yaml`. `openrouter` is for development only: without
+`OPENROUTER_BASE_URL` it is skipped, and a model id naming it is refused, never sent.
+`config/default/models.yaml` names OpenRouter models for every feature, so a disconnected deployment brings its own config
 (`CONFIG_DIR`) that names local models. Run them on `vllm`, or `litellm` in front of
 local servers, and declare the non-LLM models under the provider's `models:` with their
 `type` (discovery reads `/models`, which doesn't say what a model is):
@@ -250,10 +259,9 @@ local servers, and declare the non-LLM models under the provider's `models:` wit
 | Feature | `models.yaml` | Local server |
 |---|---|---|
 | Agents and chat | `default_model: vllm/<llm>` | vLLM, chat completions (or `/v1/responses` through LiteLLM) |
-| Long-term memory | `memory.embedding_model: vllm/<text embedder>` (`type: embedding`) | vLLM `--runner pooling`. Its vectors must match `memories.json` (1,536 dimensions); another size means changing the mapping |
+| Embeddings: long-term memory and file search | `embedding: {model: vllm/google/embeddinggemma-2, dimensions: 0, query_prefix: "task: search result \| query: ", document_prefix: "title: none \| text: "}` (`type: embedding`) | vLLM with EmbeddingGemma 2 support (main since 2026-10-06, so a nightly until the next release): `--runner pooling --dtype bfloat16`; text, images, audio and video. Its vectors are 768, the `embeddings` index's size. Avoid sm_86 and sm_120 GPUs until vllm#60847 is fixed |
 | Voice prompt | `voice.model: vllm/mistralai/Voxtral-Small-24B-2507` (`type: transcription`) | vLLM serves Voxtral on `/v1/audio/transcriptions` |
 | Image generation | `images.model: vllm/<image model>` (`type: image`) | vLLM-Omni, `/v1/images/generations`. Edits send the original as OpenRouter's `input_references`, which vLLM-Omni doesn't read (TOOLS.md) |
-| File search | `files: {embedding_model: vllm/google/embeddinggemma-2, format: vllm, dimensions: 768}` (`type: embedding`) | vLLM with EmbeddingGemma 2 support (main since 2026-10-06, so a nightly until the next release): `--runner pooling --dtype bfloat16`. Avoid sm_86 and sm_120 GPUs until vllm#60847 is fixed (FILES.md) |
 | Next-prompt suggestions | `suggestions.model: vllm/<llm>`, or nothing (`default_model`) | the same LLM server |
 | Model descriptions | `MODEL_CARDS_DIR`: a checkout of the model-cards repository | none |
 

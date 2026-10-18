@@ -62,7 +62,7 @@ internal/
   sources/             numbers and stores the sources tools return
   artifacts/           artifact records (OpenSearch) and bodies (S3)
   files/               files users upload: records (OpenSearch), bodies (S3), #id, the routes,
-                       multimodal embeddings, the search behind search_userfiles
+                       what is embedded (chunks), the search behind search_userfiles
   voice/               the voice prompt: a recording to text, and its route; apart from the agents
   suggest/             next-prompt suggestions (from a thread, what's typed, or both) and their route; apart from the agents
   images/              image generation and editing (Studio), every image an artifact; its
@@ -78,7 +78,8 @@ pkg/
                        proxy the pass-through and the MCP proxy share
   opencode/            what opencode reads from /.well-known/opencode
   s3/                  S3-compatible object storage (minio-go)
-  db/opensearch/       threads, messages, memories (kNN), sources, artifacts, skills; typed queries
+  db/opensearch/       threads, messages, embeddings (kNN: memory, file chunks), sources, artifacts,
+                       skills, userfiles; typed queries
   db/valkey/           Valkey settings and a client per logical database
   memory/              adk memory.Service on OpenSearch
   session/valkey/      adk session.Service on Valkey

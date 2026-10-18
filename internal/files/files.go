@@ -50,16 +50,24 @@ var kinds = map[string]string{
 	"audio/wav": kindAudio, "audio/mpeg": kindAudio, "video/mp4": kindVideo, "application/pdf": kindPDF,
 }
 
+// Embedder embeds what files hold, with the embedding block's model
+// (providers.Embedder): text in chunks, an image, audio or video whole.
+type Embedder interface {
+	Documents(ctx context.Context, texts []string) ([][]float32, error)
+	Query(ctx context.Context, text string) ([]float32, error)
+	Media(ctx context.Context, data []byte, mediaType string) ([]float32, error)
+}
+
 // Store keeps files.
 type Store struct {
 	records  *opensearch.Client
 	bodies   *s3.Client
 	limits   config.FilesConfig
-	embedder *Embedder // nil: files are kept, not searchable
+	embedder Embedder // nil: files are kept, not searchable
 }
 
 // New returns a store; with an embedder, files are searchable.
-func New(records *opensearch.Client, bodies *s3.Client, limits config.FilesConfig, embedder *Embedder) *Store {
+func New(records *opensearch.Client, bodies *s3.Client, limits config.FilesConfig, embedder Embedder) *Store {
 	return &Store{records: records, bodies: bodies, limits: limits, embedder: embedder}
 }
 

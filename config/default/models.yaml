@@ -41,10 +41,14 @@ providers:
         context_length: 400000
         capabilities: [tool_calling, reasoning]
         supported_parameters: [reasoning_effort]
-      - id: openai/text-embedding-3-small
+      - id: openai/text-embedding-3-small   # for clients of the /v1/embeddings pass-through
         name: Text Embedding 3 Small
         type: embedding
         owned_by: openai
+      - id: google/gemini-embedding-2   # the embedding block's: text and images into one space here
+        name: Gemini Embedding 2
+        type: embedding
+        owned_by: google
       - id: mistralai/voxtral-small-24b-2507   # discovered as an llm; it is for voice
         type: audio
       - id: mistralai/voxtral-small-24b-2507-stt   # Voxtral Small's speech-to-text route; vLLM serves the weights offline
@@ -53,18 +57,6 @@ providers:
       - id: qwen/qwen-image-2.1-turbo   # generates and edits; offline, vLLM-Omni serves Qwen-Image-Edit
         name: Qwen Image 2.1 Turbo
         type: image
-
-  # Development only, like openrouter: without DEEPINFRA_BASE_URL it is skipped.
-  # It serves EmbeddingGemma 2, the files' embedding model; offline, vLLM
-  # serves the same weights (format: vllm below), so the vectors match.
-  - id: deepinfra
-    name: DeepInfra
-    base_url: ${DEEPINFRA_BASE_URL}
-    api_key_env: DEEPINFRA_API_KEY
-    models:
-      - id: google/embeddinggemma-2   # text, images, audio and video into one space
-        name: EmbeddingGemma 2
-        type: embedding
 
 # A model id is "<provider>/<model>": the provider's id, then the provider's
 # own name for the model (openrouter/openai/gpt-4.1-mini). A request goes to
@@ -93,11 +85,31 @@ default_model: openrouter/openai/gpt-4.1-mini
 # Omit the block to disable.
 compaction: { token_threshold: 0.85, keep_events: 20 }
 
+# The embedding model, for long-term memory and the files' search: both are in
+# the embeddings index, sized for its vectors (deploy/opensearch/embeddings.json,
+# 768). It is called through the OpenAI embeddings API; an image, audio or
+# video goes as one chat message in its input (docs/MODELS.md). `dimensions`
+# is sent as the request's dimensions (0 or left out: not sent, for a model
+# whose vectors are 768 anyway). The prefixes go before every text embedded to
+# search with (query_prefix) and to search in (document_prefix), for a model
+# trained with them. Here, OpenRouter's Gemini Embedding 2 (development):
+# text and images. Offline, EmbeddingGemma 2 on vLLM: text, images, audio and
+# video, with
+#   model: vllm/google/embeddinggemma-2
+#   dimensions: 0      # vLLM refuses dimensions for it (vllm#60977); its vectors are 768
+#   query_prefix: "task: search result | query: "
+#   document_prefix: "title: none | text: "
+# Omit the block and there is no long-term memory, and files are kept but not
+# searchable.
+embedding:
+  model: openrouter/google/gemini-embedding-2
+  dimensions: 768
+
 # Long-term memory (docs/MEMORY.md): finished user-started turns are embedded
-# and stored, and the agent can search them with load_memory. `preload: true`
-# also searches before every model call. Omit the block to disable.
+# (the embedding block's model) and stored, and the agent can search them with
+# load_memory. `preload: true` also searches before every model call. Omit the
+# block to disable.
 memory:
-  embedding_model: openrouter/openai/text-embedding-3-small
   preload: false
 
 # The voice prompt (internal/voice): the composer's microphone records, this
@@ -116,17 +128,18 @@ voice:
 images:
   model: openrouter/qwen/qwen-image-2.1-turbo
 
-# Files users upload for RAG (internal/files, docs/FILES.md): limits, each with
-# this default, and the multimodal model that embeds them so search_userfiles
-# can find them, its vector size (file_chunks.json is sized for it) and its
-# server's request format, deepinfra or vllm. Without embedding_model, files
-# are kept and referenceable with #id, but not searchable.
+# Files users upload for RAG (internal/files, docs/FILES.md): limits and
+# search, each with this default. They are embedded with the embedding block's
+# model, so search_userfiles can find them; without that block, files are kept
+# and referenceable with #id, but not searchable.
 files:
-  max_upload_mb: 25     # the largest upload
-  inline_text_kb: 20    # a #referenced text up to this goes in the model's context whole
-  inline_media_mb: 10   # an image or PDF up to this goes as it is; bigger gets a note
+  max_upload_mb: 25       # the largest upload
+  inline_text_kb: 20      # a #referenced text up to this goes in the model's context whole
+  inline_media_mb: 10     # an image or PDF up to this goes as it is; bigger gets a note
   max_tags: 10
   max_tag_chars: 40
-  embedding_model: deepinfra/google/embeddinggemma-2
-  dimensions: 768
-  format: deepinfra
+  chunk_chars: 2000       # a text is embedded in chunks of about this many characters,
+  chunk_overlap: 200      #   each overlapping the last by this many
+  searchable_text_mb: 2   # a bigger text file is refused: it would take minutes to embed
+  search_hits: 8          # what search_userfiles returns
+  search_media: 3         # images and PDFs it finds shown to a model that sees images

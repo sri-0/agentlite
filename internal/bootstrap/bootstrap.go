@@ -99,9 +99,15 @@ func New(ctx context.Context) (_ *App, err error) {
 		return nil, err
 	}
 	app.Sessions = valkeysession.New(sessionsDB)
+	// One embedder, for long-term memory and the files; without the embedding
+	// block there is no memory and files are kept, not searchable.
+	var embedder *providers.Embedder
+	if e := cfg.Models.Embedding; e != nil {
+		embedder = app.Registry.Embedder(*e)
+	}
 	var mem agents.Memory
-	if m := cfg.Models.Memory; m != nil {
-		app.Memory = memory.New(app.Store, app.Registry.Embedder(m.EmbeddingModel), app.Log)
+	if cfg.Models.Memory != nil { // config refuses it without the embedding block
+		app.Memory = memory.New(app.Store, embedder, app.Log)
 		mem = app.Memory
 	}
 	if v := cfg.Models.Voice; v != nil {
@@ -119,11 +125,11 @@ func New(ctx context.Context) (_ *App, err error) {
 	}
 	app.Artifacts = artifacts.New(app.Store, bucket, recorder, app.Log)
 	app.Skills = skills.New(app.Store, bucket, app.Log)
-	var embedder *files.Embedder // nil without an embedding model: files kept, not searchable
-	if f := cfg.Models.Files; f.EmbeddingModel != "" {
-		embedder = files.NewEmbedder(app.Registry, f.EmbeddingModel, f.Format, f.Dimensions)
+	var filesEmbedder files.Embedder // nil without one (a nil *providers.Embedder in it would not be)
+	if embedder != nil {
+		filesEmbedder = embedder
 	}
-	app.Files = files.New(app.Store, bucket, cfg.Models.Files, embedder)
+	app.Files = files.New(app.Store, bucket, cfg.Models.Files, filesEmbedder)
 	var studio *images.Studio // nil without an image model: no generate_image
 	if m := cfg.Models.Images; m != nil {
 		studio = images.New(app.Registry, app.Artifacts, app.Store, m.Model)
@@ -171,12 +177,12 @@ func (a *App) Close() {
 }
 
 // checkConfiguredModels checks the models models.yaml names: default_model
-// (a run that names none uses it), memory's embedding model, the voice
-// prompt's transcription model, the default image model, the files'
-// embedding model and the suggestions model. Each must be in
-// the model list after the start's first discovery (declared in models.yaml,
-// or listed by its provider), as the type it is used for, so a mistake fails
-// the start rather than every run, memory write, recording, image or upload.
+// (a run that names none uses it), the embedding model (memory's and the
+// files'), the voice prompt's transcription model, the default image model
+// and the suggestions model. Each must be in the model list after the start's
+// first discovery (declared in models.yaml, or listed by its provider), as
+// the type it is used for, so a mistake fails the start rather than every
+// run, memory write, recording, image or upload.
 func checkConfiguredModels(m *config.ModelsConfig, registry *providers.Registry) error {
 	check := func(id, typ string) error {
 		if _, err := registry.ResolveAs(id, typ); err != nil {
@@ -187,8 +193,8 @@ func checkConfiguredModels(m *config.ModelsConfig, registry *providers.Registry)
 	if err := check(m.DefaultModel, modelcatalog.TypeLLM); err != nil {
 		return err
 	}
-	if m.Memory != nil {
-		if err := check(m.Memory.EmbeddingModel, modelcatalog.TypeEmbedding); err != nil {
+	if m.Embedding != nil {
+		if err := check(m.Embedding.Model, modelcatalog.TypeEmbedding); err != nil {
 			return err
 		}
 	}
@@ -206,9 +212,6 @@ func checkConfiguredModels(m *config.ModelsConfig, registry *providers.Registry)
 		if err := check(m.Images.Model, modelcatalog.TypeImage); err != nil {
 			return err
 		}
-	}
-	if m.Files.EmbeddingModel != "" {
-		return check(m.Files.EmbeddingModel, modelcatalog.TypeEmbedding)
 	}
 	return nil
 }
