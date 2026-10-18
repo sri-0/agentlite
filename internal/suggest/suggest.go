@@ -1,6 +1,7 @@
-// Package suggest proposes what the user might send next once a turn is
-// over: a few short prompts from the thread's last message and answer, by one
-// call to a small model. It stands apart from the agents; nothing is kept.
+// Package suggest proposes what the user might send next: a few short
+// prompts from a thread's last message and answer, from what the user is
+// typing, or from both, by one call to a small model. It stands apart from
+// the agents; nothing is kept.
 package suggest
 
 import (
@@ -30,12 +31,21 @@ const (
 	timeout = 30 * time.Second
 )
 
-// Errors Suggest returns: a thread whose last turn has no finished answer
-// (none yet, or one still running or paused), and a model that failed.
+// Errors Suggest returns: a request with neither a thread nor text, a thread
+// whose last turn has no finished answer (none yet, or one still running or
+// paused) and no text to go on, and a model that failed.
 var (
+	ErrEmpty    = errors.New("threadId or text is required")
 	ErrNoAnswer = errors.New("the thread has no finished answer yet")
 	errModel    = errors.New("the suggestions model failed")
 )
+
+// Request is what the suggestions start from: a thread, what the user is
+// typing, or both.
+type Request struct {
+	ThreadID string `json:"threadId"`
+	Text     string `json:"text"`
+}
 
 // History is what the suggestions read: the thread and its last messages.
 type History interface {
@@ -57,9 +67,11 @@ func New(registry *providers.Registry, history History, model string) *Suggester
 }
 
 // instruction tells the model what to write and in which shape.
-const instruction = `You suggest what the user could send next in this conversation. ` +
-	`Write exactly three short follow-up messages in the user's own voice, as they would type them: ` +
-	`specific to the answer, each a different direction, at most ten words, no numbering, no quotes. ` +
+const instruction = `You suggest what the user could send next to an AI assistant. ` +
+	`Write exactly three short messages in the user's own voice, as they would type them: ` +
+	`each a different direction, at most twelve words, no numbering, no quotes. ` +
+	`When the user has started typing, each one completes or sharpens what they typed; ` +
+	`otherwise they follow from the last answer. ` +
 	`Reply with JSON: {"suggestions": ["…", "…", "…"]}.`
 
 // schema is the reply's shape, for providers that hold the model to it.
@@ -70,19 +82,27 @@ var schema = map[string]any{
 	"additionalProperties": false,
 }
 
-// Suggest returns up to three next prompts for a thread; ErrNoAnswer when its
-// last turn isn't answered.
-func (s *Suggester) Suggest(ctx context.Context, threadID string) ([]string, error) {
-	if _, err := s.history.Thread(ctx, threadID); err != nil {
-		return nil, err
+// Suggest returns up to three next prompts: from the thread's last answered
+// turn, from the text being typed, or both. ErrNoAnswer when there is only a
+// thread and its last turn isn't answered.
+func (s *Suggester) Suggest(ctx context.Context, r Request) ([]string, error) {
+	text := strings.TrimSpace(r.Text)
+	if r.ThreadID == "" && text == "" {
+		return nil, ErrEmpty
 	}
-	msgs, err := s.history.Messages(ctx, threadID, 0, 2)
-	if err != nil {
-		return nil, err
-	}
-	message, answer, ok := lastTurn(msgs)
-	if !ok {
-		return nil, ErrNoAnswer
+	var message, answer string
+	if r.ThreadID != "" {
+		if _, err := s.history.Thread(ctx, r.ThreadID); err != nil {
+			return nil, err
+		}
+		msgs, err := s.history.Messages(ctx, r.ThreadID, 0, 2)
+		if err != nil {
+			return nil, err
+		}
+		var ok bool
+		if message, answer, ok = lastTurn(msgs); !ok && text == "" {
+			return nil, ErrNoAnswer
+		}
 	}
 	target, err := s.registry.ResolveAs(s.model, modelcatalog.TypeLLM)
 	if err != nil {
@@ -99,7 +119,7 @@ func (s *Suggester) Suggest(ctx context.Context, threadID string) ([]string, err
 	)
 	resp, err := chat.New(ctx, openai.ChatCompletionNewParams{
 		Model:    target.Model.UpstreamID,
-		Messages: []openai.ChatCompletionMessageParamUnion{openai.SystemMessage(instruction), openai.UserMessage(prompt(message, answer))},
+		Messages: []openai.ChatCompletionMessageParamUnion{openai.SystemMessage(instruction), openai.UserMessage(prompt(message, answer, text))},
 		ResponseFormat: openai.ChatCompletionNewParamsResponseFormatUnion{OfJSONSchema: &shared.ResponseFormatJSONSchemaParam{
 			JSONSchema: shared.ResponseFormatJSONSchemaJSONSchemaParam{Name: "suggestions", Schema: schema, Strict: openai.Bool(true)},
 		}},
@@ -123,10 +143,18 @@ func lastTurn(msgs []opensearch.Message) (message, answer string, ok bool) {
 	return msgs[n-2].Text, msgs[n-1].Text, true
 }
 
-// prompt is what the model reads: the last message and its answer, each cut
-// to textCap runes.
-func prompt(message, answer string) string {
-	return "The user wrote:\n" + clip(message, textCap) + "\n\nThe assistant answered:\n" + clip(answer, textCap)
+// prompt is what the model reads: the last message and its answer when there
+// is one, then what the user is typing when there is any, each cut to textCap
+// runes.
+func prompt(message, answer, typed string) string {
+	var parts []string
+	if answer != "" {
+		parts = append(parts, "The user wrote:\n"+clip(message, textCap), "The assistant answered:\n"+clip(answer, textCap))
+	}
+	if typed != "" {
+		parts = append(parts, "The user is typing:\n"+clip(typed, textCap))
+	}
+	return strings.Join(parts, "\n\n")
 }
 
 // parse reads the model's JSON: at most three suggestions, trimmed, cut to
@@ -155,12 +183,18 @@ func clip(s string, n int) string {
 	return string([]rune(s)[:n-1]) + "…"
 }
 
-// Handle is POST /v1/threads/:id/suggestions: {suggestions: [...]}. A thread
-// whose last turn isn't answered yet is 409.
+// Handle is POST /v1/suggestions: {threadId?, text?} in, {suggestions: [...]}
+// out. Neither is 400; a thread with no answer yet and no text is 409.
 func (s *Suggester) Handle(c *echo.Context) error {
-	got, err := s.Suggest(c.Request().Context(), c.Param("id"))
+	var r Request
+	if err := c.Bind(&r); err != nil {
+		return err
+	}
+	got, err := s.Suggest(c.Request().Context(), r)
 	var upstream *openai.Error
 	switch {
+	case errors.Is(err, ErrEmpty):
+		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 	case errors.Is(err, ErrNoAnswer):
 		return echo.NewHTTPError(http.StatusConflict, err.Error())
 	case errors.As(err, &upstream):
