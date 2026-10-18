@@ -22,12 +22,12 @@ session in a detached goroutine, so storing never delays the answer
 
 `pkg/memory.Service.AddSessionToMemory` takes the session's latest turn (the
 last user message and everything after it) and, for each text event in it
-(user or model; tool calls and reasoning are skipped), embeds the text with the
-configured embedding model and indexes one document in the OpenSearch
-`memories` index:
+(user or model; tool calls and reasoning are skipped), embeds the texts with the
+embedding block's model (one request) and indexes one document each in the
+OpenSearch `embeddings` index, which holds the files' chunks too:
 
 ```
-{ id, thread_id, author, text, embedding (kNN vector), created_at }
+{ id, kind: "memory", thread_id, author, text, embedding (kNN vector), created_at }
 ```
 
 The document id is the event's id (a UUIDv7), so re-storing a session
@@ -66,15 +66,21 @@ Jaeger shows it. With preload off, recall costs nothing until the agent asks.
 
 ```yaml
 # models.yaml
+embedding:                 # the one embedding model, memory's and the files' (MODELS.md)
+  model: openrouter/google/gemini-embedding-2
+  dimensions: 768
 memory:
-  embedding_model: openai/text-embedding-3-small   # must be served by a provider
   preload: false
 ```
 
-Omit the block and there is no memory: no tools, no storing. The `memories` index
-is created with the others (`make indices`, ARCHITECTURE.md) for 1536-dimension
-vectors (`deploy/opensearch/memories.json`); a model with another size needs that
-file changed and the index recreated.
+Omit the `memory` block and there is no memory: no tools, no storing; it needs the
+`embedding` block. Entries are in the `embeddings` index with the files' chunks
+(`kind: "memory"`; `deploy/opensearch/embeddings.json`, created with the others by
+`make indices`, ARCHITECTURE.md), sized for 768-dimension vectors: a model of another
+size needs that file changed and the index recreated, and a new model means
+re-embedding what is there (vectors of two models don't mix). What is remembered is
+embedded as documents, a search as a query (the block's prefixes); a turn's texts go in
+one request.
 
 ## Swapping it
 

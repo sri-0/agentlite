@@ -19,9 +19,11 @@ import (
 
 const searchLimit = 5
 
-// Embedder turns text into a vector with the configured embedding model.
+// Embedder turns text into vectors with the configured embedding model:
+// what is remembered as documents, what is searched for as a query.
 type Embedder interface {
-	Embed(ctx context.Context, text string) ([]float32, error)
+	Documents(ctx context.Context, texts []string) ([][]float32, error)
+	Query(ctx context.Context, text string) ([]float32, error)
 }
 
 // Service is the OpenSearch-backed memory. Runs use it through ForThread.
@@ -31,8 +33,8 @@ type Service struct {
 	log      zerolog.Logger
 }
 
-// New returns the memory; the memories index is created with the others
-// (deploy/opensearch), sized for the embedding model.
+// New returns the memory; its entries are in the embeddings index, created
+// with the others (deploy/opensearch) and sized for the embedding model.
 func New(store *opensearch.Client, embedder Embedder, log zerolog.Logger) *Service {
 	return &Service{store: store, embedder: embedder, log: log}
 }
@@ -46,19 +48,24 @@ func (s *Service) AddSessionToMemory(ctx context.Context, sess session.Session) 
 		if ev.Author == "user" && textOf(ev.Content) != "" {
 			turn = turn[:0]
 		}
-		turn = append(turn, ev)
+		if textOf(ev.Content) != "" {
+			turn = append(turn, ev)
+		}
 	}
-	for _, ev := range turn {
-		text := textOf(ev.Content)
-		if text == "" {
-			continue
-		}
-		vector, err := s.embedder.Embed(ctx, text)
-		if err != nil {
-			return fmt.Errorf("embed: %w", err)
-		}
+	if len(turn) == 0 {
+		return nil
+	}
+	texts := make([]string, len(turn))
+	for i, ev := range turn {
+		texts[i] = textOf(ev.Content)
+	}
+	vectors, err := s.embedder.Documents(ctx, texts)
+	if err != nil {
+		return fmt.Errorf("embed: %w", err)
+	}
+	for i, ev := range turn {
 		if err := s.store.SaveMemory(ctx, &opensearch.Memory{
-			ID: ev.ID, ThreadID: sess.ID(), Author: ev.Author, Text: text, Embedding: vector, CreatedAt: ev.Timestamp,
+			ID: ev.ID, ThreadID: sess.ID(), Author: ev.Author, Text: texts[i], Embedding: vectors[i], CreatedAt: ev.Timestamp,
 		}); err != nil {
 			return err
 		}
@@ -89,7 +96,7 @@ func (v *threadView) SearchMemory(ctx context.Context, req *memory.SearchRequest
 	ctx, span := otel.Tracer("agentlite").Start(ctx, "memory.search")
 	defer span.End()
 	s := v.Service
-	vector, err := s.embedder.Embed(ctx, req.Query)
+	vector, err := s.embedder.Query(ctx, req.Query)
 	if err != nil {
 		s.log.Warn().Err(err).Msg("memory search skipped: embedding failed")
 		return &memory.SearchResponse{}, nil

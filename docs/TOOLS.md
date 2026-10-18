@@ -296,12 +296,13 @@ start. Deleting the root thread deletes its bodies, then its records.
 ## Files
 
 `internal/files` keeps the files users upload (FILES.md). `search_userfiles {query,
-files?}` (`internal/tools/builtin/search_userfiles.go`) is a harness tool, offered when
-`models.yaml` has a `files` block: a semantic
-search over the files of the conversation's workspace, or over those of them it names,
-returning
-the 8 best chunks (`{hits: [{fileId, name, mediaType, seq, text?}]}`; image, audio and
-video hits by name, with a note that the model can't see or hear them).
+files?, all?}` (`internal/tools/builtin/search_userfiles.go`) is a harness tool, offered
+when files are searchable (`models.yaml` has an `embedding` block): a semantic search
+over the files it names (from any workspace), else the conversation's workspace's, else
+with `all` every workspace's, returning the `search_hits` best chunks (`{hits: [{fileId,
+name, mediaType, seq, text?}]}`). A model whose card lists `vision` is shown the images
+and PDFs found, after the result (`builtin.ShowFound`, a before-model callback: adk
+leaves media out of tool results); audio and video hits are named only.
 
 ## Tool UI renderers
 
