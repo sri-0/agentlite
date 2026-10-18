@@ -25,6 +25,7 @@ type StartInput struct {
 	AgentID    string
 	Model      string
 	Connectors *[]string // replaces the thread's choice when set
+	ImageModel string    // the image model the turn's generate_image calls use; "" is the default
 	// WorkspaceID files a new conversation under a workspace; the caller
 	// checks it exists.
 	WorkspaceID string
@@ -77,7 +78,8 @@ func (m *Manager) Start(ctx context.Context, in StartInput) (*Run, error) {
 	}
 	run := &Run{
 		ID: uuid.Must(uuid.NewV7()).String(), ThreadID: in.ThreadID, AgentID: in.AgentID, Model: in.Model,
-		TurnID: uuid.Must(uuid.NewV7()).String(), MessageID: in.MessageID, Status: StatusQueued, StartedAt: time.Now(),
+		ImageModel: in.ImageModel,
+		TurnID:     uuid.Must(uuid.NewV7()).String(), MessageID: in.MessageID, Status: StatusQueued, StartedAt: time.Now(),
 	}
 	claimed, err := m.claimThread(ctx, in, run.ID)
 	if err != nil {

@@ -62,8 +62,8 @@ internal/
   sources/             numbers and stores the sources tools return
   artifacts/           artifact records (OpenSearch) and bodies (S3)
   voice/               the voice prompt: a recording to text, and its route; apart from the agents
-  images/              image generation: the generate_image tool, the Images page's route; every
-                       image an artifact
+  images/              image generation: the generate_image tool (the images agent's one tool);
+                       every image an artifact
   mcp/                 mcp connectors → adk toolsets
   providers/           provider clients, model resolution and discovery, the pass-through
                        proxy, embeddings
@@ -91,7 +91,7 @@ Agents are markdown files in `config/default/agents/`; there is no Go per agent.
 
 ## Interfaces
 
-**New thread** `POST /v1/agent/chat {messages, agentId?, model?, connectors?, workspaceId?}` creates a
+**New thread** `POST /v1/agent/chat {messages, agentId?, model?, connectors?, imageModel?, workspaceId?}` creates a
 thread with its first turn and starts the run; `201 {threadId, runId, seq}` once the thread
 is stored. It is HTTP so the request can be checked before the thread exists.
 
@@ -116,7 +116,7 @@ document-level security, is `not_found`. ARCHITECTURE.md has the frames.
 | GET | `/v1/threads/{id}/interrupts` | the paused run's pending interrupts |
 | GET | `/v1/threads/{id}/sources`, `/v1/threads/{id}/sources/{n}` | the conversation's sources by number; one source, what `[source:n]` refers to |
 | GET | `/v1/threads/{id}/artifacts`, `/v1/threads/{id}/artifacts/{artifactId}/content` | the conversation's artifacts, newest first; one artifact's body |
-| GET | `/v1/artifacts?after=&limit=` | artifacts across every conversation, newest first, with thread titles; a full page carries `next`, the cursor for `after` |
+| GET | `/v1/artifacts?kind=&after=&limit=` | artifacts across every conversation (of one kind, when set), newest first, with thread titles; a full page carries `next`, the cursor for `after` |
 | GET/POST | `/v1/skills` | the skills library (needs S3), filtered by `?q=&category=&source=`, with category and source counts; `POST` a multipart form: `file` (a skill's zip or its SKILL.md) and optional `title`, `description`, `category`, `source` (SKILLS.md) |
 | GET/PATCH/DELETE | `/v1/skills/{id}` | one skill by its uuid; change its title, description, category or source; remove it and its files |
 | GET/PUT | `/v1/skills/{id}/files/{path}` | one file of a skill, sandboxed; replace or add one |
@@ -124,7 +124,6 @@ document-level security, is `not_found`. ARCHITECTURE.md has the frames.
 | GET | `/.well-known/agent-skills/index.json`, `/.well-known/agent-skills/{name}/{path}` | the skills discovery index and files `npx skills add <server>` reads (no credentials) |
 | GET | `/.well-known/opencode` | what `opencode auth login <server>` configures: models, exposed MCP servers, skills (docs/OPENCODE.md) |
 | any | `/mcp/{id}` | an MCP connector with `mcp.expose: true`, proxied for clients such as opencode |
-| POST | `/v1/images` | the Images page: `{prompt, model?, threadId?, edit?}` → `{threadId, artifact}`, an image made and kept as an artifact (TOOLS.md) |
 | POST | `/v1/chat/completions`, `/v1/responses`, `/v1/messages`, `/v1/embeddings`, `/v1/decisions`, `/v1/systemone` | pass-through to the provider the body's `model` names, with the model rewritten to the provider's own id; each endpoint takes only models of its types (MODELS.md) |
 
 There is no authentication yet. The `Authorization` header on `POST /v1/agent/chat`

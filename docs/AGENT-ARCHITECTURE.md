@@ -31,6 +31,7 @@ compaction summarizer, and by every sub-agent the run starts.
 |---|---|---|---|---|
 | `assistant` | llm | primary (the default) | harness tools + connectors | answers, uses tools, keeps todos, delegates to the six below |
 | `chat` | llm | primary | none | the plain model ("No agent" in the UI) |
+| `images` | llm | primary | `generate_image` | makes and edits images; the Images page starts its conversations (TOOLS.md) |
 | `deep-research` | sequential | all | its steps' | planner → researcher → report-writer, in one run |
 | `data-analyst` | llm | all | `calculate`, `webfetch`, `report_progress` | numbers and comparisons with exact figures |
 | `researcher` | llm | subagent | `webfetch`, `report_progress` | facts for one focused question, with sources |

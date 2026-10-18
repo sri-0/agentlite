@@ -219,7 +219,7 @@ func (rt *Runtime) Run(ctx context.Context, in runs.Input, sink stream.Sink) (ru
 	ctx = platform.WithUUIDProvider(stream.WithSink(ctx, sink), func() string { return uuid.Must(uuid.NewV7()).String() }) // adk's event ids too
 	ctx = toolx.WithRun(ctx, toolx.Run{
 		Thread: toolx.Thread{ID: run.ThreadID, RootID: run.RootID, RunID: run.ID},
-		Model:  run.Model, Connectors: run.Connectors,
+		Model:  run.Model, Connectors: run.Connectors, ImageModel: run.ImageModel,
 		Authorization: in.Authorization,
 		Sources:       rt.sources,
 	})

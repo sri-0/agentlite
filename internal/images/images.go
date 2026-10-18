@@ -1,7 +1,8 @@
 // Package images generates and edits images with an image model, and keeps
 // every image as an artifact of its conversation, so each one is on the
-// artifacts page. It serves the generate_image tool in a conversation and
-// the Images page (POST /v1/images); the agents only see the tool.
+// artifacts page. It serves the generate_image tool; the Images page starts a
+// conversation with the images agent (config/default/agents/images.md), whose
+// one tool it is.
 package images
 
 import (
