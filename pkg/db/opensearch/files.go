@@ -47,14 +47,19 @@ func (c *Client) File(ctx context.Context, id string) (*File, error) {
 // unfiled ones when it is "", else one workspace's.
 func (c *Client) Files(ctx context.Context, workspaceID *string) ([]File, error) {
 	q := map[string]any{"size": listCap, "sort": []any{map[string]any{"created_at": "desc"}}}
-	switch {
-	case workspaceID == nil:
-	case *workspaceID == "":
-		q["query"] = map[string]any{"bool": map[string]any{"must_not": map[string]any{"exists": map[string]any{"field": "workspace_id"}}}}
-	default:
-		q["query"] = map[string]any{"term": map[string]any{"workspace_id": *workspaceID}}
+	if workspaceID != nil {
+		q["query"] = inWorkspace(*workspaceID)
 	}
 	return search[File](ctx, c, indexFiles, q)
+}
+
+// inWorkspace matches the files (or chunks) of one workspace; "" matches
+// the unfiled ones.
+func inWorkspace(id string) map[string]any {
+	if id == "" {
+		return map[string]any{"bool": map[string]any{"must_not": map[string]any{"exists": map[string]any{"field": "workspace_id"}}}}
+	}
+	return map[string]any{"term": map[string]any{"workspace_id": id}}
 }
 
 // DeleteFile removes a file's record; ErrNotFound when there is none.
@@ -105,26 +110,30 @@ func (c *Client) SaveFileChunks(ctx context.Context, chunks []FileChunk) error {
 	return nil
 }
 
-// SearchFileChunks returns the k chunks nearest to the vector, best first:
-// of the given files when fileIDs is not empty, else of one workspace's files
-// ("" for the unfiled ones).
+// SearchFileChunks returns the k chunks nearest to the vector, best first,
+// of one workspace's files ("" for the unfiled ones), and of those only the
+// given files when fileIDs is not empty.
 func (c *Client) SearchFileChunks(
 	ctx context.Context, vector []float32, k int, workspaceID string, fileIDs []string,
 ) ([]FileChunk, error) {
-	var filter map[string]any
-	switch {
-	case len(fileIDs) > 0:
-		filter = map[string]any{"terms": map[string]any{"file_id": fileIDs}}
-	case workspaceID == "":
-		filter = map[string]any{"bool": map[string]any{"must_not": map[string]any{"exists": map[string]any{"field": "workspace_id"}}}}
-	default:
-		filter = map[string]any{"term": map[string]any{"workspace_id": workspaceID}}
+	filter := inWorkspace(workspaceID)
+	if len(fileIDs) > 0 {
+		filter = map[string]any{"bool": map[string]any{"filter": []any{
+			filter, map[string]any{"terms": map[string]any{"file_id": fileIDs}},
+		}}}
 	}
 	return search[FileChunk](ctx, c, indexFileChunks, map[string]any{
 		"size": k, "_source": map[string]any{"excludes": []string{"embedding"}},
-		"query": map[string]any{"knn": map[string]any{"embedding": map[string]any{"vector": vector, "k": k, "filter": filter}}},
+		"query": map[string]any{"knn": map[string]any{"embedding": map[string]any{
+			"vector": vector, "k": max(k, knnCandidates), "filter": filter,
+		}}},
 	})
 }
+
+// knnCandidates is how many neighbours HNSW looks for before the best k are
+// kept: asked for only k, it missed the best chunk among near-alike ones
+// (the passage that differs, in a long report of the same paragraphs).
+const knnCandidates = 100
 
 // DeleteFileChunks removes a file's chunks.
 func (c *Client) DeleteFileChunks(ctx context.Context, fileID string) error {

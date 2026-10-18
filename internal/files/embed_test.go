@@ -3,6 +3,7 @@ package files
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -131,8 +132,8 @@ func TestEmbedVLLM(t *testing.T) {
 	}
 }
 
-// TestChunk: chunks of at most chunkSize characters, cut at a space near the
-// end, overlapping, together holding the whole text.
+// TestChunk: chunks of at most chunkSize characters, of whole words, each
+// overlapping the one before, together covering the whole text.
 func TestChunk(t *testing.T) {
 	if got := chunk("  \n "); len(got) != 0 {
 		t.Errorf("blank: %q", got)
@@ -140,22 +141,34 @@ func TestChunk(t *testing.T) {
 	if got := chunk(" short text "); len(got) != 1 || got[0] != "short text" {
 		t.Errorf("short: %q", got)
 	}
-	words := strings.Repeat("lorem ipsum dolor sit amet ", 400) // 10,800 characters
-	got := chunk(words)
-	if len(got) < 6 || len(got) > 7 {
-		t.Fatalf("%d chunks", len(got))
+	words := make([]string, 2500) // unique words: a chunk's place in the text is unambiguous
+	for i := range words {
+		words[i] = fmt.Sprintf("w%d", i)
 	}
+	text := strings.Join(words, " ")
+	got := chunk(text)
+	if len(got) < 7 {
+		t.Fatalf("%d chunks of a %d-character text", len(got), len(text))
+	}
+	prevEnd := 0
 	for i, c := range got {
-		if len([]rune(c)) > chunkSize {
-			t.Errorf("chunk %d has %d characters", i, len([]rune(c)))
+		at := strings.Index(text, c)
+		end := at + len(c)
+		wholeWords := at >= 0 && (at == 0 || text[at-1] == ' ') && (end == len(text) || text[end] == ' ')
+		switch {
+		case !wholeWords:
+			t.Fatalf("chunk %d is not whole words of the text: %.30q…", i, c)
+		case len(c) > chunkSize:
+			t.Errorf("chunk %d has %d characters", i, len(c))
+		case i == 0 && at != 0:
+			t.Errorf("the first chunk starts at %d", at)
+		case i > 0 && (at >= prevEnd || prevEnd-at > chunkOverlap):
+			t.Errorf("chunk %d starts at %d; the one before ended at %d: overlap %d", i, at, prevEnd, prevEnd-at)
 		}
-		if i < len(got)-1 && !strings.HasSuffix(c, "amet") && !strings.HasSuffix(c, "lorem") &&
-			!strings.HasSuffix(c, "ipsum") && !strings.HasSuffix(c, "dolor") && !strings.HasSuffix(c, "sit") {
-			t.Errorf("chunk %d cut mid-word: %q", i, c[len(c)-10:])
-		}
+		prevEnd = end
 	}
-	if !strings.HasSuffix(strings.TrimSpace(words), got[len(got)-1]) {
-		t.Error("the last chunk is not the text's end")
+	if prevEnd != len(text) {
+		t.Errorf("the chunks end at %d of %d", prevEnd, len(text))
 	}
 	noSpaces := strings.Repeat("x", 5000)
 	if got := chunk(noSpaces); len(got) != 3 || len(got[0]) != chunkSize {

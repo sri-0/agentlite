@@ -83,9 +83,11 @@ from after 2026-10-06), so vectors from either match. The two formats
   `dimensions` here, which Matryoshka training allows.
 
 An upload is embedded before anything is kept, and answers when it is done: a text in
-chunks of about 2,000 characters (cut at a space, overlapping by 200), an image, audio
-or video whole. A model refusal (say, audio longer than the model's window) is `502`
-with its message, and nothing is kept. A text is searchable up to 2 MiB; a bigger one is
+chunks of about 2,000 characters (cut at a space, each starting with a whole word up to
+200 characters before the last one ended), an image, audio or video whole. A model
+refusal (say, audio longer than the model's window) is `502` with the model's message,
+and nothing is kept; a failed upload's body and chunks are removed even if the client
+has gone. A text is searchable up to 2 MiB; a bigger one is
 `400`. The chunks go to the `file_chunks` index (`deploy/opensearch/file_chunks.json`:
 `{id: <file id>:<seq>, file_id, name, media_type, workspace_id?, seq, text?, embedding}`,
 a 768-dimension kNN vector, cosine, HNSW on Lucene), repeating the file's name, type and
@@ -93,9 +95,11 @@ workspace so a search needs no second lookup. Deleting a file deletes its chunks
 deleting a workspace moves them out with the file.
 
 `search_userfiles {query, files?}` is a harness tool, offered when the block is there. It
-embeds the query (task `search_query`) and returns the 8 nearest chunks,
-`{hits: [{fileId, name, mediaType, seq, text?}]}`: of the files it names, else of the
-files of the conversation's workspace (the unfiled ones for a conversation in none).
+embeds the query (task `search_query`) and returns the 8 nearest chunks (HNSW looks at
+100 candidates: asked for 8, it missed the one differing passage of a long report),
+`{hits: [{fileId, name, mediaType, seq, text?}]}`, of the files of the conversation's
+workspace (the unfiled ones for a conversation in none), and of those only the files it
+names, if it names any: a file of another workspace is never searched.
 
 **Image, audio and video hits** come back by name and id, with a note: the model can't
 see or hear them in a tool result (adk-go drops media there), and can tell the user to

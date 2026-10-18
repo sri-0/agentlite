@@ -33,31 +33,28 @@ const mediaNote = "Images, audio and video match by what they show or sound like
 
 // Tool is search_userfiles: a semantic search over the files the user
 // uploaded to the conversation's workspace (or the unfiled ones, for a
-// conversation in none), or over the files it names.
+// conversation in none), or over the files of those it names.
 func (s *Store) Tool() (toolx.Tool, error) {
 	return toolx.New(toolx.Spec{
 		Name: SearchToolName,
 		Description: "Search the files the user uploaded (documents, images, audio, video) by meaning. Returns the best " +
 			"matching passages of text files, and the images, audio and video that match. Use it for questions about " +
-			"the user's files, and for a file the user named with #id that is too long to read whole.",
+			"the user's files, and for a file the user named with #id that is too long to read whole. Call files by " +
+			"their name, never by their id.",
 	}, func(tc toolx.Context, a searchArgs) (map[string]any, error) {
 		query := strings.TrimSpace(a.Query)
 		if query == "" {
 			return nil, errors.New("say what to look for in query")
 		}
-		workspaceID := ""
-		if len(a.Files) == 0 {
-			t, err := s.records.Thread(tc, tc.Thread.RootID)
-			if err != nil {
-				return nil, err
-			}
-			workspaceID = t.WorkspaceID
+		root, err := s.records.Thread(tc, tc.Thread.RootID)
+		if err != nil {
+			return nil, err
 		}
 		vectors, err := s.embedder.embed(tc, taskQuery, []input{{text: query}})
 		if err != nil {
 			return nil, err
 		}
-		chunks, err := s.records.SearchFileChunks(tc, vectors[0], searchHits, workspaceID, a.Files)
+		chunks, err := s.records.SearchFileChunks(tc, vectors[0], searchHits, root.WorkspaceID, a.Files)
 		if err != nil {
 			return nil, err
 		}

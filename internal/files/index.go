@@ -60,8 +60,9 @@ func (s *Store) index(ctx context.Context, f *opensearch.File, body []byte) ([]o
 }
 
 // chunk splits a text into chunks of about chunkSize characters, each cut at
-// a space where one is near the end, overlapping by chunkOverlap. A blank
-// text has none.
+// a space where one is near the end, and each after the first starting with
+// the whole word at or after chunkOverlap characters before the last one
+// ended. A blank text has none.
 func chunk(text string) []string {
 	r := []rune(strings.TrimSpace(text))
 	var out []string
@@ -81,6 +82,12 @@ func chunk(text string) []string {
 			break
 		}
 		start = end - chunkOverlap
+		for i := start; i < end; i++ { // on to the next word, so no chunk starts mid-word
+			if unicode.IsSpace(r[i]) {
+				start = i + 1
+				break
+			}
+		}
 	}
 	return out
 }

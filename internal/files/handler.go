@@ -7,6 +7,7 @@ import (
 	"net/http"
 
 	"github.com/labstack/echo/v5"
+	"github.com/openai/openai-go/v3"
 )
 
 // PostFile is POST /v1/files: a multipart form with the file and, to file it
@@ -34,7 +35,11 @@ func (s *Store) PostFile(c *echo.Context) error {
 	case errors.Is(err, ErrUnsupported):
 		return echo.NewHTTPError(http.StatusUnsupportedMediaType, err.Error())
 	case errors.Is(err, ErrEmbed):
-		return echo.NewHTTPError(http.StatusBadGateway, err.Error()).Wrap(err)
+		msg := ErrEmbed.Error() // not err's text: it names the provider's URL
+		if refused, ok := errors.AsType[*openai.Error](err); ok && refused.Message != "" {
+			msg = "the embedding model refused the file: " + refused.Message
+		}
+		return echo.NewHTTPError(http.StatusBadGateway, msg).Wrap(err)
 	case err != nil:
 		return err
 	}
