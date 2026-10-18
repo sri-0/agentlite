@@ -99,6 +99,13 @@ type VoiceConfig struct {
 // the generate_image tool uses, and the Images page's default.
 type ImagesConfig struct {
 	Model string `yaml:"model"`
+	// EditModel edits on the OpenAI /images/edits route, the original
+	// uploaded in a multipart form, as vLLM-Omni serves it: Qwen-Image 2.1
+	// makes and edits, so it is Model again; earlier Qwen-Image models edit
+	// with Qwen-Image-Edit, on a server of its own. Without it an edit goes
+	// to Model on /images/generations, the original in OpenRouter's
+	// input_references (development).
+	EditModel string `yaml:"edit_model"`
 }
 
 // FilesConfig is the files block (internal/files, docs/FILES.md): limits on

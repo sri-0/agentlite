@@ -276,10 +276,18 @@ version N, so an image shown in a chat keeps showing the version it made.
 
 The `media_type` field is new in `deploy/opensearch/artifacts.json`: run `make indices`.
 
-The model is called on the OpenAI route `/images/generations`, which OpenRouter and
-vLLM-Omni serve, reading `data[].b64_json`. An edit's reference image goes in OpenRouter's
-`input_references`; vLLM-Omni edits on `/images/edits` instead, so offline an edit
-generates without its reference until that route is added.
+A new image is made on the OpenAI route `/images/generations`, which OpenRouter and
+vLLM-Omni serve, reading `data[].b64_json`. An edit goes to `images.edit_model` on
+`/images/edits` (openai-go's `Images.Edit`): a multipart form with the original as
+`image`, the prompt and the model's upstream id, as vLLM-Omni takes it, and no
+`response_format` (`b64_json` is the default and the only one its edits take; the size
+follows the original). vLLM-Omni serves one model per server: Qwen-Image 2.1 makes and
+edits, so `edit_model` is `model` again; earlier Qwen-Image models edit with
+Qwen-Image-Edit on a second server (`models.yaml` has both setups). Without
+`edit_model` (development on OpenRouter, which has no `/images/edits`) an edit goes to
+the image model on `/images/generations` with the original in `input_references`. The
+model is reached only through the tool call; clients that call the image API themselves
+use the pass-through's `/v1/images/generations` and `/v1/images/edits` (MODELS.md).
 
 S3 is any S3-compatible store through `minio-go` (`pkg/s3`); `docker-compose.yaml` runs
 MinIO on `:9000` (console `:9001`, `minioadmin`/`minioadmin`). The bucket is created on
