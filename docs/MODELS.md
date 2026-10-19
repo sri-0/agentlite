@@ -170,8 +170,7 @@ result, and the UI's model view shows it.
 ## The pass-through proxy
 
 These endpoints are forwarded as they are, each for the model types it takes
-(`internal/handler/passthrough.go`; serving another upstream endpoint is one more line
-there):
+(`internal/passthrough`; serving another upstream endpoint is one more line there):
 
 | Endpoint | API | Types |
 |---|---|---|
@@ -184,11 +183,12 @@ there):
 | `/v1/decisions` | OpenAI's decisions API (beta, Oct 2026) | `decision` |
 | `/v1/systemone` | TypeSafe's System One API (also vLLM, LiteLLM, DigitalOcean) | `decision` |
 
-The handler (`internal/handler/passthrough.go`) reads the whole body (within the server's
-body limit, `MAX_BODY_MB`, default 32: Echo's `BodyLimit`, a `413` above it) for its
-`model`: a JSON object's, or a multipart form's `model` field (an image edit's upload,
-whose other parts pass as they came, under the same boundary). It
-resolves it, checks its type, rewrites it to the upstream id, and forwards the
+`internal/passthrough` reads the whole body (within the server's body limit,
+`MAX_BODY_MB`, default 32: Echo's `BodyLimit`, a `413` above it) for its `model`: a JSON
+object's on every endpoint but `/v1/images/edits`, whose body is a multipart form (an
+image edit's upload), parsed with Go's `mime/multipart` and written out again with the
+new `model` and every other field and file as it came (each file with its own headers),
+under a new boundary. It resolves the model, checks its type, rewrites it to the upstream id, and forwards the
 request to that provider (or the model's own `base_url`) with the provider's key
 (`providers.Registry.Forward`), streaming the response back as it arrives. Refusals
 are Echo errors (`{"message": ...}`); a provider that cannot be reached is a `502`. A body without a `model` of the form
@@ -227,8 +227,9 @@ size, and changing the model means re-embedding both.
 The voice prompt (`internal/voice`) is apart from the agents. The composer records,
 converts the recording to 16 kHz mono WAV (what every Voxtral route accepts; browsers
 record WebM), and posts it to `POST /v1/voice/transcriptions` as a multipart `file`
-(25 MiB at most). The server sends it to `voice.model`'s `/audio/transcriptions`, the
-OpenAI route OpenRouter, vLLM and LiteLLM all serve, and replies `{text}`. 25 MiB of
+(`voice.max_mb`, default 25 MiB, at most). The server sends it to `voice.model`'s `/audio/transcriptions`, the
+OpenAI route OpenRouter, vLLM and LiteLLM all serve, waits up to `voice.timeout` (default
+60s), and replies `{text}`. 25 MiB of
 that WAV is about 13 minutes. The text
 goes into the composer, and is sent as if typed. Without a `voice` block in
 `models.yaml` the route is not registered.
@@ -278,8 +279,9 @@ Also check, outside `models.yaml`:
 | `pkg/modelcatalog/cards.go` | the model card loader and lookup |
 | `internal/providers/client.go` | one client per provider (pkg/transport, TLS) |
 | `internal/providers/registry.go` | per-provider model lists, `Resolve`, discovery |
-| `internal/handler/passthrough.go` | the pass-through endpoints, their model types, the checks |
+| `internal/passthrough/passthrough.go` | the pass-through endpoints, their model types, the checks; JSON bodies, and the image edit's form |
 | `internal/providers/reverseproxy.go` | forwarding a pass-through request to its provider |
 | `internal/providers/embed.go` | the one embedder: memory's, and the uploaded files' (text, images, audio, video) |
 | `config/models.go` | `models.yaml` and its checks |
 | `internal/voice/voice.go` | the voice prompt: a recording to text |
+| `internal/handler/voice.go` | `POST /v1/voice/transcriptions` |

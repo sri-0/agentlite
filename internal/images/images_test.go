@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 
 	"github.com/rs/zerolog"
 
@@ -61,7 +62,7 @@ func newStudio(t *testing.T, editModel string) (*Studio, *request) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	return New(registry, nil, nil, "img/Qwen/Qwen-Image", editModel), got
+	return New(registry, nil, nil, config.ImagesConfig{Model: "img/Qwen/Qwen-Image", EditModel: editModel, Timeout: time.Minute}), got
 }
 
 // TestGenerate: a new image goes to /images/generations; an edit goes to the
@@ -111,7 +112,7 @@ func TestGenerate(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			s, got := newStudio(t, tc.editModel)
-			img, err := s.generate(context.Background(), s.model, "a kite", tc.ref)
+			img, err := s.generate(context.Background(), s.cfg.Model, "a kite", tc.ref)
 			if err != nil || string(img) != "made" {
 				t.Fatalf("image %q, err %v", img, err)
 			}

@@ -119,7 +119,9 @@ memory:
 
 # The voice prompt (internal/voice): the composer's microphone records, this
 # transcription model turns it into text, and the text is sent as typed. Omit
-# the block and there is no voice prompt.
+# the block and there is no voice prompt. `max_mb` is the largest recording
+# (default 25, the providers' own limit) and `timeout` one transcription's
+# (default 60s).
 voice:
   model: openrouter/mistralai/voxtral-small-24b-2507-stt
 # Image generation (internal/images): the image model the generate_image tool
@@ -136,6 +138,7 @@ voice:
 # Earlier Qwen-Image models edit with Qwen-Image-Edit, a second server:
 #   model: vllm/Qwen/Qwen-Image
 #   edit_model: vllm/Qwen/Qwen-Image-Edit-2511
+# `timeout` is one image's (default 3m).
 images:
   model: openrouter/qwen/qwen-image-2.1-turbo
 
