@@ -1,6 +1,6 @@
 // Package refs reads the references a user's message makes: a word that is a
 // sigil and a name, such as /name for a command (a skill, so far), #id for a
-// file (internal/files), and in time @agent for an agent. Each sigil has a
+// file (internal/rag/userfiles), and in time @agent for an agent. Each sigil has a
 // Resolver. A reference that resolves gives the model content ahead of the
 // message, which stays as typed, and the thread an activity that shows it.
 package refs

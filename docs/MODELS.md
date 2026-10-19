@@ -297,9 +297,8 @@ Also check, outside `models.yaml`:
 | `internal/providers/registry.go` | per-provider model lists, `Resolve`, discovery |
 | `internal/handler/passthrough.go` | the pass-through endpoints, their model types, the checks |
 | `internal/providers/reverseproxy.go` | forwarding a pass-through request to its provider |
-| `internal/providers/embed.go` | embeddings for memory |
+| `internal/providers/embed.go` | the one embedder: memory's, and the uploaded files' (text, images, audio, video) |
 | `config/models.go` | `models.yaml` and its checks |
 | `internal/voice/voice.go` | the voice prompt: a recording to text |
 | `internal/suggest/suggest.go` | next-prompt suggestions: from the last turn the UI sends, what's typed, or both |
 | `internal/handler/suggestions.go` | `POST /v1/suggestions` |
-| `internal/files/embed.go` | multimodal embeddings for uploaded files |

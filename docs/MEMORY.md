@@ -71,11 +71,14 @@ embedding:                 # the one embedding model, memory's and the files' (M
   dimensions: 768
 memory:
   preload: false
+  index: memories          # optional; the default
 ```
 
 Omit the `memory` block and there is no memory: no tools, no storing; it needs the
-`embedding` block. Entries are in the `memories` index (`deploy/opensearch/memories.json`,
-created with the others by `make indices`, ARCHITECTURE.md), sized for 768-dimension
+`embedding` block. Entries are in the `memories` index, or the one `memory.index` names,
+after the deployment's prefix like every index (`user_ai_memories` by default;
+`deploy/opensearch/memories.json`, created with the others by `make indices`, which takes
+the same name as `MEMORY_INDEX=…`; ARCHITECTURE.md), sized for 768-dimension
 vectors like the files' chunks: a model of another size needs both files changed and the
 indexes recreated, and a new model means
 re-embedding what is there (vectors of two models don't mix). What is remembered is

@@ -99,6 +99,10 @@ compaction: { token_threshold: 0.85, keep_events: 20 }
 #   dimensions: 0      # vLLM refuses dimensions for it (vllm#60977); its vectors are 768
 #   query_prefix: "task: search result | query: "
 #   document_prefix: "title: none | text: "
+# `index` names the OpenSearch index of the files' chunks and their vectors
+# (default userfile_chunks), after the deployment's prefix (OPENSEARCH_INDEX_PREFIX):
+# `index: embeddings` with the default prefix is user_ai_embeddings. Create it
+# with `make indices CHUNK_INDEX=embeddings`.
 # Omit the block and there is no long-term memory, and files are kept but not
 # searchable.
 embedding:
@@ -107,8 +111,9 @@ embedding:
 
 # Long-term memory (docs/MEMORY.md): finished user-started turns are embedded
 # (the embedding block's model) and stored, and the agent can search them with
-# load_memory. `preload: true` also searches before every model call. Omit the
-# block to disable.
+# load_memory. `preload: true` also searches before every model call. `index`
+# names its OpenSearch index (default memories), after the prefix, as the
+# embedding block's does (make indices MEMORY_INDEX=…). Omit the block to disable.
 memory:
   preload: false
 
@@ -141,7 +146,7 @@ voice:
 images:
   model: openrouter/qwen/qwen-image-2.1-turbo
 
-# Files users upload for RAG (internal/files, docs/FILES.md): limits and
+# Files users upload for RAG (internal/rag/userfiles, docs/FILES.md): limits and
 # search, each with this default. They are embedded with the embedding block's
 # model, so search_userfiles can find them; without that block, files are kept
 # and referenceable with #id, but not searchable.
