@@ -23,8 +23,10 @@ Echo server (internal/server, internal/handler, internal/ws)
    │           encoder (internal/stream) turns adk events into AG-UI events
    │           written to the thread's log
    │
-   ├─ pass-through proxy (internal/providers): /v1/chat/completions, /v1/responses,
-   │    /v1/messages, /v1/embeddings, /v1/decisions, /v1/systemone → the provider the
+   ├─ pass-through proxy (internal/passthrough, forwarded by internal/providers):
+   │    /v1/chat/completions, /v1/responses, /v1/messages, /v1/embeddings,
+   │    /v1/images/generations, /v1/images/edits (a multipart form), /v1/decisions,
+   │    /v1/systemone → the provider the
    │    body's model names, for models of the endpoint's types, with the model
    │    rewritten to the provider's own id (MODELS.md)
    │
@@ -48,7 +50,7 @@ implements it, so imports run one way.
 | `internal/images` | `images.go` (making an image, keeping it as an artifact); its tool is `internal/tools/generate_image.go` (TOOLS.md) |
 | `internal/rag/userfiles` | `userfiles.go` (keeping a file, what is accepted), `resolve.go` (`#id`), `handler.go` (the routes), `index.go` (what is embedded, chunks), `search.go` (the search behind `search_userfiles`, whose tool is `internal/tools/search_userfiles.go`) (FILES.md) |
 | `internal/providers` | provider clients, model resolution, discovery, the pass-through, `embed.go` (the one embedder, memory's and the files', MODELS.md) |
-| `internal/voice` | the voice prompt: `voice.go` (a recording to text, `POST /v1/voice/transcriptions`); apart from the agents (MODELS.md) |
+| `internal/voice` | the voice prompt: `voice.go` (a recording to text); apart from the agents; its route, `POST /v1/voice/transcriptions`, is `internal/handler/voice.go` (MODELS.md) |
 | `internal/suggest` | next-prompt suggestions: `suggest.go` (from the last turn, typed text or both, one call to a small LLM); apart from the agents; its route, `POST /v1/suggestions`, is `internal/handler/suggestions.go` (MODELS.md) |
 | `pkg/toolx`, `pkg/citations`, `pkg/transport`, `pkg/s3`, `pkg/modelcatalog` | the tool wrapper; the source contract; HTTP clients; S3 through minio-go; models and model cards |
 
