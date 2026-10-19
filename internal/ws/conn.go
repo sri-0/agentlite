@@ -12,7 +12,9 @@ import (
 	"github.com/google/uuid"
 	"github.com/rs/zerolog"
 
+	"agentlite/internal/auth"
 	"agentlite/internal/runs"
+	"agentlite/internal/tokens"
 	"agentlite/pkg/db/opensearch"
 )
 
@@ -28,8 +30,8 @@ const (
 	pingEvery    = 30 * time.Second
 )
 
-// Threads looks a thread up as the user sees it. With OpenSearch
-// document-level security on, a thread the user may not read is not found.
+// Threads looks a thread up as the user sees it: with OpenSearch
+// document-level security, a thread the user may not read is not found.
 type Threads interface {
 	Thread(ctx context.Context, id string) (*opensearch.Thread, error)
 }
@@ -39,7 +41,8 @@ type Threads interface {
 // subscription that is replaced or unsubscribed must not write with its own.
 type client struct {
 	conn    *websocket.Conn
-	ctx     context.Context // the socket's lifetime
+	ctx     context.Context // the socket's lifetime, made by its user (auth.With)
+	user    *auth.Principal
 	runs    *runs.Manager
 	threads Threads
 	log     zerolog.Logger
@@ -53,25 +56,33 @@ type subscription struct{ cancel context.CancelFunc }
 
 // Serve reads frames until the socket closes, or ctx ends (the server
 // shutting down: the socket closes as going away, and the client reconnects).
-// Every frame names a thread the socket must be let in to (see allow). Each
-// thread has at most one subscription; a new subscribe on the same thread
-// replaces it. Runs, answers and cancels are handled off the read loop, so a
-// slow one never holds up the frames behind it.
-func Serve(ctx context.Context, conn *websocket.Conn, m *runs.Manager, threads Threads, log zerolog.Logger) {
+// The socket is its user's, as the upgrade request's access token named them
+// (ctx is made by them), and it closes when that token expires: the client
+// reconnects, and its gateway attaches a fresh token. Runs started on it are
+// unaffected; they use thread tokens. Every frame names a thread the socket
+// must be let in to (see allow). Each thread has at most one subscription; a
+// new subscribe on the same thread replaces it. Runs, answers and cancels
+// are handled off the read loop, so a slow one never holds up the frames
+// behind it.
+func Serve(ctx context.Context, conn *websocket.Conn, user *auth.Principal, m *runs.Manager, threads Threads, log zerolog.Logger) {
 	// The socket's own lifetime: coder/websocket drops the connection when a
 	// read's context ends, which must not happen before the close is sent.
 	sock, cancel := context.WithCancel(context.WithoutCancel(ctx))
 	defer cancel()
 	defer conn.CloseNow()
+	expired := time.NewTimer(time.Until(user.Expiry))
+	defer expired.Stop()
 	go func() {
 		select {
 		case <-ctx.Done():
 			conn.Close(websocket.StatusGoingAway, "server shutting down")
+		case <-expired.C:
+			conn.Close(websocket.StatusPolicyViolation, "access token expired; reconnect")
 		case <-sock.Done():
 		}
 	}()
 	c := &client{
-		conn: conn, ctx: sock, runs: m, threads: threads, log: log,
+		conn: conn, ctx: sock, user: user, runs: m, threads: threads, log: log,
 		subs: map[string]*subscription{}, allowed: map[string]bool{},
 	}
 	conn.SetReadLimit(readLimit)
@@ -120,12 +131,14 @@ func (c *client) request(f ClientFrame, handle func(context.Context, ClientFrame
 	c.send(ack)
 }
 
-// run starts a turn on the thread; the ack has the cursor to subscribe from.
+// run starts a turn on the thread, for the socket's user; the ack has the
+// cursor to subscribe from. The thread's control set is its own.
 func (c *client) run(ctx context.Context, f ClientFrame) (ServerFrame, error) {
 	in, err := f.StartInput(f.ThreadID)
 	if err != nil {
 		return ServerFrame{}, err
 	}
+	in.User = *c.user
 	run, err := c.runs.Start(ctx, in)
 	if err != nil {
 		return ServerFrame{}, err
@@ -136,7 +149,7 @@ func (c *client) run(ctx context.Context, f ClientFrame) (ServerFrame, error) {
 // answer decides one interrupt on the thread it belongs to (a sub-agent's
 // thread for a request shown on an agent card).
 func (c *client) answer(ctx context.Context, f ClientFrame) (ServerFrame, error) {
-	run, err := c.runs.Answer(ctx, f.ThreadID, f.InterruptID, f.Decision)
+	run, err := c.runs.Answer(ctx, f.ThreadID, f.InterruptID, f.Decision, *c.user)
 	if err != nil {
 		return ServerFrame{}, err
 	}
@@ -288,8 +301,12 @@ func (c *client) ping(cancel context.CancelFunc) {
 // code names a service error for the client.
 func code(err error) string {
 	switch {
-	case errors.Is(err, runs.ErrInvalid):
+	case errors.Is(err, runs.ErrInvalid), errors.Is(err, opensearch.ErrNoControlSet):
 		return CodeBadRequest
+	case errors.Is(err, tokens.ErrSignIn):
+		return CodeUnauthorized
+	case errors.Is(err, opensearch.ErrForbidden):
+		return CodeForbidden
 	case errors.Is(err, runs.ErrNotFound), errors.Is(err, opensearch.ErrNotFound):
 		return CodeNotFound
 	case errors.Is(err, runs.ErrBusy):

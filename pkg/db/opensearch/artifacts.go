@@ -27,6 +27,7 @@ type Artifact struct {
 	Version   int       `json:"version"`
 	CreatedAt time.Time `json:"created_at"`
 	UpdatedAt time.Time `json:"updated_at"`
+	Labels
 }
 
 // artifactID is an artifact's document id: a name-based UUID of its

@@ -18,21 +18,27 @@ import (
 	"go.opentelemetry.io/otel/trace"
 
 	"agentlite/internal/stream"
+	"agentlite/pkg/db/opensearch"
 )
 
 const leaseRefresh = 20 * time.Second
 
 var tracer = otel.Tracer("agentlite")
 
-// execute runs one queued segment. It is the worker loop's handler and talks
-// only to Valkey, so it can later run in another process.
+// execute runs one queued segment. It is the worker loop's handler. Every
+// OpenSearch call of the segment, its finalizing included, is made with the
+// thread token of the user who queued it (caller), which lives in this
+// process's memory only.
 func (m *Manager) execute(ctx context.Context, fields map[string]string) error {
 	run, err := m.store.get(ctx, fields["run_id"])
 	if err != nil {
 		m.logger.Warn().Err(err).Msg("request for unknown run; dropped")
 		return nil
 	}
-	bg := context.WithoutCancel(ctx) // closing writes must land even during shutdown
+	user := entryUser(fields)
+	caller, callerErr := m.caller(ctx, run, user)
+	// Closing writes must land even during shutdown.
+	bg := opensearch.WithCaller(context.WithoutCancel(ctx), caller)
 	if run.Status != StatusQueued {
 		m.redelivered(bg, run)
 		return nil
@@ -41,16 +47,24 @@ func (m *Manager) execute(ctx context.Context, fields map[string]string) error {
 		return err // not started: cancelled while queued
 	}
 	run.Status = StatusRunning
+	if callerErr != nil { // no thread token: the run fails before it starts
+		m.logger.Warn().Err(callerErr).Str("run", run.ID).Msg("no thread token")
+		sink := m.sinkFor(bg, run)
+		msg := fmt.Sprintf("%v; the run could not reach the conversation's records", callerErr)
+		sink.Emit(events.NewRunErrorEvent(msg, events.WithRunID(run.ID)))
+		m.settle(sink, StatusRunning, StatusError, "", msg)
+		return nil
+	}
 
 	runCtx, span := tracer.Start(otel.GetTextMapPropagator().Extract(ctx, propagation.MapCarrier(fields)), "run", trace.WithAttributes(
 		attribute.String("thread.id", run.ThreadID), attribute.String("run.id", run.ID), attribute.String("agent.id", run.AgentID)))
 	defer span.End()
-	runCtx, cancel := context.WithCancelCause(runCtx)
+	runCtx, cancel := context.WithCancelCause(opensearch.WithCaller(runCtx, caller))
 	defer cancel(nil)
 	go m.watchControl(runCtx, run, cancel)
 	go m.keepLease(runCtx, run.ThreadID)
 
-	in := Input{Run: run, Message: fields["message"], Authorization: fields["authorization"]}
+	in := Input{Run: run, Message: fields["message"], User: user}
 	if raw := fields["resume"]; raw != "" {
 		if err := json.Unmarshal([]byte(raw), &in.Resume); err != nil {
 			return fmt.Errorf("resume payload: %w", err)
@@ -133,10 +147,11 @@ func (m *Manager) settle(sink *appendSink, from, to Status, result, errText stri
 }
 
 // record stores the segment's outcome, announces a held pause now that it is
-// recorded, and tells the finalizer. The thread stays owned until the
-// finalizer has persisted the turn, so a client never sees the thread idle
-// without its answer; the lease expires on its own if the finalizer never
-// runs. A paused run keeps it as long as its record.
+// recorded, and finalizes the turn here, in the process that ran it: only
+// it holds the thread token the turn's message is saved with. The thread
+// stays owned until the turn is persisted, so a client never sees the thread
+// idle without its answer; the lease expires on its own if finalizing fails.
+// A paused run keeps it as long as its record.
 func (m *Manager) record(sink *appendSink, status Status, result, errText string) {
 	ctx, run := sink.ctx, sink.run
 	if len(result) > resultCap {
@@ -151,9 +166,8 @@ func (m *Manager) record(sink *appendSink, status Status, result, errText string
 		}
 	}
 	sink.announcePause()
-	done := &queue{db: m.db, key: doneKey}
-	if err := done.enqueue(ctx, map[string]string{"run_id": run.ID, "status": string(status)}); err != nil {
-		m.logger.Error().Err(err).Str("run", run.ID).Msg("enqueue done")
+	if err := m.finalize(ctx, run.ID, status); err != nil {
+		m.logger.Error().Err(err).Str("run", run.ID).Msg("finalize")
 	}
 }
 
@@ -240,25 +254,17 @@ func (a *appendSink) append(e stream.Event) {
 	}
 }
 
-// StartWorkers creates the queues' consumer groups, then runs the worker and
-// finalizer loops in this process until ctx ends; Stop then waits for the
-// runs they are executing to settle. A group made before any request can
-// arrive starts at the stream's beginning, so no request is skipped.
+// StartWorkers creates the queues' consumer groups, then runs the worker
+// loops in this process until ctx ends; Stop then waits for the runs they are
+// executing to settle. A group made before any request can arrive starts at
+// the stream's beginning, so no request is skipped.
 func (m *Manager) StartWorkers(ctx context.Context) error {
-	queues := []*queue{{db: m.db, key: doneKey, group: finalGroup}}
 	for id := range m.defs {
-		queues = append(queues, &queue{db: m.db, key: requestsKey + id, group: workerGroup})
-	}
-	for _, q := range queues {
-		q.consumer, q.log = m.consumerName(), m.logger
+		q := &queue{db: m.db, key: requestsKey + id, group: workerGroup, consumer: m.consumerName(), log: m.logger}
 		if err := q.createGroup(ctx); err != nil {
 			return err
 		}
-		handler := m.execute
-		if q.key == doneKey {
-			handler = m.finalize
-		}
-		m.workers.Go(func() { q.consume(ctx, handler) })
+		m.workers.Go(func() { q.consume(ctx, m.execute) })
 	}
 	return nil
 }

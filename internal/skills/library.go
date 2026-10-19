@@ -53,11 +53,13 @@ type Draft struct {
 	KeepFiles bool // keep a replaced skill's files that Files leaves out
 }
 
-// Save stores a skill. One of the same name is replaced: it keeps its id,
-// when it was created, the details d leaves out and, with KeepFiles, the
-// files d leaves out. Two first saves of one name at the same moment could
-// make two skills; the library is written by people, and by agents a person
-// approves, one at a time.
+// Save stores a skill, in the caller's control set for new documents. One of
+// the same name (that the caller can see) is replaced, if the caller created
+// it: it keeps its id, control set and creator, when it was created, the
+// details d leaves out and, with KeepFiles, the files d leaves out. Two
+// first saves of one name at the same moment could make two skills; the
+// library is written by people, and by agents a person approves, one at a
+// time.
 func (l *Library) Save(ctx context.Context, d Draft) (*opensearch.Skill, error) {
 	files := maps.Clone(d.Files)
 	if d.Description != nil {
@@ -78,7 +80,10 @@ func (l *Library) Save(ctx context.Context, d Draft) (*opensearch.Skill, error) 
 	prev, err := l.records.SkillNamed(ctx, s.Name)
 	switch {
 	case err == nil:
-		s.ID, s.CreatedAt = prev.ID, prev.CreatedAt
+		if err := opensearch.CheckOwner(ctx, prev.Labels); err != nil {
+			return nil, err
+		}
+		s.ID, s.CreatedAt, s.Labels = prev.ID, prev.CreatedAt, prev.Labels
 		s.Title, s.Category, s.Source = prev.Title, prev.Category, prev.Source
 	case !errors.Is(err, opensearch.ErrNotFound):
 		return nil, err
@@ -143,11 +148,14 @@ func (l *Library) WriteFile(ctx context.Context, id, p string, b []byte) (*opens
 }
 
 // edit saves files and m on the skill with the id, which keeps its other
-// files. A new SKILL.md must keep the skill's name: saved under another, it
-// would be another skill.
+// files; only its creator may. A new SKILL.md must keep the skill's name:
+// saved under another, it would be another skill.
 func (l *Library) edit(ctx context.Context, id string, files map[string][]byte, m Meta) (*opensearch.Skill, error) {
 	s, err := l.records.Skill(ctx, id)
 	if err != nil {
+		return nil, err
+	}
+	if err := opensearch.CheckOwner(ctx, s.Labels); err != nil {
 		return nil, err
 	}
 	if md, ok := files[SkillFile]; ok {
@@ -183,7 +191,8 @@ func (l *Library) List(ctx context.Context, f opensearch.SkillFilter) (*opensear
 	return l.records.Skills(ctx, f)
 }
 
-// Delete removes a skill and its files.
+// Delete removes a skill and its files; only its creator may (the record
+// goes first, and the store refuses anyone else).
 func (l *Library) Delete(ctx context.Context, id string) error {
 	if err := l.records.DeleteSkill(ctx, id); err != nil {
 		return err

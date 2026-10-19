@@ -6,7 +6,8 @@ behind one WebSocket that speaks [AG-UI 1.0](https://docs.ag-ui.com) events. Run
 resumable, persisted as the same events, and sub-agents are real threads.
 
 This file is the operating manual. How things work is in `docs/` (start at
-`docs/README.md`): ARCHITECTURE (components, run lifecycle, the socket, storage),
+`docs/README.md`): ARCHITECTURE (components, run lifecycle, the socket, storage), AUTH
+(access tokens, control sets, document-level security, thread tokens),
 AGENT-ARCHITECTURE (roster, the assistant, sub-agents, tools, todos), TOOLS (building
 tools, connectors, transports, sources, artifacts, tool UI), MODELS (model ids, strict
 routing, overrides, model cards, the pass-through), HITL (approvals and questions),
@@ -17,10 +18,10 @@ commit.
 ## Quick start
 
 ```bash
-make up                     # Valkey 9 :6379, OpenSearch :9200, MinIO :9000, Jaeger :16686
-make indices                # the OpenSearch indices, from deploy/opensearch
-cp .env.example .env.local  # provider keys and base URLs, MODEL_CARDS_DIR
-make run                    # :8000
+(cd ../agentlite-infra && make up)  # OpenSearch :9200, Keycloak :8180, Valkey :6379, MinIO :9000, Jaeger :16686
+make indices                # the OpenSearch indices, from deploy/opensearch (as the admin user)
+cp .env.example .env.local  # provider keys and base URLs, MODEL_CARDS_DIR, OIDC_*
+make run                    # :8010; clients reach it through agentlite-infra's dev gateway on :8000 (make gateway there)
 make lint                   # go vet and staticcheck
 make dev web                # adk's launcher (web UI; also cli, api) over the same agents
 ```
@@ -44,11 +45,15 @@ internal/
   bootstrap/           wires config, logging, tracing, registry, Valkey, OpenSearch, S3,
                        sessions, memory, sources, artifacts, MCP, the runtime and run manager
   server/              Echo app: middleware, routes, error → status mapping
+  auth/                checking access tokens (every route but /health), the principal,
+                       X-Control-Set on the routes that create documents
+  tokens/              thread tokens: a user's token exchanged for one per conversation and
+                       user, kept in memory and refreshed; what runs call OpenSearch with
   handler/             REST reads and thread admin; the socket upgrade; handler/wellknown:
                        /.well-known/opencode and the skills discovery index
   ws/                  the agent chat socket: frames, requests, subscriptions
-  runs/                the run lifecycle: Manager (start, answer, cancel, follow), worker,
-                       finalizer, queues, event log, run records
+  runs/                the run lifecycle: Manager (start, answer, cancel, follow), worker
+                       (which finalizes what it ran), queues, event log, run records
   agents/              the agent runtime: roster → adk agents, running a segment, connectors,
                        MCP tool hooks, compaction, session seeding, answers → adk responses
   hitl/                interrupt records in Valkey
@@ -98,9 +103,10 @@ Agents are markdown files in `config/default/agents/`; there is no Go per agent.
 
 ## Interfaces
 
-**New thread** `POST /v1/agent/chat {messages, agentId?, model?, connectors?, imageModel?, workspaceId?}` creates a
-thread with its first turn and starts the run; `201 {threadId, runId, seq}` once the thread
-is stored. It is HTTP so the request can be checked before the thread exists.
+**New thread** `POST /v1/agent/chat {messages, agentId?, model?, connectors?, imageModel?, workspaceId?}`
+with `X-Control-Set` creates a thread in that control set with its first turn and starts
+the run; `201 {threadId, runId, seq}` once the thread is stored. It is HTTP so the request
+can be checked before the thread exists.
 
 **Socket** `GET /v1/agent/chat?v=1` (`426` on another version), one per client, carries
 everything on existing threads: `run`, `answer`, `cancel`, `subscribe`, `unsubscribe`
@@ -131,14 +137,19 @@ document-level security, is `not_found`. ARCHITECTURE.md has the frames.
 | GET/PATCH/DELETE | `/v1/skills/{id}` | one skill by its uuid; change its title, description, category or source; remove it and its files |
 | GET/PUT | `/v1/skills/{id}/files/{path}` | one file of a skill, sandboxed; replace or add one |
 | POST | `/v1/voice/transcriptions` | the voice prompt: a multipart `file` (a recording, WAV) in, `{text}` out, by `models.yaml`'s `voice.model`; absent without a `voice` block (MODELS.md) |
-| GET | `/.well-known/agent-skills/index.json`, `/.well-known/agent-skills/{name}/{path}` | the skills discovery index and files `npx skills add <server>` reads (no credentials) |
+| GET | `/.well-known/agent-skills/index.json`, `/.well-known/agent-skills/{name}/{path}` | the skills discovery index and files `npx skills add <server>` reads (the gateway attaches the user's token) |
 | GET | `/.well-known/opencode` | what `opencode auth login <server>` configures: models, exposed MCP servers, skills (docs/OPENCODE.md) |
 | any | `/mcp/{id}` | an MCP connector with `mcp.expose: true`, proxied for clients such as opencode |
 | POST | `/v1/chat/completions`, `/v1/responses`, `/v1/messages`, `/v1/embeddings`, `/v1/images/generations`, `/v1/images/edits` (a multipart form), `/v1/decisions`, `/v1/systemone` | pass-through to the provider the body's `model` names, with the model rewritten to the provider's own id; each endpoint takes only models of its types (MODELS.md) |
 
-There is no authentication yet. The `Authorization` header on `POST /v1/agent/chat`
-is kept with that run and forwarded to connectors that opt in (TOOLS.md); turns
-started or resumed over the socket carry none yet.
+Every route but `/health` needs the user's access token (`Authorization: Bearer`, which
+the gateway in front attaches; `401` without one), the socket's upgrade included; the
+socket closes when that token expires. `POST /v1/agent/chat`, `/v1/workspaces`,
+`/v1/rag/files` and `/v1/skills` also need `X-Control-Set`: one of the user's control sets
+(`400` without, `403` for another's). Users see the documents of their control sets only
+(OpenSearch document-level security); deleting or editing a thread, workspace, file or
+skill is its creator's alone (`403`). Runs call OpenSearch with a thread token and see
+only their thread's control set. docs/AUTH.md has all of it.
 
 ## Configuration
 
@@ -147,7 +158,10 @@ server as clients reach it), `CONFIG_DIR`,
 `LOG_LEVEL`, `LOG_JSON`, `ALLOWED_ORIGINS` (CORS), `WS_ALLOWED_ORIGINS` (the socket's browser
 origins; `*` allows any), `MAX_BODY_MB`
 (the largest request body, default 32), `REDIS_HOST/PORT/USER/PASS`,
-`REDIS_DB_RUNS/SESSIONS/HITL` (default 1/2/3), `OPENSEARCH_URL/USERNAME/PASSWORD`, `OPENSEARCH_INDEX_PREFIX` (default `user_ai_`; starts every index name),
+`REDIS_DB_RUNS/SESSIONS/HITL` (default 1/2/3), `OPENSEARCH_URL` (no credentials: every call
+carries a user's token), `OPENSEARCH_INDEX_PREFIX` (default `user_ai_`; starts every index name),
+`OIDC_ISSUER_URL` and `OIDC_CLIENT_SECRET` (required), `OIDC_JWKS_URL`, `OIDC_AUDIENCE`,
+`OIDC_CLIENT_ID`, `OIDC_TOKEN_URL`, `OIDC_EXCHANGE_CONTROLSET_PARAM` (AUTH.md),
 `S3_ENDPOINT/ACCESS_KEY/SECRET_KEY/BUCKET/REGION/USE_SSL` (required: artifact bodies and
 skill files), `TRANSPORT_SENSITIVE_HEADERS` (a caller's headers a forward drops),
 `TRANSPORT_RESPONSE_HEADER_TIMEOUT` (default 5m),
@@ -178,8 +192,11 @@ headers and MCP endpoints.
 - One wire format (AG-UI), one encoder, one coalescer; the only reducer lives in the UI.
 - `runs` decides when and where work happens; `agents` decides what the model does. `runs`
   defines the interface it needs (`runs.Runtime`) and `agents` implements it.
-- The worker and finalizer talk to each other and to `runs.Manager` only through Valkey, so
-  they can move to separate processes.
+- Workers talk to `runs.Manager` only through Valkey (the queue entry carries the user's
+  token), so they can move to separate processes; a worker finalizes what it ran, since
+  thread tokens live only in its memory.
+- Every OpenSearch call is made with a user's token from its context (`opensearch.Caller`);
+  there is no service identity, and a call without one fails before it is sent.
 - A run is executed at most once; tools have side effects.
 - Every function tool is built with `toolx.New`; a test fails if anything else imports adk's
   `functiontool`. A tool that returns citable items records each with `ctx.AddSource` and

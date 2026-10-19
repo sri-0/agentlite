@@ -15,11 +15,13 @@ import (
 	"github.com/labstack/echo/v5/middleware"
 
 	"agentlite/config"
+	"agentlite/internal/auth"
 	"agentlite/internal/handler"
 	"agentlite/internal/handler/wellknown"
 	"agentlite/internal/passthrough"
 	"agentlite/internal/runs"
 	"agentlite/internal/skills"
+	"agentlite/internal/tokens"
 	"agentlite/pkg/db/opensearch"
 	"agentlite/pkg/s3"
 )
@@ -27,7 +29,9 @@ import (
 // New wires middleware and routes. Echo logs through slog, which
 // pkg/logging routes to zerolog. Its request logger records each request's
 // real status and id; Recover runs inside it, so a panic is logged, with its
-// stack, as a 500.
+// stack, as a 500. Every route but /health needs an access token (the
+// socket's upgrade too); CORS answers a preflight before that check. The
+// routes that create documents need X-Control-Set as well (auth.ControlSet).
 func New(cfg *config.Config, h *handler.Handler) *echo.Echo {
 	e := echo.New()
 	e.Logger = slog.Default()
@@ -36,8 +40,9 @@ func New(cfg *config.Config, h *handler.Handler) *echo.Echo {
 		middleware.BodyLimit(cfg.MaxBodyMB<<20),
 		middleware.CORSWithConfig(middleware.CORSConfig{
 			AllowOrigins: cfg.AllowedOrigins,
-			AllowHeaders: []string{"Content-Type", "Authorization"},
-		}))
+			AllowHeaders: []string{"Content-Type", "Authorization", auth.HeaderControlSet},
+		}),
+		h.Auth.Middleware("/health"))
 
 	// Health, models, agents and connectors.
 	e.GET("/health", h.Health)
@@ -66,14 +71,14 @@ func New(cfg *config.Config, h *handler.Handler) *echo.Echo {
 
 	// Workspaces: the folders threads are filed under.
 	e.GET("/v1/workspaces", h.Workspaces)
-	e.POST("/v1/workspaces", h.CreateWorkspace)
+	e.POST("/v1/workspaces", h.CreateWorkspace, auth.ControlSet)
 	workspace := e.Group("/v1/workspaces/:id", uuidID)
 	workspace.PATCH("", h.RenameWorkspace)
 	workspace.DELETE("", h.DeleteWorkspace)
 
 	// The skills library.
 	e.GET("/v1/skills", h.ListSkills)
-	e.POST("/v1/skills", h.CreateSkill, middleware.BodyLimit(skills.MaxBytes+1<<20)) // the zip, and the form around it
+	e.POST("/v1/skills", h.CreateSkill, auth.ControlSet, middleware.BodyLimit(skills.MaxBytes+1<<20)) // the zip, and the form around it
 	skill := e.Group("/v1/skills/:id", uuidID)
 	skill.GET("", h.GetSkill)
 	skill.PATCH("", h.UpdateSkill)
@@ -83,7 +88,7 @@ func New(cfg *config.Config, h *handler.Handler) *echo.Echo {
 
 	// Files users upload for RAG, which a message names with #id (internal/rag/userfiles).
 	e.GET("/v1/rag/files", h.Files.ListFiles)
-	e.POST("/v1/rag/files", h.Files.PostFile, middleware.BodyLimit(h.Files.MaxBytes()+1<<20)) // the file, and the form around it
+	e.POST("/v1/rag/files", h.Files.PostFile, auth.ControlSet, middleware.BodyLimit(h.Files.MaxBytes()+1<<20)) // the file, and the form around it
 	file := e.Group("/v1/rag/files/:id", uuidID)
 	file.GET("", h.Files.GetFile)
 	file.GET("/content", h.Files.FileContent, sandboxed)
@@ -102,7 +107,7 @@ func New(cfg *config.Config, h *handler.Handler) *echo.Echo {
 	}
 
 	// Agent chat: a new thread, then the socket.
-	e.POST("/v1/agent/chat", h.StartThread)
+	e.POST("/v1/agent/chat", h.StartThread, auth.ControlSet)
 	e.GET("/v1/agent/chat", h.Chat)
 
 	// Pass-through to the providers (/v1/chat/completions and the rest).
@@ -157,6 +162,7 @@ func errorHandler(next echo.HTTPErrorHandler) echo.HTTPErrorHandler {
 			status int
 		}{
 			{runs.ErrInvalid, http.StatusBadRequest},
+			{opensearch.ErrNoControlSet, http.StatusBadRequest},
 			{skills.ErrInvalid, http.StatusBadRequest},
 			{opensearch.ErrUnknownWorkspace, http.StatusBadRequest},
 			{runs.ErrNotFound, http.StatusNotFound},
@@ -165,6 +171,8 @@ func errorHandler(next echo.HTTPErrorHandler) echo.HTTPErrorHandler {
 			{skills.ErrFileNotFound, http.StatusNotFound},
 			{s3.ErrNotFound, http.StatusNotFound},
 			{runs.ErrBusy, http.StatusConflict},
+			{tokens.ErrSignIn, http.StatusUnauthorized},
+			{opensearch.ErrForbidden, http.StatusForbidden},
 		} {
 			if errors.Is(err, m.err) {
 				err = echo.NewHTTPError(m.status, err.Error())

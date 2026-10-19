@@ -29,8 +29,11 @@ type Run struct {
 	Card       *modelcatalog.Model // that model's card: what it takes as input, among the rest
 	Connectors *[]string           // the connectors switched on; nil means all
 	ImageModel string              // the image model the user picked for generate_image; "" is the default
-	// Authorization is the user's Authorization header, when the request
-	// that started the run carried one.
+	// UserID and Username are the user the run is for (the token's sub and
+	// preferred_username); a sub-agent runs for them too.
+	UserID, Username string
+	// Authorization is that user's Authorization header, as the request that
+	// queued the run's segment carried it.
 	Authorization string
 	Sources       citations.Recorder // nil outside a run: nothing is recorded
 }

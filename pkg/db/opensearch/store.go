@@ -1,7 +1,9 @@
 // Package opensearch persists threads, messages, sources and artifacts.
 // Messages are stored as coalesced AG-UI events plus the extracted text;
 // nothing is converted. The indices and their mappings are created outside
-// the service, from deploy/opensearch (make indices).
+// the service, from deploy/opensearch (make indices). Every call is made for
+// the Caller in its context, with their token (access.go): the server has no
+// OpenSearch credentials of its own.
 package opensearch
 
 import (
@@ -11,6 +13,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"math/rand/v2"
+	"net/url"
 	"slices"
 	"time"
 
@@ -20,11 +24,10 @@ import (
 
 // Config is the OpenSearch connection. IndexPrefix starts every index's
 // name (user_ai_threads, user_ai_userfiles, …), so several deployments can
-// share a cluster; set it empty for bare names.
+// share a cluster; set it empty for bare names. There are no credentials:
+// each call carries its caller's token.
 type Config struct {
 	URL         string `env:"URL, default=http://localhost:9200"`
-	Username    string `env:"USERNAME"`
-	Password    string `env:"PASSWORD"`
 	IndexPrefix string `env:"INDEX_PREFIX, default=user_ai_"`
 	// The file chunks' and the memories' indexes, without the prefix, from
 	// models.yaml (embedding.index, memory.index) rather than the
@@ -53,6 +56,7 @@ type Thread struct {
 	Archived    bool      `json:"archived,omitempty"`     // left out of the sidebar
 	CreatedAt   time.Time `json:"created_at"`
 	UpdatedAt   time.Time `json:"updated_at"`
+	Labels
 }
 
 // Message is one turn's record: compacted AG-UI events and the extracted text.
@@ -65,6 +69,7 @@ type Message struct {
 	CreatedAt time.Time         `json:"created_at"`
 	Text      string            `json:"text"`
 	Events    []json.RawMessage `json:"events"`
+	Labels
 }
 
 // Errors the store returns for a missing document, and for creating one
@@ -81,11 +86,17 @@ type Client struct {
 	chunks, memories string // the two indexes models.yaml can name
 }
 
-// New returns a client of the cluster.
+// New returns a client of the cluster. Nothing it sends goes without a
+// caller's token: the background checks that would (discovery, health
+// checks) are off, and a URL with credentials is refused.
 func New(cfg Config) (*Client, error) {
+	if u, err := url.Parse(cfg.URL); err != nil || u.User != nil {
+		return nil, errors.New("opensearch: OPENSEARCH_URL must be a URL without credentials")
+	}
 	api, err := opensearchapi.NewClient(opensearchapi.Config{Client: oslib.Config{
-		Addresses: []string{cfg.URL}, Username: cfg.Username, Password: cfg.Password,
-		DiscoverNodesOnStart: new(bool), // false: the configured URL is the only reachable address
+		Addresses: []string{cfg.URL}, Signer: bearer{},
+		DiscoverNodesOnStart:  new(bool), // false: the configured URL is the only reachable address
+		HealthCheckMaxRetries: -1, MaxRetryClusterHealth: -1,
 	}})
 	if err != nil {
 		return nil, fmt.Errorf("opensearch: %w", err)
@@ -119,10 +130,20 @@ func inRoots(roots []string) []any {
 // ix is an index's full name: the deployment's prefix, then its own.
 func (c *Client) ix(index string) string { return c.prefix + index }
 
-// delete removes a document and refreshes the index; ErrNotFound when there
-// is none.
+// delete removes a document its caller created and refreshes the index;
+// ErrNotFound when there is none, ErrForbidden when someone else created it.
+// The document is read first, as the caller: OpenSearch does not apply
+// document-level security to a delete by id, so one the caller cannot see
+// would go.
 func (c *Client) delete(ctx context.Context, index, id string) error {
-	_, err := c.api.Document.Delete(ctx, opensearchapi.DeleteReq{
+	l, err := get[Labels](ctx, c, index, id)
+	if err != nil {
+		return err
+	}
+	if err := CheckOwner(ctx, *l); err != nil {
+		return err
+	}
+	_, err = c.api.Document.Delete(ctx, opensearchapi.DeleteReq{
 		Index: c.ix(index), ID: id, Params: &opensearchapi.DeleteParams{Refresh: "true"},
 	})
 	switch {
@@ -138,15 +159,20 @@ func (c *Client) delete(ctx context.Context, index, id string) error {
 var refreshed = opensearchapi.IndexParams{Refresh: "true"}
 
 // index upserts a document and refreshes the index at once: writes are few,
-// and a thread or message must be readable as soon as its save returns.
-func (c *Client) index(ctx context.Context, index, id string, doc any) error {
+// and a thread or message must be readable as soon as its save returns
+// (under document-level security a get is not realtime either).
+func (c *Client) index(ctx context.Context, index, id string, doc labelled) error {
 	return c.write(ctx, index, id, doc, refreshed)
 }
 
-// write stores a document. A write the params forbid (create of a taken id,
-// an external version not above the stored one) keeps the stored document
-// and returns ErrConflict.
-func (c *Client) write(ctx context.Context, index, id string, doc any, params opensearchapi.IndexParams) error {
+// write stamps and stores a document (see stamp). A write the params forbid
+// (create of a taken id, an external version not above the stored one, a
+// document changed since it was read) keeps the stored document and returns
+// ErrConflict.
+func (c *Client) write(ctx context.Context, index, id string, doc labelled, params opensearchapi.IndexParams) error {
+	if err := stamp(ctx, doc.labels()); err != nil {
+		return fmt.Errorf("index %s/%s: %w", index, id, err)
+	}
 	body, err := json.Marshal(doc)
 	if err != nil {
 		return err
@@ -177,9 +203,16 @@ func (c *Client) SaveThread(ctx context.Context, t *Thread) error {
 	return c.index(ctx, indexThreads, t.ID, t)
 }
 
-// SaveMessage upserts a message.
+// SaveMessage upserts a message the server named.
 func (c *Client) SaveMessage(ctx context.Context, m *Message) error {
 	return c.index(ctx, indexMessages, m.ID, m)
+}
+
+// CreateMessage stores a new message whose id a client chose; ErrConflict
+// when the id is taken. It never replaces one: an index by id would replace
+// a message of any control set.
+func (c *Client) CreateMessage(ctx context.Context, m *Message) error {
+	return c.write(ctx, indexMessages, m.ID, m, opensearchapi.IndexParams{OpType: opensearchapi.OpTypeCreate, Refresh: "true"})
 }
 
 // Threads lists root threads, newest first; the list is capped at threadsCap.
@@ -212,9 +245,18 @@ func (c *Client) ThreadTitles(ctx context.Context, ids []string) (map[string]str
 	return titles, err
 }
 
-// search runs a query and decodes each hit's source. The query is marshalled
-// once, so every value in it is JSON-escaped.
-func search[T any](ctx context.Context, c *Client, index string, query any) ([]T, error) {
+// search runs a query, confined to the caller's control sets, and decodes
+// each hit's source. The query is marshalled once, so every value in it is
+// JSON-escaped. A caller with no control set sees nothing.
+func search[T any](ctx context.Context, c *Client, index string, query map[string]any) ([]T, error) {
+	caller, ok := CallerFrom(ctx)
+	if !ok {
+		return nil, ErrNoCaller
+	}
+	if len(caller.ControlSets) == 0 {
+		return nil, nil
+	}
+	confine(query, caller.ControlSets)
 	body, err := json.Marshal(query)
 	if err != nil {
 		return nil, err
@@ -232,25 +274,85 @@ func search[T any](ctx context.Context, c *Client, index string, query any) ([]T
 	return out, nil
 }
 
-// get fetches one document by id; ErrNotFound when there is none.
+// get fetches one document by id; ErrNotFound when there is none, or when
+// it is outside the caller's control sets.
 func get[T any](ctx context.Context, c *Client, index, id string) (*T, error) {
+	doc, _, err := getAt[T](ctx, c, index, id)
+	return doc, err
+}
+
+// at is where a document stands in its shard's history: a write conditioned
+// on it fails with ErrConflict if the document changed since it was read.
+type at struct{ seq, term int }
+
+// getAt is get, with where the document stands.
+func getAt[T any](ctx context.Context, c *Client, index, id string) (*T, at, error) {
+	caller, ok := CallerFrom(ctx)
+	if !ok {
+		return nil, at{}, ErrNoCaller
+	}
 	resp, err := c.api.Document.Get(ctx, opensearchapi.GetReq{Index: c.ix(index), ID: id})
 	if err != nil {
 		if errStatus(err) == 404 {
-			return nil, ErrNotFound
+			return nil, at{}, ErrNotFound
 		}
-		return nil, fmt.Errorf("get %s/%s: %w", index, id, err)
+		return nil, at{}, fmt.Errorf("get %s/%s: %w", index, id, err)
 	}
 	var out T
 	if err := json.Unmarshal(resp.Source, &out); err != nil {
-		return nil, fmt.Errorf("get %s/%s: %w", index, id, err)
+		return nil, at{}, fmt.Errorf("get %s/%s: %w", index, id, err)
 	}
-	return &out, nil
+	l, ok := any(&out).(labelled)
+	if !ok || !slices.Contains(caller.ControlSets, l.labels().ControlSetID) {
+		return nil, at{}, ErrNotFound
+	}
+	var pos at
+	if resp.SeqNo != nil && resp.PrimaryTerm != nil {
+		pos = at{seq: int(*resp.SeqNo), term: int(*resp.PrimaryTerm)}
+	}
+	return &out, pos, nil
+}
+
+// writeTries bounds how often update reads and writes a document that keeps
+// changing under it: twenty writers at once all land.
+const writeTries = 12
+
+// update changes a document in place: it reads it, lets edit change it, and
+// writes it back on the condition that nobody wrote it in between, reading
+// again when someone did. OpenSearch refuses _update (scripted or partial)
+// under document-level security, so this is how a document changes. A
+// missing document is created from the zero value when create is set, and is
+// ErrNotFound otherwise; edit returning false leaves it as it is.
+func update[T any, P interface {
+	*T
+	labelled
+}](ctx context.Context, c *Client, index, id string, create bool, edit func(P) bool) (P, error) {
+	for try := range writeTries {
+		if try > 0 { // a random while, so writers that collided do not collide again
+			time.Sleep(rand.N(min(10*time.Millisecond<<try, time.Second)))
+		}
+		found, pos, err := getAt[T](ctx, c, index, id)
+		doc, params := P(found), opensearchapi.IndexParams{Refresh: "true", IfSeqNo: &pos.seq, IfPrimaryTerm: &pos.term}
+		switch {
+		case errors.Is(err, ErrNotFound) && create:
+			doc, params = P(new(T)), opensearchapi.IndexParams{Refresh: "true", OpType: opensearchapi.OpTypeCreate}
+		case err != nil:
+			return nil, err
+		}
+		if !edit(doc) {
+			return doc, nil
+		}
+		if err := c.write(ctx, index, id, doc, params); !errors.Is(err, ErrConflict) {
+			return doc, err
+		}
+	}
+	return nil, fmt.Errorf("update %s/%s: %w %d times", index, id, ErrConflict, writeTries)
 }
 
 // DeleteThread removes a root thread, its sub-agent threads, their messages
 // and the memories made of them. Sources and artifacts stay: they are the
 // evidence of what was said. The threads go last, so a failure can be retried.
+// The caller checks the thread is theirs (CheckOwner) first.
 func (c *Client) DeleteThread(ctx context.Context, rootID string) error {
 	for _, d := range []struct{ index, field string }{
 		{indexMessages, "root_id"}, {c.memories, "thread_id"}, {indexThreads, "root_id"},
@@ -262,9 +364,16 @@ func (c *Client) DeleteThread(ctx context.Context, rootID string) error {
 	return nil
 }
 
-// deleteWhere deletes an index's documents whose field holds value.
+// deleteWhere deletes an index's documents whose field holds value, of the
+// caller's control sets.
 func (c *Client) deleteWhere(ctx context.Context, index, field, value string) error {
-	q, _ := json.Marshal(map[string]any{"query": map[string]any{"term": map[string]any{field: value}}})
+	caller, ok := CallerFrom(ctx)
+	if !ok {
+		return ErrNoCaller
+	}
+	body := map[string]any{"query": map[string]any{"term": map[string]any{field: value}}}
+	confine(body, caller.ControlSets)
+	q, _ := json.Marshal(body)
 	_, err := c.api.DeleteByQuery(ctx, &opensearchapi.DeleteByQueryReq{
 		Indices: []string{c.ix(index)}, BodyReader: bytes.NewReader(q), Params: &opensearchapi.DeleteByQueryParams{Refresh: "true"},
 	})

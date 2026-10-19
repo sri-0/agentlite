@@ -25,7 +25,8 @@ func (h *Handler) Workspaces(c *echo.Context) error {
 	return c.JSON(http.StatusOK, newList(found))
 }
 
-// CreateWorkspace adds a workspace: {name}.
+// CreateWorkspace adds a workspace: {name}, in the control set X-Control-Set
+// names.
 func (h *Handler) CreateWorkspace(c *echo.Context) error {
 	name, err := workspaceName(c)
 	if err != nil {
@@ -39,7 +40,7 @@ func (h *Handler) CreateWorkspace(c *echo.Context) error {
 	return c.JSON(http.StatusCreated, w)
 }
 
-// RenameWorkspace renames a workspace: {name}.
+// RenameWorkspace renames a workspace: {name}; only its creator may.
 func (h *Handler) RenameWorkspace(c *echo.Context) error {
 	ctx := c.Request().Context()
 	name, err := workspaceName(c)
@@ -50,6 +51,9 @@ func (h *Handler) RenameWorkspace(c *echo.Context) error {
 	if err != nil {
 		return err
 	}
+	if err := opensearch.CheckOwner(ctx, w.Labels); err != nil {
+		return err
+	}
 	w.Name, w.UpdatedAt = name, time.Now()
 	if err := h.Store.SaveWorkspace(ctx, w); err != nil {
 		return err
@@ -57,7 +61,8 @@ func (h *Handler) RenameWorkspace(c *echo.Context) error {
 	return c.JSON(http.StatusOK, w)
 }
 
-// DeleteWorkspace removes a workspace; its threads stay, outside any workspace.
+// DeleteWorkspace removes a workspace; its threads stay, outside any
+// workspace. Only its creator may.
 func (h *Handler) DeleteWorkspace(c *echo.Context) error {
 	if err := h.Store.DeleteWorkspace(c.Request().Context(), c.Param("id")); err != nil {
 		return err

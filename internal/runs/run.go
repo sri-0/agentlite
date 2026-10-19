@@ -47,10 +47,13 @@ type Run struct {
 	SegmentFrom   string    // log cursor before the current segment's first event
 	Connectors    *[]string // the thread's enabled connectors at start; nil means all
 	ImageModel    string    // the image model generate_image uses; "" is the default
-	Status        Status
-	Result        string // final text, capped
-	Error         string
-	StartedAt     time.Time
+	// ControlSet is the thread's: every OpenSearch call of the run is
+	// confined to it.
+	ControlSet string
+	Status     Status
+	Result     string // final text, capped
+	Error      string
+	StartedAt  time.Time
 }
 
 const resultCap = 64 << 10
@@ -62,7 +65,7 @@ func (r *Run) Root() bool { return r.RootID == r.ThreadID }
 func (r *Run) fields() map[string]string {
 	f := map[string]string{
 		"id": r.ID, "thread_id": r.ThreadID, "root_id": r.RootID, "agent_id": r.AgentID, "model": r.Model,
-		"previous_model": r.PreviousModel, "image_model": r.ImageModel,
+		"previous_model": r.PreviousModel, "image_model": r.ImageModel, "controlset_id": r.ControlSet,
 		"message_id": r.MessageID, "turn_id": r.TurnID, "turn_seq": strconv.FormatInt(r.TurnSeq, 10),
 		"turn_from": r.TurnFrom, "segment_from": r.SegmentFrom,
 		"result": r.Result, "error": r.Error,
@@ -82,7 +85,7 @@ func runFromFields(f map[string]string) *Run {
 	}
 	r := &Run{
 		ID: f["id"], ThreadID: f["thread_id"], RootID: f["root_id"], AgentID: f["agent_id"], Model: f["model"],
-		PreviousModel: f["previous_model"], ImageModel: f["image_model"],
+		PreviousModel: f["previous_model"], ImageModel: f["image_model"], ControlSet: f["controlset_id"],
 		MessageID: f["message_id"], TurnID: f["turn_id"], TurnSeq: n("turn_seq"),
 		TurnFrom: f["turn_from"], SegmentFrom: f["segment_from"],
 		Result: f["result"], Error: f["error"],

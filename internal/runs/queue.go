@@ -15,10 +15,8 @@ import (
 
 // Queue names.
 const (
-	requestsKey = "runs:"     // + agent id: run requests consumed by workers
-	doneKey     = "runs:done" // pause and terminal notices consumed by finalizers
+	requestsKey = "runs:" // + agent id: run requests consumed by workers
 	workerGroup = "workers"
-	finalGroup  = "finalizers"
 	staleAfter  = 2 * leaseTTL // longer than a dead worker's lease survives
 	// maxInFlight is how many entries one consumer executes at once. A parent
 	// waiting on a sub-agent gives its slot back (Yield).

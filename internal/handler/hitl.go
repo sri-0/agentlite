@@ -7,9 +7,14 @@ import (
 )
 
 // Interrupts lists what the thread's paused run is waiting for. Answers go
-// over the socket (internal/ws).
+// over the socket (internal/ws). Interrupts are in Valkey, which knows
+// nothing of control sets, so the thread must be readable first.
 func (h *Handler) Interrupts(c *echo.Context) error {
-	pending, err := h.Runs.Interrupts(c.Request().Context(), c.Param("id"))
+	ctx := c.Request().Context()
+	if _, err := h.Store.Thread(ctx, c.Param("id")); err != nil {
+		return err
+	}
+	pending, err := h.Runs.Interrupts(ctx, c.Param("id"))
 	if err != nil {
 		return err
 	}

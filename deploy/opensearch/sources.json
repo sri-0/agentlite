@@ -15,7 +15,10 @@
       "title": {"type": "text"},
       "metadata": {"type": "flat_object"},
       "retrieved_at": {"type": "date"},
-      "cited_in": {"type": "keyword"}
+      "cited_in": {"type": "keyword"},
+      "controlset_id": {"type": "keyword"},
+      "user_created_by": {"type": "keyword"},
+      "user_updated_by": {"type": "keyword"}
     }
   }
 }

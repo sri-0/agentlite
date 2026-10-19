@@ -7,12 +7,14 @@ import (
 	"fmt"
 	"maps"
 	"slices"
+	"strings"
 	"time"
 
 	"github.com/ag-ui-protocol/ag-ui/sdks/community/go/pkg/core/events"
 	"github.com/ag-ui-protocol/ag-ui/sdks/community/go/pkg/core/types"
 	"github.com/google/uuid"
 
+	"agentlite/internal/auth"
 	"agentlite/internal/runs"
 	"agentlite/internal/stream"
 	"agentlite/pkg/toolx"
@@ -74,7 +76,11 @@ func subagent(d Deps) (toolx.Tool, error) {
 		run, err := d.Dispatcher.Start(ctx, runs.StartInput{
 			ThreadID: childThread, ParentID: ctx.SessionID(), AgentID: a.SubagentType, Model: parentRun.Model,
 			Connectors: parentRun.Connectors, ImageModel: parentRun.ImageModel, MessageID: uuid.Must(uuid.NewV7()).String(), Text: a.Prompt,
-			Authorization: parentRun.Authorization, // the child acts for the same user
+			// The child acts for the same user, with the conversation's
+			// thread token for them; ctx is the parent's run, so its records
+			// are written with that token.
+			User: auth.Principal{Subject: parentRun.UserID, Username: parentRun.Username,
+				Token: strings.TrimPrefix(parentRun.Authorization, "Bearer ")},
 		})
 		if err != nil {
 			return nil, fmt.Errorf("start %s: %w", a.SubagentType, err)

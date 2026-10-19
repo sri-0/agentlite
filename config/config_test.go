@@ -11,6 +11,8 @@ import (
 func TestLoadDefault(t *testing.T) {
 	t.Setenv("CONFIG_DIR", "default")
 	t.Setenv("S3_ENDPOINT", "localhost:9000")
+	t.Setenv("OIDC_ISSUER_URL", "http://localhost:8180/realms/agentlite")
+	t.Setenv("OIDC_CLIENT_SECRET", "secret")
 	t.Setenv("OPEN_SLIDE_MCP_URL", "http://localhost:8090/mcp")
 	cfg, err := Load(t.Context())
 	if err != nil {
@@ -58,6 +60,8 @@ func TestLoadRefuses(t *testing.T) {
 			write(t, filepath.Join(dir, "models.yaml"), models)
 			t.Setenv("CONFIG_DIR", dir)
 			t.Setenv("S3_ENDPOINT", "localhost:9000")
+			t.Setenv("OIDC_ISSUER_URL", "http://localhost:8180/realms/agentlite")
+			t.Setenv("OIDC_CLIENT_SECRET", "secret")
 			for k, v := range tt.env {
 				t.Setenv(k, v)
 			}

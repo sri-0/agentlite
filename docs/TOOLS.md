@@ -114,11 +114,11 @@ at any hop: they carry credentials, which net/http strips from such a redirect i
 `forward` sends, on every request made for a tool call: the user's `Authorization`
 header, `X-Thread-ID`, `X-Root-Thread-ID`, `X-Run-ID`, and for toolx tools `X-Agent-ID`
 and `X-Tool-Name`. It is off by default: a tool such as `webfetch` talks to the public
-web. The user's `Authorization` is taken from the request that created the thread
-(`POST /v1/agent/chat`) and travels with that run's queue entry to the worker (entries
-are deleted once handled); a sub-agent's run inherits it. Runs started or resumed over
-the socket carry none yet, so the calls of a resumed run (an approved write, say) go
-without the user's identity until the socket carries it. A connector with `forward`
+web. The user's `Authorization` is the access token of the request that queued the
+segment (`POST /v1/agent/chat`, a socket `run`, or the socket of the last `answer`;
+AUTH.md); it travels with the queue entry to the worker (entries are deleted once
+handled), and a sub-agent's run inherits it. It is the user's own token, not the thread
+token, and it can expire during a long run. A connector with `forward`
 therefore may not also set a static `Authorization` header (refused at start): calls
 without a user would silently go out as the service's identity.
 
@@ -201,8 +201,9 @@ UI    ──[source:2] citation ──► GET /v1/threads/{id}/sources/2
 
 - **Numbers belong to the conversation** (the root thread), so a sub-agent's citations
   stay valid in its parent's answer. They come from the conversation's counters
-  document (OpenSearch `counters`, incremented by a scripted update, atomic per
-  document).
+  document (OpenSearch `counters`), read and written back on the condition that no one
+  wrote it in between (`if_seq_no`), again when someone did: OpenSearch refuses scripted
+  updates under document-level security (AUTH.md).
 - **The same item keeps its number.** An item's identity is its system plus its `Key`,
   or its URL when there is none; its record's id is derived from that identity, so a
   second add finds it, and two adds of one new item at the same moment collide on the
@@ -215,13 +216,15 @@ UI    ──[source:2] citation ──► GET /v1/threads/{id}/sources/2
 - **Citations are recorded.** Before a segment's closing event, the runtime records every
   `[source:N]` its text showed against the turn (`cited_in: ["message:<turn id>"]`), and an
   artifact's body records its own (`artifact:<id>`). A client that reads the sources when
-  the run ends sees them. Each source is updated on its own and retried when two
-  citations land at once; a number no source has is skipped. Recording is best effort: a
+  the run ends sees them. Each source is changed on its own the same way (read, then a
+  conditional write, again when two citations land at once); a number no source has is
+  skipped. Recording is best effort: a
   failure is logged, never turned into a failed turn or save.
 - **The model is told how to cite.** Every agent with tools gets a `<citations>` block in
   its instruction (`internal/agents/build.go`).
 
-Storage, all in OpenSearch, so document-level security covers it:
+Storage, all in OpenSearch, in the conversation's control set, so document-level
+security covers it, written with the run's thread token (AUTH.md):
 
 | Index | What |
 |---|---|
@@ -306,8 +309,8 @@ the image model on `/images/generations` with the original in `input_references`
 model is reached only through the tool call; clients that call the image API themselves
 use the pass-through's `/v1/images/generations` and `/v1/images/edits` (MODELS.md).
 
-S3 is any S3-compatible store through `minio-go` (`pkg/s3`); `docker-compose.yaml` runs
-MinIO on `:9000` (console `:9001`, `minioadmin`/`minioadmin`). The bucket is created on
+S3 is any S3-compatible store through `minio-go` (`pkg/s3`); `~/code/agentlite-infra`'s
+`docker-compose.yaml` runs MinIO on `:9000` (console `:9001`, `minioadmin`/`minioadmin`). The bucket is created on
 start. Deleting the root thread deletes its bodies, then its records.
 
 ## Files

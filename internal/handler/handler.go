@@ -14,6 +14,7 @@ import (
 	"agentlite/config"
 	"agentlite/internal/agents"
 	"agentlite/internal/artifacts"
+	"agentlite/internal/auth"
 	"agentlite/internal/providers"
 	"agentlite/internal/rag/userfiles"
 	"agentlite/internal/runs"
@@ -26,6 +27,7 @@ import (
 // Handler carries the dependencies every route needs.
 type Handler struct {
 	Config    *config.Config
+	Auth      *auth.Verifier
 	Registry  *providers.Registry
 	Runs      *runs.Manager
 	Runtime   *agents.Runtime

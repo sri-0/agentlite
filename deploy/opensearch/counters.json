@@ -4,7 +4,10 @@
     "properties": {
       "root_id": {"type": "keyword"},
       "sources": {"type": "integer"},
-      "artifacts": {"type": "object", "enabled": false}
+      "artifacts": {"type": "object", "enabled": false},
+      "controlset_id": {"type": "keyword"},
+      "user_created_by": {"type": "keyword"},
+      "user_updated_by": {"type": "keyword"}
     }
   }
 }

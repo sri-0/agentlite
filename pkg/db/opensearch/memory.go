@@ -20,6 +20,7 @@ type Memory struct {
 	Text      string    `json:"text"`
 	Embedding []float32 `json:"embedding,omitempty"`
 	CreatedAt time.Time `json:"created_at"`
+	Labels
 }
 
 // SaveMemory upserts a memory entry. Nothing reads one back at once, so the
@@ -35,6 +36,8 @@ func (c *Client) DeleteMemories(ctx context.Context, threadID string) error {
 
 // SearchMemories returns the k entries nearest to the vector, leaving out the
 // entries of one thread (the one asking, whose turns are already in context).
+// Like every search, it finds only the caller's control sets' (inside a run,
+// the thread's).
 func (c *Client) SearchMemories(ctx context.Context, vector []float32, k int, excludeThread string) ([]Memory, error) {
 	notThread := map[string]any{"bool": map[string]any{"must_not": map[string]any{"term": map[string]any{"thread_id": excludeThread}}}}
 	return search[Memory](ctx, c, c.memories, map[string]any{

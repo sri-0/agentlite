@@ -18,7 +18,8 @@ There is no identity yet, so every memory belongs to the one adk user
 After a **user-started** run finishes with status done (not a sub-agent's run,
 not a paused one), the runtime calls `AddSessionToMemory` with the thread's adk
 session in a detached goroutine, so storing never delays the answer
-(`internal/agents/runtime.go`, `remember`).
+(`internal/agents/runtime.go`, `remember`). It writes with the run's thread token,
+as the run's user, in the thread's control set (AUTH.md).
 
 `pkg/memory.Service.AddSessionToMemory` takes the session's latest turn (the
 last user message and everything after it) and, for each text event in it
@@ -27,8 +28,12 @@ embedding block's model (one request) and indexes one document each in the
 OpenSearch `memories` index:
 
 ```
-{ id, thread_id, author, text, embedding (kNN vector), created_at }
+{ id, thread_id, author, text, embedding (kNN vector), created_at,
+  controlset_id, user_created_by, user_updated_by }
 ```
+
+Each entry is in its thread's control set, so document-level security limits who
+can recall it.
 
 The document id is the event's id (a UUIDv7), so re-storing a session
 is idempotent. Embedding goes through the provider's `/embeddings` endpoint
@@ -38,7 +43,10 @@ with a 15 s timeout.
 
 A search embeds the query with the same model and runs a kNN query (lucene
 HNSW, cosine) for the five nearest entries, **excluding the asking thread's own
-turns**, which the model already has in its context. The exclusion is why the
+turns**, which the model already has in its context, and **only of the asking
+thread's control set**: the run's token and the store's confinement (AUTH.md)
+leave out every other control set, even one the user holds, and the filter is
+inside the kNN query, so the five nearest are found among the allowed entries. The exclusion is why the
 runtime hands each run a per-thread view: `Memory.ForThread(threadID)` returns
 an adk `memory.Service` whose searches carry that filter.
 

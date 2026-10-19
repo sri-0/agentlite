@@ -6,6 +6,7 @@ import (
 	"github.com/coder/websocket"
 	"github.com/labstack/echo/v5"
 
+	"agentlite/internal/auth"
 	"agentlite/internal/ws"
 )
 
@@ -18,9 +19,10 @@ type startedThread struct {
 }
 
 // StartThread creates a thread with its first turn and queues the run; a
-// workspaceId files it under that workspace. It replies once the thread is
-// stored, so a subscribe sent on the reply finds it. Later turns on the
-// thread go over the socket.
+// workspaceId files it under that workspace. The thread is in the control
+// set X-Control-Set names (auth.ControlSet), and everything it records is
+// too. It replies once the thread is stored, so a subscribe sent on the
+// reply finds it. Later turns on the thread go over the socket.
 func (h *Handler) StartThread(c *echo.Context) error {
 	var body struct {
 		ws.Turn
@@ -33,12 +35,12 @@ func (h *Handler) StartThread(c *echo.Context) error {
 	if err != nil {
 		return err
 	}
-	if err := h.Store.CheckWorkspace(c.Request().Context(), body.WorkspaceID); err != nil {
+	ctx := c.Request().Context()
+	if err := h.Store.CheckWorkspace(ctx, body.WorkspaceID); err != nil {
 		return err
 	}
-	in.WorkspaceID = body.WorkspaceID
-	in.Authorization = c.Request().Header.Get("Authorization")
-	run, err := h.Runs.Start(c.Request().Context(), in)
+	in.WorkspaceID, in.User = body.WorkspaceID, *auth.From(ctx)
+	run, err := h.Runs.Start(ctx, in)
 	if err != nil {
 		return err
 	}
@@ -57,6 +59,6 @@ func (h *Handler) Chat(c *echo.Context) error {
 	if err != nil {
 		return nil // Accept has already written the HTTP error
 	}
-	ws.Serve(c.Request().Context(), conn, h.Runs, h.Store, h.Log)
+	ws.Serve(c.Request().Context(), conn, auth.From(c.Request().Context()), h.Runs, h.Store, h.Log)
 	return nil
 }

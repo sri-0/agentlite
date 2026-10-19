@@ -38,6 +38,15 @@
           "space_type": "cosinesimil",
           "engine": "lucene"
         }
+      },
+      "controlset_id": {
+        "type": "keyword"
+      },
+      "user_created_by": {
+        "type": "keyword"
+      },
+      "user_updated_by": {
+        "type": "keyword"
       }
     }
   }

@@ -99,9 +99,11 @@ type ServerFrame struct {
 
 // Error codes.
 const (
-	CodeBadRequest = "bad_request"
-	CodeNotFound   = "not_found"
-	CodeBusy       = "busy"
-	CodeNotPaused  = "not_paused"
-	CodeInternal   = "internal"
+	CodeBadRequest   = "bad_request"
+	CodeUnauthorized = "unauthorized" // no thread token could be had: sign in again
+	CodeForbidden    = "forbidden"
+	CodeNotFound     = "not_found"
+	CodeBusy         = "busy"
+	CodeNotPaused    = "not_paused"
+	CodeInternal     = "internal"
 )

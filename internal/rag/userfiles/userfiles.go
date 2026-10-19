@@ -80,7 +80,8 @@ func (s *Store) Searchable() bool { return s != nil && s.embedder != nil }
 func (s *Store) MaxBytes() int64 { return int64(s.limits.MaxUploadMB) << 20 }
 
 // Add keeps a file under a workspace ("" files it under none), embedded for
-// search first: a file the model refuses is not kept.
+// search first: a file the model refuses is not kept. The file and its
+// chunks are in the caller's control set for new documents (X-Control-Set).
 func (s *Store) Add(ctx context.Context, name, workspaceID string, tags []string, body []byte) (*opensearch.File, error) {
 	if len(body) == 0 {
 		return nil, fmt.Errorf("%w: the file is empty", ErrInvalid)
@@ -130,9 +131,14 @@ func (s *Store) Body(ctx context.Context, f *opensearch.File) (io.ReadSeekCloser
 }
 
 // Delete removes a file: its body and chunks, then its record, so a failure
-// can be retried; opensearch.ErrNotFound when there is none.
+// can be retried; opensearch.ErrNotFound when there is none the caller can
+// see, opensearch.ErrForbidden when they did not upload it.
 func (s *Store) Delete(ctx context.Context, id string) error {
-	if _, err := s.records.File(ctx, id); err != nil {
+	f, err := s.records.File(ctx, id)
+	if err != nil {
+		return err
+	}
+	if err := opensearch.CheckOwner(ctx, f.Labels); err != nil {
 		return err
 	}
 	if err := s.remove(ctx, id); err != nil {
