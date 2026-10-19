@@ -12,6 +12,23 @@ import (
 	slogzerolog "github.com/samber/slog-zerolog/v2"
 )
 
+// AuditLevel is the level of audit entries: who did what, for whom (a run
+// started for a user, a thread token minted, a request refused). It is above
+// every built-in level, so no LOG_LEVEL hides it, and is written as "audit".
+const AuditLevel zerolog.Level = 10
+
+func init() {
+	zerolog.LevelFieldMarshalFunc = func(l zerolog.Level) string {
+		if l == AuditLevel {
+			return "audit"
+		}
+		return l.String()
+	}
+}
+
+// Audit starts an audit entry.
+func Audit(l zerolog.Logger) *zerolog.Event { return l.WithLevel(AuditLevel) }
+
 // New builds the root logger and installs it as the slog default.
 func New(lvl zerolog.Level, json bool) zerolog.Logger {
 	var w io.Writer = os.Stdout
