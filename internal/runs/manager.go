@@ -3,6 +3,7 @@ package runs
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"sync"
 
@@ -120,6 +121,9 @@ const SessionUser = "default"
 // their access token if none is kept), confined to the thread's control
 // set. With no thread token to be had it fails with tokens.ErrSignIn.
 func (m *Manager) caller(ctx context.Context, run *Run, u auth.Principal) (opensearch.Caller, error) {
+	if run.ControlSet == "" { // queued before control sets: it could read and write nothing
+		return opensearch.Caller{}, fmt.Errorf("%w: the run has no control set; start a new turn", ErrInvalid)
+	}
 	src, err := m.tokens.Source(ctx, run.RootID, run.ControlSet, u.Subject, u.Token)
 	if err != nil {
 		return opensearch.Caller{}, err
@@ -131,10 +135,7 @@ func (m *Manager) caller(ctx context.Context, run *Run, u auth.Principal) (opens
 // what an executing replica that keeps no thread token mints one from; the
 // entry is deleted once handled, and the token expires in minutes.
 func entry(u auth.Principal, fields map[string]string) map[string]string {
-	fields["user_id"], fields["username"] = u.Subject, u.Username
-	if u.Token != "" {
-		fields["authorization"] = u.Bearer()
-	}
+	fields["user_id"], fields["username"], fields["authorization"] = u.Subject, u.Username, u.Bearer()
 	return fields
 }
 

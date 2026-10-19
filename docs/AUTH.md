@@ -217,6 +217,9 @@ could be had: sign in again) and `forbidden`.
 - `cmd/dev` (adk's own launcher) runs agents outside the server's requests, with
   no user: whatever reads OpenSearch there (the skills toolset, memory, files)
   fails closed.
+- A run queued or paused before control sets existed has no `controlset_id` on
+  its record: it fails before it starts ("the run has no control set"), rather
+  than run with none. Start a new turn on the thread.
 - A sub-agent's run, or a resumed segment, executed by a replica that keeps no
   thread token for the conversation mints one from the token in its queue entry,
   which may have expired by then; with one replica, as locally, the kept token

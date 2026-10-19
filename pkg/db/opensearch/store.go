@@ -275,9 +275,13 @@ func search[T any](ctx context.Context, c *Client, index string, query map[strin
 }
 
 // get fetches one document by id; ErrNotFound when there is none, or when
-// it is outside the caller's control sets.
-func get[T any](ctx context.Context, c *Client, index, id string) (*T, error) {
-	doc, _, err := getAt[T](ctx, c, index, id)
+// it is outside the caller's control sets. Only labelled documents can be
+// read (P), so none slips past the control-set check.
+func get[T any, P interface {
+	*T
+	labelled
+}](ctx context.Context, c *Client, index, id string) (*T, error) {
+	doc, _, err := getAt[T, P](ctx, c, index, id)
 	return doc, err
 }
 
@@ -286,7 +290,10 @@ func get[T any](ctx context.Context, c *Client, index, id string) (*T, error) {
 type at struct{ seq, term int }
 
 // getAt is get, with where the document stands.
-func getAt[T any](ctx context.Context, c *Client, index, id string) (*T, at, error) {
+func getAt[T any, P interface {
+	*T
+	labelled
+}](ctx context.Context, c *Client, index, id string) (*T, at, error) {
 	caller, ok := CallerFrom(ctx)
 	if !ok {
 		return nil, at{}, ErrNoCaller
@@ -302,8 +309,7 @@ func getAt[T any](ctx context.Context, c *Client, index, id string) (*T, at, err
 	if err := json.Unmarshal(resp.Source, &out); err != nil {
 		return nil, at{}, fmt.Errorf("get %s/%s: %w", index, id, err)
 	}
-	l, ok := any(&out).(labelled)
-	if !ok || !slices.Contains(caller.ControlSets, l.labels().ControlSetID) {
+	if !slices.Contains(caller.ControlSets, P(&out).labels().ControlSetID) {
 		return nil, at{}, ErrNotFound
 	}
 	var pos at
@@ -331,7 +337,7 @@ func update[T any, P interface {
 		if try > 0 { // a random while, so writers that collided do not collide again
 			time.Sleep(rand.N(min(10*time.Millisecond<<try, time.Second)))
 		}
-		found, pos, err := getAt[T](ctx, c, index, id)
+		found, pos, err := getAt[T, P](ctx, c, index, id)
 		doc, params := P(found), opensearchapi.IndexParams{Refresh: "true", IfSeqNo: &pos.seq, IfPrimaryTerm: &pos.term}
 		switch {
 		case errors.Is(err, ErrNotFound) && create:

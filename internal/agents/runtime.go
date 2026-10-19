@@ -26,7 +26,6 @@ import (
 
 	"agentlite/config"
 	"agentlite/internal/artifacts"
-	"agentlite/internal/auth"
 	"agentlite/internal/images"
 	"agentlite/internal/mcp"
 	"agentlite/internal/providers"
@@ -221,7 +220,7 @@ func (rt *Runtime) Run(ctx context.Context, in runs.Input, sink stream.Sink) (ru
 	ctx = toolx.WithRun(ctx, toolx.Run{
 		Thread: toolx.Thread{ID: run.ThreadID, RootID: run.RootID, RunID: run.ID},
 		Model:  run.Model, Card: &target.Model, Connectors: run.Connectors, ImageModel: run.ImageModel,
-		UserID: in.User.Subject, Username: in.User.Username, Authorization: bearer(in.User),
+		UserID: in.User.Subject, Username: in.User.Username, Authorization: in.User.Bearer(),
 		Sources: rt.sources,
 	})
 	content, events, err := rt.content(ctx, run.ThreadID, in)
@@ -269,14 +268,6 @@ func (rt *Runtime) Run(ctx context.Context, in runs.Input, sink stream.Sink) (ru
 		rt.remembering.Go(func() { rt.remember(context.WithoutCancel(ctx), run.ThreadID) })
 	}
 	return runs.Result{Status: runs.StatusDone, Text: enc.Result()}, nil
-}
-
-// bearer is the user's Authorization header; "" without a token.
-func bearer(u auth.Principal) string {
-	if u.Token == "" {
-		return ""
-	}
-	return u.Bearer()
 }
 
 // memoryFor is the memory service as one thread sees it, or nil when off.

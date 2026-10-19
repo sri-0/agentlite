@@ -44,8 +44,13 @@ type Principal struct {
 	Expiry      time.Time
 }
 
-// Bearer is the principal's token as an Authorization header.
-func (p Principal) Bearer() string { return "Bearer " + p.Token }
+// Bearer is the principal's token as an Authorization header; "" without one.
+func (p Principal) Bearer() string {
+	if p.Token == "" {
+		return ""
+	}
+	return "Bearer " + p.Token
+}
 
 type principalKey struct{}
 
