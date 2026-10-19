@@ -26,10 +26,8 @@ import (
 )
 
 const (
-	count   = 3    // suggestions per turn
-	maxLen  = 80   // runes of one suggestion
-	textCap = 4000 // runes of each message, and of the typed text, the model reads
-	turnLen = 2    // last messages the model reads: the message and its answer
+	count   = 3  // suggestions per turn
+	maxLen  = 80 // runes of one suggestion
 	timeout = 30 * time.Second
 )
 
@@ -41,17 +39,11 @@ var (
 )
 
 // Request is what the suggestions start from: the conversation's last turn as
-// the UI has it (the last message and the one it answers), what the user is
-// typing, or both.
+// the UI has it (the last message and the one it answers, as OpenAI chat
+// messages: [{role, content}]), what the user is typing, or both.
 type Request struct {
-	Messages []Message `json:"messages"`
-	Text     string    `json:"text"`
-}
-
-// Message is one message of the conversation.
-type Message struct {
-	Role    string `json:"role"` // user or assistant
-	Content string `json:"content"`
+	Messages []openai.ChatCompletionMessageParamUnion `json:"messages"`
+	Text     string                                   `json:"text"`
 }
 
 // Suggester asks one model for next prompts, resolved on each call so a model
@@ -88,10 +80,17 @@ var schema = map[string]any{
 // Suggest returns up to three next prompts: from the last turn, from the text
 // being typed, or both.
 func (s *Suggester) Suggest(ctx context.Context, r Request) ([]string, error) {
-	input := prompt(r.Messages, r.Text)
-	if input == "" {
+	text := strings.TrimSpace(r.Text)
+	if len(r.Messages) == 0 && text == "" {
 		return nil, ErrEmpty
 	}
+	// The turn goes to the model as it came; a last message asks for the
+	// suggestions, so the conversation never ends on the answer.
+	ask := "Suggest the user's next message."
+	if text != "" {
+		ask = "The user is typing:\n" + text
+	}
+	messages := append([]openai.ChatCompletionMessageParamUnion{openai.SystemMessage(s.prompt)}, r.Messages...)
 	target, err := s.registry.ResolveAs(s.model, modelcatalog.TypeLLM)
 	if err != nil {
 		return nil, err
@@ -107,7 +106,7 @@ func (s *Suggester) Suggest(ctx context.Context, r Request) ([]string, error) {
 	)
 	resp, err := chat.New(ctx, openai.ChatCompletionNewParams{
 		Model:    target.Model.UpstreamID,
-		Messages: []openai.ChatCompletionMessageParamUnion{openai.SystemMessage(s.prompt), openai.UserMessage(input)},
+		Messages: append(messages, openai.UserMessage(ask)),
 		ResponseFormat: openai.ChatCompletionNewParamsResponseFormatUnion{OfJSONSchema: &shared.ResponseFormatJSONSchemaParam{
 			JSONSchema: shared.ResponseFormatJSONSchemaJSONSchemaParam{Name: "suggestions", Schema: schema, Strict: openai.Bool(true)},
 		}},
@@ -119,26 +118,6 @@ func (s *Suggester) Suggest(ctx context.Context, r Request) ([]string, error) {
 		return nil, fmt.Errorf("%w: it returned nothing", errModel)
 	}
 	return parse(resp.Choices[0].Message.Content)
-}
-
-// prompt is what the model reads: the last turnLen messages, then what the
-// user is typing, each cut to textCap runes and blank ones left out; "" when
-// nothing is left.
-func prompt(messages []Message, typed string) string {
-	var parts []string
-	for _, m := range messages[max(0, len(messages)-turnLen):] {
-		if c := strings.TrimSpace(m.Content); c != "" {
-			who := "The user wrote:\n"
-			if m.Role == "assistant" {
-				who = "The assistant answered:\n"
-			}
-			parts = append(parts, who+clip(c, textCap))
-		}
-	}
-	if t := strings.TrimSpace(typed); t != "" {
-		parts = append(parts, "The user is typing:\n"+clip(t, textCap))
-	}
-	return strings.Join(parts, "\n\n")
 }
 
 // parse reads the model's JSON: at most three suggestions, trimmed, cut to

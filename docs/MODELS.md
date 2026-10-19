@@ -244,12 +244,14 @@ apart from the agents) with `{messages, text}`: `messages` is the thread's last 
 UI shows it (`[{role: "user", content}, {role: "assistant", content}]`), sent when a thread
 opens (stale ones too) and after each answer; `text` is what the user is typing, sent a
 second after they stop. The server reads nothing stored, so it never waits on its own copy
-of an answer that has just ended. It takes the last two messages and the typed text (each
-cut to 4,000 characters), asks `suggestions.model` (`default_model` without the block) for
-three short messages in the user's voice (following the answer, or completing what is
-typed), as JSON held to a schema; `suggestions.prompt`, when set, replaces the built-in
-system prompt, and replies `{suggestions: [...]}`: at most three, each at
-most 80 characters. Nothing is kept. `400` with neither; `502` when the model fails.
+of an answer that has just ended. `messages` decode as openai-go chat messages and go to
+`suggestions.model` (`default_model` without the block) as they came, between the system
+prompt and a last user message that asks for the suggestions (with the typed text, when
+there is some). The model writes three short messages in the user's voice (following the
+answer, or completing what is typed) as JSON held to a schema; `suggestions.prompt`, when
+set, replaces the built-in system prompt. The reply is `{suggestions: [...]}`: at most
+three, each at most 80 characters. Nothing is kept. `400` with neither; `502` when the
+model fails.
 
 ## Disconnected deployment
 
