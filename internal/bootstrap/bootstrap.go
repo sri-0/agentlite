@@ -116,7 +116,7 @@ func New(ctx context.Context) (_ *App, err error) {
 		mem = app.Memory
 	}
 	if v := cfg.Models.Voice; v != nil {
-		app.Voice = voice.New(app.Registry, v.Model)
+		app.Voice = voice.New(app.Registry, *v)
 	}
 	recorder := sources.New(app.Store)
 	bucket, err := s3.New(ctx, cfg.S3) // artifact bodies, skill files and uploaded files
@@ -132,7 +132,7 @@ func New(ctx context.Context) (_ *App, err error) {
 	app.Files = userfiles.New(app.Store, bucket, cfg.Models.Files, filesEmbedder)
 	var studio *images.Studio // nil without an image model: no generate_image
 	if m := cfg.Models.Images; m != nil {
-		studio = images.New(app.Registry, app.Artifacts, app.Store, m.Model, m.EditModel)
+		studio = images.New(app.Registry, app.Artifacts, app.Store, *m)
 	}
 	servers, err := mcp.Servers(cfg.Connectors, cfg.Transport, app.Log)
 	if err != nil {

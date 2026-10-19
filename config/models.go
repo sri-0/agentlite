@@ -98,8 +98,17 @@ type MemoryConfig struct {
 // VoiceConfig enables the voice prompt: the transcription model that turns a
 // recording into the text of a message (internal/voice).
 type VoiceConfig struct {
-	Model string `yaml:"model"`
+	Model   string        `yaml:"model"`
+	MaxMB   int           `yaml:"max_mb"`  // the largest recording; default 25, the providers' own limit
+	Timeout time.Duration `yaml:"timeout"` // one transcription; default 60s
 }
+
+// Voice and images defaults.
+const (
+	defaultVoiceMaxMB    = 25
+	defaultVoiceTimeout  = 60 * time.Second
+	defaultImagesTimeout = 3 * time.Minute
+)
 
 // ImagesConfig enables image generation (internal/images): the image model
 // the generate_image tool uses, and the Images page's default.
@@ -111,7 +120,8 @@ type ImagesConfig struct {
 	// with Qwen-Image-Edit, on a server of its own. Without it an edit goes
 	// to Model on /images/generations, the original in OpenRouter's
 	// input_references (development).
-	EditModel string `yaml:"edit_model"`
+	EditModel string        `yaml:"edit_model"`
+	Timeout   time.Duration `yaml:"timeout"` // one image; default 3m (an image takes tens of seconds)
 }
 
 // FilesConfig is the files block (internal/rag/userfiles, docs/FILES.md): limits on
@@ -185,6 +195,12 @@ func loadModels(dir string) (*ModelsConfig, error) {
 		if err := c.check(); err != nil {
 			return nil, fmt.Errorf("models.yaml: compaction: %w", err)
 		}
+	}
+	if v := cfg.Voice; v != nil {
+		v.MaxMB, v.Timeout = cmp.Or(v.MaxMB, defaultVoiceMaxMB), cmp.Or(v.Timeout, defaultVoiceTimeout)
+	}
+	if i := cfg.Images; i != nil {
+		i.Timeout = cmp.Or(i.Timeout, defaultImagesTimeout)
 	}
 	if cfg.Memory != nil && cfg.Embedding == nil {
 		return nil, errors.New("models.yaml: memory needs the embedding block")
