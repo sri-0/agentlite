@@ -10,6 +10,8 @@
       "model": {"type": "keyword"},
       "connectors": {"type": "keyword"},
       "workspace_id": {"type": "keyword"},
+      "pinned": {"type": "boolean"},
+      "archived": {"type": "boolean"},
       "created_at": {"type": "date"},
       "updated_at": {"type": "date"}
     }

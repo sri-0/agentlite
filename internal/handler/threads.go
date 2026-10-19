@@ -55,20 +55,22 @@ func (h *Handler) Thread(c *echo.Context) error {
 	return c.JSON(http.StatusOK, item)
 }
 
-// UpdateThread renames a thread, changes its connectors, or moves it to a
-// workspace ("" takes it out of its workspace).
+// UpdateThread renames a thread, changes its connectors, moves it to a
+// workspace ("" takes it out of its workspace), pins or archives it.
 func (h *Handler) UpdateThread(c *echo.Context) error {
 	ctx := c.Request().Context()
 	var body struct {
 		Title       string    `json:"title"`
 		Connectors  *[]string `json:"connectors"`
 		WorkspaceID *string   `json:"workspace_id"`
+		Pinned      *bool     `json:"pinned"`
+		Archived    *bool     `json:"archived"`
 	}
 	if err := c.Bind(&body); err != nil {
 		return err
 	}
-	if body.Title == "" && body.Connectors == nil && body.WorkspaceID == nil {
-		return echo.NewHTTPError(http.StatusBadRequest, "title, connectors or workspace_id is required")
+	if body.Title == "" && body.Connectors == nil && body.WorkspaceID == nil && body.Pinned == nil && body.Archived == nil {
+		return echo.NewHTTPError(http.StatusBadRequest, "title, connectors, workspace_id, pinned or archived is required")
 	}
 	if body.Connectors != nil {
 		if err := h.Runtime.CheckConnectors(*body.Connectors); err != nil {
@@ -95,6 +97,12 @@ func (h *Handler) UpdateThread(c *echo.Context) error {
 	}
 	if body.WorkspaceID != nil {
 		t.WorkspaceID = *body.WorkspaceID
+	}
+	if body.Pinned != nil {
+		t.Pinned = *body.Pinned
+	}
+	if body.Archived != nil {
+		t.Archived = *body.Archived
 	}
 	if err := h.Store.SaveThread(ctx, t); err != nil {
 		return err

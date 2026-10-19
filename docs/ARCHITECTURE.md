@@ -141,7 +141,9 @@ whose thread, skill or workspace id is not a UUIDv7 gets 400. Documents that mus
 - at most one **active run**, held by the lease `thread:{id}:run`;
 - the **connectors** the user switched on, stored on the thread document (connectors.yaml's,
   plus the server's own `images` and `files`, TOOLS.md);
-- for a root thread, the **workspace** it is filed under (`workspace_id`), if any.
+- for a root thread, the **workspace** it is filed under (`workspace_id`), if any, and
+  whether it is **pinned** (top of the sidebar) or **archived** (left out of it), set with
+  `PATCH /v1/threads/{id}` like the title, connectors and workspace.
 
 A workspace (`internal/handler/workspaces.go`, index `workspaces`) is a folder of
 conversations, and of uploaded files (FILES.md), with a name; deleting one moves its
