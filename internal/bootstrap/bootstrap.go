@@ -16,6 +16,7 @@ import (
 	"agentlite/internal/agents"
 	"agentlite/internal/artifacts"
 	"agentlite/internal/hitl"
+	"agentlite/internal/images"
 	"agentlite/internal/mcp"
 	"agentlite/internal/providers"
 	"agentlite/internal/runs"
@@ -109,13 +110,17 @@ func New(ctx context.Context) (_ *App, err error) {
 	}
 	app.Artifacts = artifacts.New(app.Store, files, recorder, app.Log)
 	app.Skills = skills.New(app.Store, files, app.Log)
+	var studio *images.Studio // nil without an image model: no generate_image
+	if m := cfg.Models.Images; m != nil {
+		studio = images.New(app.Registry, app.Artifacts, app.Store, *m)
+	}
 	servers, err := mcp.Servers(cfg.Connectors, cfg.Transport, app.Log)
 	if err != nil {
 		return nil, err
 	}
 	app.Agents = agents.New(cfg, agents.Deps{
 		Registry: app.Registry, Sessions: app.Sessions, Memory: mem, Servers: servers,
-		Sources: recorder, Artifacts: app.Artifacts, Skills: app.Skills, Log: app.Log,
+		Sources: recorder, Artifacts: app.Artifacts, Skills: app.Skills, Images: studio, Log: app.Log,
 	})
 	app.Runs = runs.New(cfg, runs.Deps{
 		DB: runsDB, Interrupts: hitl.NewStore(hitlDB), History: app.Store, Sessions: app.Sessions,
@@ -151,11 +156,11 @@ func (a *App) Close() {
 }
 
 // checkConfiguredModels checks the models models.yaml names: default_model
-// (a run that names none uses it), memory's embedding model and the voice
-// prompt's transcription model. Each must be in the model list after the
-// start's first discovery (declared in models.yaml, or listed by its
-// provider), as the type it is used for, so a mistake fails the start rather
-// than every run, memory write or recording.
+// (a run that names none uses it), memory's embedding model, the voice
+// prompt's transcription model and the default image model. Each must be in
+// the model list after the start's first discovery (declared in models.yaml,
+// or listed by its provider), as the type it is used for, so a mistake fails
+// the start rather than every run, memory write, recording or image.
 func checkConfiguredModels(m *config.ModelsConfig, registry *providers.Registry) error {
 	check := func(id, typ string) error {
 		if _, err := registry.ResolveAs(id, typ); err != nil {
@@ -172,7 +177,17 @@ func checkConfiguredModels(m *config.ModelsConfig, registry *providers.Registry)
 		}
 	}
 	if m.Voice != nil {
-		return check(m.Voice.Model, modelcatalog.TypeTranscription)
+		if err := check(m.Voice.Model, modelcatalog.TypeTranscription); err != nil {
+			return err
+		}
+	}
+	if m.Images != nil {
+		if err := check(m.Images.Model, modelcatalog.TypeImage); err != nil {
+			return err
+		}
+		if m.Images.EditModel != "" {
+			return check(m.Images.EditModel, modelcatalog.TypeImage)
+		}
 	}
 	return nil
 }

@@ -50,6 +50,9 @@ providers:
       - id: mistralai/voxtral-small-24b-2507-stt   # Voxtral Small's speech-to-text route; vLLM serves the weights offline
         name: Voxtral Small (speech to text)
         type: transcription
+      - id: qwen/qwen-image-2.1-turbo   # generates and edits; offline, vLLM-Omni serves Qwen-Image-Edit
+        name: Qwen Image 2.1 Turbo
+        type: image
 
 # A model id is "<provider>/<model>": the provider's id, then the provider's
 # own name for the model (openrouter/openai/gpt-4.1-mini). A request goes to
@@ -92,3 +95,20 @@ memory:
 # (default 60s).
 voice:
   model: openrouter/mistralai/voxtral-small-24b-2507-stt
+# Image generation (internal/images): the image model the generate_image tool
+# uses, and the Images page's default. Every image is kept as an artifact.
+# Omit the block and there is neither. A new image is made on the OpenAI
+# /images/generations route. edit_model edits on /images/edits, the original
+# uploaded as a form; without it an edit goes to model on /images/generations
+# with the original in OpenRouter's input_references (development only).
+# Offline, vLLM-Omni serves each image model on a server of its own
+# (`vllm serve Qwen/Qwen-Image-2.1 --omni`), declared under the vllm provider
+# with `type: image` and its own `base_url`. Qwen-Image 2.1 makes and edits:
+#   model: vllm/Qwen/Qwen-Image-2.1
+#   edit_model: vllm/Qwen/Qwen-Image-2.1
+# Earlier Qwen-Image models edit with Qwen-Image-Edit, a second server:
+#   model: vllm/Qwen/Qwen-Image
+#   edit_model: vllm/Qwen/Qwen-Image-Edit-2511
+# `timeout` is one image's (default 3m).
+images:
+  model: openrouter/qwen/qwen-image-2.1-turbo

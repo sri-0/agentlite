@@ -26,6 +26,7 @@ import (
 
 	"agentlite/config"
 	"agentlite/internal/artifacts"
+	"agentlite/internal/images"
 	"agentlite/internal/mcp"
 	"agentlite/internal/providers"
 	"agentlite/internal/refs"
@@ -33,6 +34,7 @@ import (
 	"agentlite/internal/skills"
 	"agentlite/internal/sources"
 	"agentlite/internal/stream"
+	"agentlite/internal/tools"
 	"agentlite/internal/tools/builtin"
 	"agentlite/pkg/db/opensearch"
 	"agentlite/pkg/modelcatalog"
@@ -54,6 +56,7 @@ type Runtime struct {
 	sources      *sources.Recorder
 	artifacts    *artifacts.Store
 	skills       *skills.Library
+	images       *images.Studio // nil when no image model is configured
 	refs         refs.Resolvers // what a message's /name, @agent, #id refer to
 	log          zerolog.Logger
 
@@ -78,6 +81,7 @@ type Deps struct {
 	Sources   *sources.Recorder
 	Skills    *skills.Library
 	Artifacts *artifacts.Store
+	Images    *images.Studio // nil when no image model is configured
 	Log       zerolog.Logger
 }
 
@@ -86,7 +90,8 @@ func New(cfg *config.Config, d Deps) *Runtime {
 	rt := &Runtime{
 		appName: cfg.AppName, defs: cfg.Defs(), registry: d.Registry, sessions: d.Sessions, memory: d.Memory,
 		defaultModel: cfg.Models.DefaultModel, compact: cfg.Models.Compaction, servers: d.Servers,
-		sources: d.Sources, artifacts: d.Artifacts, skills: d.Skills, refs: refs.Resolvers{'/': d.Skills}, log: d.Log,
+		sources: d.Sources, artifacts: d.Artifacts, skills: d.Skills, images: d.Images,
+		refs: refs.Resolvers{'/': d.Skills}, log: d.Log,
 		connectors: cfg.Connectors, transport: cfg.Transport,
 		mcpTools: newMCPTools(cfg.Connectors),
 	}
@@ -114,6 +119,13 @@ func (rt *Runtime) Bind(ctx context.Context, d builtin.Dispatcher) error {
 	})
 	if err != nil {
 		return err
+	}
+	if rt.images != nil { // a world tool, offered with the harness tools
+		generate, err := tools.GenerateImage(rt.images)
+		if err != nil {
+			return err
+		}
+		rt.harness[generate.Name()] = generate
 	}
 	if rt.skillset, err = rt.skills.Toolset(ctx); err != nil {
 		return err
@@ -213,7 +225,7 @@ func (rt *Runtime) Run(ctx context.Context, in runs.Input, sink stream.Sink) (ru
 	ctx = platform.WithUUIDProvider(stream.WithSink(ctx, sink), func() string { return uuid.Must(uuid.NewV7()).String() }) // adk's event ids too
 	ctx = toolx.WithRun(ctx, toolx.Run{
 		Thread: toolx.Thread{ID: run.ThreadID, RootID: run.RootID, RunID: run.ID},
-		Model:  run.Model, Connectors: run.Connectors,
+		Model:  run.Model, Connectors: run.Connectors, ImageModel: run.ImageModel,
 		Authorization: in.Authorization,
 		Sources:       rt.sources,
 	})

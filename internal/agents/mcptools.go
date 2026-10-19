@@ -63,7 +63,7 @@ func (rt *Runtime) recordURLArtifact(ctx adkagent.Context, t tool.Tool, _, resul
 		rt.log.Warn().Str("tool", t.Name()).Msg("no artifact recorded: the result has no id or url, or the call has no thread")
 		return nil, nil
 	}
-	if err := rt.artifacts.Save(ctx, a, ""); err != nil {
+	if err := rt.artifacts.Save(ctx, a, nil); err != nil {
 		rt.log.Error().Err(err).Str("tool", t.Name()).Msg("record url artifact")
 		return nil, nil
 	}

@@ -17,6 +17,7 @@ import (
 	"agentlite/config"
 	"agentlite/internal/handler"
 	"agentlite/internal/handler/wellknown"
+	"agentlite/internal/passthrough"
 	"agentlite/internal/runs"
 	"agentlite/internal/skills"
 	"agentlite/pkg/db/opensearch"
@@ -93,7 +94,7 @@ func New(cfg *config.Config, h *handler.Handler) *echo.Echo {
 	e.GET("/v1/agent/chat", h.Chat)
 
 	// Pass-through to the providers (/v1/chat/completions and the rest).
-	h.RegisterProxies(e)
+	passthrough.Register(e, h.Registry)
 	return e
 }
 

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"slices"
+	"strconv"
 
 	"github.com/labstack/echo/v5"
 
@@ -20,8 +21,9 @@ type recentArtifact struct {
 }
 
 // RecentArtifacts lists artifacts across every conversation, newest first,
-// ?limit= at a time (default 50, at most 200). A full page carries next, an
-// opaque cursor: ?after=<next> fetches the following page.
+// ?limit= at a time (default 50, at most 200), only those of one ?kind= when
+// it is set. A full page carries next, an opaque cursor: ?after=<next>
+// fetches the following page.
 func (h *Handler) RecentArtifacts(c *echo.Context) error {
 	ctx := c.Request().Context()
 	limit, err := echo.QueryParamOr[int](c, "limit", 0)
@@ -38,7 +40,7 @@ func (h *Handler) RecentArtifacts(c *echo.Context) error {
 			return echo.NewHTTPError(http.StatusBadRequest, "after must be a next cursor from this list")
 		}
 	}
-	found, next, err := h.Store.RecentArtifacts(ctx, after, limit)
+	found, next, err := h.Store.RecentArtifacts(ctx, c.QueryParam("kind"), after, limit)
 	if err != nil {
 		return err
 	}
@@ -83,7 +85,8 @@ func (h *Handler) ThreadArtifacts(c *echo.Context) error {
 	return c.JSON(http.StatusOK, newList(list))
 }
 
-// ArtifactContent serves an artifact's body from S3; its route sandboxes it.
+// ArtifactContent serves an artifact's body from S3, the latest version or
+// ?v='s; its route sandboxes it.
 func (h *Handler) ArtifactContent(c *echo.Context) error {
 	ctx := c.Request().Context()
 	rootID, err := h.rootOf(ctx, c.Param("id"))
@@ -94,10 +97,16 @@ func (h *Handler) ArtifactContent(c *echo.Context) error {
 	if err != nil {
 		return err
 	}
+	// ?v= serves an earlier version, which never changes; every version's
+	// body is kept.
+	if v, _ := strconv.Atoi(c.QueryParam("v")); v > 0 && v <= a.Version {
+		a.Version = v
+		c.Response().Header().Set("Cache-Control", "private, max-age=31536000, immutable")
+	}
 	body, err := h.Artifacts.Body(ctx, a)
 	if err != nil {
 		return err
 	}
 	defer body.Close()
-	return c.Stream(http.StatusOK, artifacts.ContentType(a.Kind), body)
+	return c.Stream(http.StatusOK, artifacts.ContentType(a), body)
 }

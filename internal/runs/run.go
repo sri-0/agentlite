@@ -46,6 +46,7 @@ type Run struct {
 	TurnFrom      string    // log cursor before the turn's first event
 	SegmentFrom   string    // log cursor before the current segment's first event
 	Connectors    *[]string // the thread's enabled connectors at start; nil means all
+	ImageModel    string    // the image model generate_image uses; "" is the default
 	Status        Status
 	Result        string // final text, capped
 	Error         string
@@ -61,8 +62,8 @@ func (r *Run) Root() bool { return r.RootID == r.ThreadID }
 func (r *Run) fields() map[string]string {
 	f := map[string]string{
 		"id": r.ID, "thread_id": r.ThreadID, "root_id": r.RootID, "agent_id": r.AgentID, "model": r.Model,
-		"previous_model": r.PreviousModel,
-		"message_id":     r.MessageID, "turn_id": r.TurnID, "turn_seq": strconv.FormatInt(r.TurnSeq, 10),
+		"previous_model": r.PreviousModel, "image_model": r.ImageModel,
+		"message_id": r.MessageID, "turn_id": r.TurnID, "turn_seq": strconv.FormatInt(r.TurnSeq, 10),
 		"turn_from": r.TurnFrom, "segment_from": r.SegmentFrom,
 		"result": r.Result, "error": r.Error,
 		"started_at": strconv.FormatInt(r.StartedAt.UnixMilli(), 10),
@@ -81,8 +82,8 @@ func runFromFields(f map[string]string) *Run {
 	}
 	r := &Run{
 		ID: f["id"], ThreadID: f["thread_id"], RootID: f["root_id"], AgentID: f["agent_id"], Model: f["model"],
-		PreviousModel: f["previous_model"],
-		MessageID:     f["message_id"], TurnID: f["turn_id"], TurnSeq: n("turn_seq"),
+		PreviousModel: f["previous_model"], ImageModel: f["image_model"],
+		MessageID: f["message_id"], TurnID: f["turn_id"], TurnSeq: n("turn_seq"),
 		TurnFrom: f["turn_from"], SegmentFrom: f["segment_from"],
 		Result: f["result"], Error: f["error"],
 		StartedAt: time.UnixMilli(n("started_at")),

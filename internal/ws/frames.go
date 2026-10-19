@@ -60,6 +60,7 @@ type Turn struct {
 	Model      string    `json:"model,omitempty"`
 	AgentID    string    `json:"agentId,omitempty"`
 	Connectors *[]string `json:"connectors,omitempty"`
+	ImageModel string    `json:"imageModel,omitempty"` // the image model generate_image uses; "" is the default
 	Messages   []Message `json:"messages,omitempty"`
 }
 
@@ -71,7 +72,8 @@ func (t Turn) StartInput(threadID string) (runs.StartInput, error) {
 	}
 	last := t.Messages[len(t.Messages)-1]
 	return runs.StartInput{
-		ThreadID: threadID, AgentID: t.AgentID, Model: t.Model, Connectors: t.Connectors, MessageID: last.ID, Text: last.Content,
+		ThreadID: threadID, AgentID: t.AgentID, Model: t.Model, Connectors: t.Connectors, ImageModel: t.ImageModel,
+		MessageID: last.ID, Text: last.Content,
 	}, nil
 }
 

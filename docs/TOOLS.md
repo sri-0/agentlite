@@ -164,7 +164,12 @@ func searchRecords(conn toolx.Connector) (toolx.Tool, error) {
 - A world tool is a `tools.Builder`, `func(toolx.Connector) (toolx.Tool, error)`,
   registered by name in `tools.Catalog`; the runtime builds each one with its connector,
   on that connector's one HTTP client. A tool is only offered through a connector.
-- A harness tool (`internal/tools/builtin`) is built the same way from `builtin.Deps`.
+- `generate_image` is a world tool built on the image studio
+  (`tools.GenerateImage(*images.Studio)`, `internal/tools/generate_image.go`), with its
+  work in `internal/images`; the runtime offers it with the harness tools.
+- A harness tool (`internal/tools/builtin`, one file per tool) is built the same way from
+  `builtin.Deps`; its work lives in its own package (`emit_artifact` → `internal/artifacts`,
+  `write_skill` → `internal/skills`).
 - Registries and `toolx.Toolset` accept only `toolx.Tool`, and
   `TestOnlyToolxBuildsFunctionTools` fails if any package but `toolx` imports
   `functiontool`.
@@ -225,7 +230,7 @@ records and records every hit with the row's id, marking and control set as meta
 `emit_artifact` publishes a document; `internal/artifacts` stores it:
 
 - the record in OpenSearch `artifacts` (id a name-based UUID of `{root, artifact id}`): `id, root_id,
-  thread_id, run_id, title, kind, language, url, size, version, created_at, updated_at`;
+  thread_id, run_id, title, kind, language, url, media_type, size, version, created_at, updated_at`;
 - the body in S3 at `artifacts/{root}/{artifact id}/{version}`.
 
 An artifact id is letters, digits, `.`, `_` and `-`, starting with a letter or digit (it
@@ -234,7 +239,8 @@ otherwise.
 
 Kinds with a body: `markdown`, `code`, `json`, `csv` (there is no HTML kind: model-written
 markup is the one kind not worth its risk). Kind `url` has no body: it points at a page
-the UI embeds. Publishing the same id again stores a new version under its own key.
+the UI embeds. Kind `image` is an image (see Images below): its body is the image, its
+`media_type` the type sniffed from it, and it cites no sources. Publishing the same id again stores a new version under its own key.
 Versions come from the conversation's counters document (never below the current
 record's version, so an artifact saved before its counter existed keeps counting up),
 and the record is written with
@@ -245,10 +251,45 @@ the encoder makes of it, is a summary without the body (`artifacts.Summary`): `{
 title, kind, version, language?, url?}`. The UI fetches the body from
 `GET /v1/threads/{id}/artifacts/{artifactId}/content`, served with the kind's content
 type and `Content-Security-Policy: sandbox`; `GET /v1/threads/{id}/artifacts` lists the
-conversation's artifacts, and `GET /v1/artifacts?after=&limit=` lists every
-conversation's, newest first, with each one's thread title; a full page carries `next`,
+conversation's artifacts, and `GET /v1/artifacts?kind=&after=&limit=` lists every
+conversation's (of one kind, when set), newest first, with each one's thread title; a full page carries `next`,
 an opaque cursor (OpenSearch `search_after` on update time, conversation and id) for the
 next page's `after`, so ties never drop an artifact.
+
+## Images
+
+`internal/images` makes images and keeps each as an `image` artifact, so every image is
+on the artifacts page. `generate_image {prompt, edit?}` (`internal/tools/generate_image.go`)
+is offered to every agent, with the harness tools, when `models.yaml` has an `images` block: it makes the image, saves
+it, and shows it in the thread as an `artifact` activity (its calls carry the UI renderer
+`generate_image`). `edit` names an image of the conversation: the result is that
+artifact's next version, under its title. The image model is the turn's `imageModel`
+(`POST /v1/agent/chat` and the socket's `run`; the run keeps it, and a sub-agent inherits
+it), else `images.model`; an unknown or non-image model, no prompt, or an edit of what is
+not an image fails the call with the reason. A generation has `images.timeout` (default
+3 minutes) and is not retried (each is paid for).
+
+The Images page starts a conversation with the `images` agent
+(`config/default/agents/images.md`, whose one tool is `generate_image`) and the image
+model picked there; the conversation is an ordinary chat, where a follow-up such as "make
+it blue" edits the image. `GET /v1/artifacts?kind=image` lists every conversation's
+images for the page. `GET /v1/threads/{id}/artifacts/{artifactId}/content?v=N` serves
+version N, so an image shown in a chat keeps showing the version it made.
+
+The `media_type` field is new in `deploy/opensearch/artifacts.json`: run `make indices`.
+
+A new image is made on the OpenAI route `/images/generations`, which OpenRouter and
+vLLM-Omni serve, reading `data[].b64_json`. An edit goes to `images.edit_model` on
+`/images/edits` (openai-go's `Images.Edit`): a multipart form with the original as
+`image`, the prompt and the model's upstream id, as vLLM-Omni takes it, and no
+`response_format` (`b64_json` is the default and the only one its edits take; the size
+follows the original). vLLM-Omni serves one model per server: Qwen-Image 2.1 makes and
+edits, so `edit_model` is `model` again; earlier Qwen-Image models edit with
+Qwen-Image-Edit on a second server (`models.yaml` has both setups). Without
+`edit_model` (development on OpenRouter, which has no `/images/edits`) an edit goes to
+the image model on `/images/generations` with the original in `input_references`. The
+model is reached only through the tool call; clients that call the image API themselves
+use the pass-through's `/v1/images/generations` and `/v1/images/edits` (MODELS.md).
 
 S3 is any S3-compatible store through `minio-go` (`pkg/s3`); `docker-compose.yaml` runs
 MinIO on `:9000` (console `:9001`, `minioadmin`/`minioadmin`). The bucket is created on
