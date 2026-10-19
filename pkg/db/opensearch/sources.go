@@ -62,6 +62,39 @@ func (c *Client) Sources(ctx context.Context, rootID string) ([]Source, error) {
 	})
 }
 
+// SourceKey is a source's place in RecentSources' order: newest first, ties
+// broken by id, so a page never skips one.
+type SourceKey struct {
+	RetrievedAt int64  `json:"t"` // Unix milliseconds, as the index stores it
+	ID          string `json:"i"`
+}
+
+// RecentSources lists a page of sources across every conversation, or only
+// those in roots when it isn't nil (see pageSize), only the ones cited when
+// cited is set, after the given one (nil: from the newest). next is where the
+// following page starts; nil when this one was the last.
+func (c *Client) RecentSources(ctx context.Context, roots []string, cited bool, after *SourceKey, limit int) (found []Source, next *SourceKey, err error) {
+	size := pageSize(limit)
+	filter := inRoots(roots)
+	if cited {
+		filter = append(filter, map[string]any{"exists": map[string]any{"field": "cited_in"}})
+	}
+	q := map[string]any{
+		"size":  size,
+		"sort":  []any{map[string]any{"retrieved_at": "desc"}, map[string]any{"id": "asc"}},
+		"query": map[string]any{"bool": map[string]any{"filter": filter}},
+	}
+	if after != nil {
+		q["search_after"] = []any{after.RetrievedAt, after.ID}
+	}
+	found, err = search[Source](ctx, c, indexSources, q)
+	if err != nil || len(found) < size {
+		return found, nil, err
+	}
+	last := found[len(found)-1]
+	return found, &SourceKey{RetrievedAt: last.RetrievedAt.UnixMilli(), ID: last.ID}, nil
+}
+
 // Source fetches one source of a conversation by number.
 func (c *Client) Source(ctx context.Context, rootID string, number int) (*Source, error) {
 	found, err := c.sourcesNumbered(ctx, rootID, []int{number})

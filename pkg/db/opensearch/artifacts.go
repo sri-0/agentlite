@@ -56,18 +56,20 @@ type ArtifactKey struct {
 	ID        string `json:"i"`
 }
 
-// RecentArtifacts lists a page of artifacts across every conversation (see
-// pageSize), of one kind unless kind is "", after the given one (nil: from the
-// newest). next is where the following page starts; nil when this one was
-// the last.
-func (c *Client) RecentArtifacts(ctx context.Context, kind string, after *ArtifactKey, limit int) (found []Artifact, next *ArtifactKey, err error) {
+// RecentArtifacts lists a page of artifacts across every conversation, or
+// only those in roots when it isn't nil (see pageSize), of one kind unless
+// kind is "", after the given one (nil: from the newest). next is where the
+// following page starts; nil when this one was the last.
+func (c *Client) RecentArtifacts(ctx context.Context, kind string, roots []string, after *ArtifactKey, limit int) (found []Artifact, next *ArtifactKey, err error) {
 	size := pageSize(limit)
-	q := map[string]any{
-		"size": size,
-		"sort": []any{map[string]any{"updated_at": "desc"}, map[string]any{"root_id": "asc"}, map[string]any{"id": "asc"}},
-	}
+	filter := inRoots(roots)
 	if kind != "" {
-		q["query"] = map[string]any{"term": map[string]any{"kind": kind}}
+		filter = append(filter, map[string]any{"term": map[string]any{"kind": kind}})
+	}
+	q := map[string]any{
+		"size":  size,
+		"sort":  []any{map[string]any{"updated_at": "desc"}, map[string]any{"root_id": "asc"}, map[string]any{"id": "asc"}},
+		"query": map[string]any{"bool": map[string]any{"filter": filter}},
 	}
 	if after != nil {
 		q["search_after"] = []any{after.UpdatedAt, after.RootID, after.ID}

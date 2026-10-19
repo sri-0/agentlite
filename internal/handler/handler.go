@@ -2,7 +2,11 @@
 package handler
 
 import (
+	"context"
+	"encoding/base64"
+	"encoding/json"
 	"net/http"
+	"slices"
 
 	"github.com/labstack/echo/v5"
 	"github.com/rs/zerolog"
@@ -45,6 +49,62 @@ func newList[T any](items []T) list[T] {
 		items = []T{}
 	}
 	return list[T]{Object: "list", Data: items}
+}
+
+// page is one page of a list across conversations; a full one carries next,
+// an opaque cursor for ?after= (see afterParam).
+type page[T any] struct {
+	list[T]
+	Next string `json:"next,omitempty"`
+}
+
+// newPage is a page of items, next the store's key of the following one
+// (nil: this was the last).
+func newPage[T, K any](items []T, next *K) page[T] {
+	p := page[T]{list: newList(items)}
+	if next != nil {
+		key, _ := json.Marshal(next)
+		p.Next = base64.RawURLEncoding.EncodeToString(key)
+	}
+	return p
+}
+
+// afterParam is ?after=, a next cursor from a page of the same list, as the
+// store's key; nil when it is not set.
+func afterParam[K any](c *echo.Context) (*K, error) {
+	v := c.QueryParam("after")
+	if v == "" {
+		return nil, nil
+	}
+	var after *K
+	raw, err := base64.RawURLEncoding.DecodeString(v)
+	if err == nil {
+		err = json.Unmarshal(raw, &after)
+	}
+	if err != nil {
+		return nil, echo.NewHTTPError(http.StatusBadRequest, "after must be a next cursor from this list")
+	}
+	return after, nil
+}
+
+// workspaceRoots is the conversations filed under ?workspace=, or nil, every
+// conversation, when it is not set.
+func (h *Handler) workspaceRoots(c *echo.Context) ([]string, error) {
+	id := c.QueryParam("workspace")
+	if id == "" {
+		return nil, nil
+	}
+	return h.Store.WorkspaceThreads(c.Request().Context(), id)
+}
+
+// threadTitles is the titles of the conversations items belong to, by root
+// id (rootOf gives an item's).
+func threadTitles[T any](ctx context.Context, store *opensearch.Client, items []T, rootOf func(T) string) (map[string]string, error) {
+	roots := make([]string, 0, len(items))
+	for _, it := range items {
+		roots = append(roots, rootOf(it))
+	}
+	return store.ThreadTitles(ctx, slices.Compact(slices.Sorted(slices.Values(roots))))
 }
 
 // Health reports liveness and the registered agent ids.

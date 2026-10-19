@@ -47,6 +47,19 @@ func (c *Client) Workspace(ctx context.Context, id string) (*Workspace, error) {
 	return get[Workspace](ctx, c, indexWorkspaces, id)
 }
 
+// WorkspaceThreads lists the ids of the conversations filed under a
+// workspace (never nil).
+func (c *Client) WorkspaceThreads(ctx context.Context, id string) ([]string, error) {
+	found, err := search[Thread](ctx, c, indexThreads, map[string]any{
+		"size": listCap, "_source": []string{"id"}, "query": map[string]any{"term": map[string]any{"workspace_id": id}},
+	})
+	ids := make([]string, len(found))
+	for i, t := range found {
+		ids[i] = t.ID
+	}
+	return ids, err
+}
+
 // Workspaces lists the workspaces by name.
 func (c *Client) Workspaces(ctx context.Context) ([]Workspace, error) {
 	return search[Workspace](ctx, c, indexWorkspaces, map[string]any{
