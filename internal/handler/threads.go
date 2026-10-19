@@ -87,7 +87,7 @@ func (h *Handler) UpdateThread(c *echo.Context) error {
 	if err != nil {
 		return err
 	}
-	if err := opensearch.CheckOwner(ctx, t.Labels); err != nil {
+	if err := opensearch.CheckOwner(ctx, t.Marks); err != nil {
 		return err
 	}
 	if body.WorkspaceID != nil && t.ParentID != "" {
@@ -124,7 +124,7 @@ func (h *Handler) DeleteThread(c *echo.Context) error {
 	if err != nil {
 		return err
 	}
-	if err := opensearch.CheckOwner(ctx, t.Labels); err != nil {
+	if err := opensearch.CheckOwner(ctx, t.Marks); err != nil {
 		return err
 	}
 	if t.ParentID != "" {

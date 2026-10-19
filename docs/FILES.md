@@ -50,8 +50,9 @@ Deleting a workspace moves its files out of it, as it does its threads.
 
 ## Control sets
 
-An upload names its control set in `X-Control-Set` (one of the user's; AUTH.md): the
-file's record and its chunks get it, with the uploader as `user_created_by`. Users see
+An upload names its control set in `X-Control-Set`, as every POST does (one of the
+user's; AUTH.md): the file's record and its chunks get it, with the uploader as
+`user_created_by`. Users see
 the files of their control sets only (document-level security); deleting a file is the
 uploader's alone (`403` for anyone else). A run sees only the files of its thread's
 control set: `search_userfiles` and `#id` find nothing of another, even for a user who
@@ -61,8 +62,9 @@ holds both.
 
 - the record in the OpenSearch index `userfiles` (`deploy/opensearch/userfiles.json`;
   with the deployment's `OPENSEARCH_INDEX_PREFIX`, `user_ai_userfiles`):
-  `{id, name, media_type, size, workspace_id?, tags?, status, created_at, controlset_id,
-  user_created_by, user_updated_by}`; the id is a UUIDv7;
+  `{id, name, media_type, size, workspace_id?, tags?, status, controlset_id,
+  user_created_by, user_updated_by, created_at, updated_at}` (the marks every document
+  carries, AUTH.md); the id is a UUIDv7;
 - the body in S3 at `files/{id}`, served as its media type.
 
 `status` is `ready` once the file is embedded and searchable, `stored` when it is kept
@@ -104,7 +106,7 @@ The chunks go to the `userfile_chunks` index, or the one `embedding.index` names
 by default; `deploy/opensearch/userfile_chunks.json`, created by `make indices`, which
 takes the same name as `CHUNK_INDEX=…`):
 a chunk is `{id: <file id>:<seq>, file_id, name, media_type, workspace_id?, seq, text?,
-embedding, embedding_model}` and the file's labels (`controlset_id`, …): `embedding` a 768-dimension kNN vector (cosine, HNSW on
+embedding, embedding_model}` and the marks every document carries (`controlset_id`, …): `embedding` a 768-dimension kNN vector (cosine, HNSW on
 Lucene), `embedding_model` the `embedding.model` id that made it (vectors of two models
 don't mix; the field is new: run `make indices`). It repeats the file's name, type and
 workspace so a search needs no second lookup. Deleting a file deletes its chunks;

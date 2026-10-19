@@ -13,8 +13,8 @@ import (
 	"google.golang.org/adk/v2/session"
 
 	"agentlite/config"
-	"agentlite/internal/auth"
 	"agentlite/internal/stream"
+	"agentlite/pkg/auth"
 	"agentlite/pkg/db/opensearch"
 )
 
@@ -108,14 +108,14 @@ func (m *Manager) prepare(ctx context.Context, in StartInput, run *Run) error {
 		return err
 	}
 	if in.ParentID == "" {
-		if _, err := m.tokens.Source(ctx, thread.RootID, thread.ControlSetID, in.User.Subject, in.User.Token); err != nil {
+		if _, err := m.tokens.Source(ctx, thread.RootID, thread.ControlsetID, in.User.Subject, in.User.Token); err != nil {
 			return err
 		}
 	}
 	if err := m.history.SaveThread(ctx, thread); err != nil {
 		return err
 	}
-	run.RootID, run.Connectors, run.ControlSet = thread.RootID, thread.Connectors, thread.ControlSetID
+	run.RootID, run.Connectors, run.Controlset = thread.RootID, thread.Connectors, thread.ControlsetID
 	if previousModel != "" && previousModel != run.Model {
 		run.PreviousModel = previousModel
 	}
@@ -187,23 +187,22 @@ func (m *Manager) release(ctx context.Context, run *Run) {
 // thread (under its parent's root, in its control set) are made here; any
 // other thread must already exist.
 func (m *Manager) thread(ctx context.Context, in StartInput) (thread *opensearch.Thread, previousModel string, err error) {
-	now := time.Now()
 	thread, err = m.history.Thread(ctx, in.ThreadID)
 	switch {
 	case errors.Is(err, opensearch.ErrNotFound) && in.newThread:
 		caller, _ := opensearch.CallerFrom(ctx)
-		if caller.ControlSet == "" {
-			return nil, "", fmt.Errorf("%w: a new thread needs a control set", opensearch.ErrNoControlSet)
+		if caller.Controlset == "" {
+			return nil, "", fmt.Errorf("%w: a new thread needs a control set", opensearch.ErrNoControlset)
 		}
-		thread = &opensearch.Thread{ID: in.ThreadID, RootID: in.ThreadID, WorkspaceID: in.WorkspaceID, CreatedAt: now,
-			Labels: opensearch.Labels{ControlSetID: caller.ControlSet}}
+		thread = &opensearch.Thread{ID: in.ThreadID, RootID: in.ThreadID, WorkspaceID: in.WorkspaceID,
+			Marks: opensearch.Marks{ControlsetID: caller.Controlset}}
 	case errors.Is(err, opensearch.ErrNotFound) && in.ParentID != "":
 		parent, err := m.history.Thread(ctx, in.ParentID)
 		if err != nil {
 			return nil, "", fmt.Errorf("parent thread: %w", err)
 		}
-		thread = &opensearch.Thread{ID: in.ThreadID, ParentID: in.ParentID, RootID: parent.RootID, CreatedAt: now,
-			Labels: opensearch.Labels{ControlSetID: parent.ControlSetID}}
+		thread = &opensearch.Thread{ID: in.ThreadID, ParentID: in.ParentID, RootID: parent.RootID,
+			Marks: opensearch.Marks{ControlsetID: parent.ControlsetID}}
 	case errors.Is(err, opensearch.ErrNotFound):
 		return nil, "", fmt.Errorf("%w: thread %s", ErrNotFound, in.ThreadID)
 	case err != nil:
@@ -216,7 +215,7 @@ func (m *Manager) thread(ctx context.Context, in StartInput) (thread *opensearch
 	if thread.Title == "" {
 		thread.Title = title(in.Text)
 	}
-	thread.AgentID, thread.Model, thread.UpdatedAt = in.AgentID, in.Model, now
+	thread.AgentID, thread.Model = in.AgentID, in.Model
 	return thread, previousModel, nil
 }
 
@@ -257,6 +256,6 @@ func userMessage(thread *opensearch.Thread, in StartInput, seq int64) *opensearc
 		raw, _ := e.ToJSON()
 		raws = append(raws, raw)
 	}
-	return &opensearch.Message{ID: in.MessageID, ThreadID: thread.ID, RootID: thread.RootID, Role: role, Seq: seq, CreatedAt: time.Now(), Text: in.Text, Events: raws,
-		Labels: opensearch.Labels{ControlSetID: thread.ControlSetID}}
+	return &opensearch.Message{ID: in.MessageID, ThreadID: thread.ID, RootID: thread.RootID, Role: role, Seq: seq, Text: in.Text, Events: raws,
+		Marks: opensearch.Marks{ControlsetID: thread.ControlsetID}}
 }

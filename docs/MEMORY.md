@@ -10,8 +10,8 @@ methods: `AddSessionToMemory(ctx, session)` stores a finished conversation, and
 query. adk ships the tools that use it; agentlite ships one implementation of
 the interface, `pkg/memory`, on OpenSearch.
 
-There is no identity yet, so every memory belongs to the one adk user
-`default`; memories are not scoped by user until identity exists.
+Every memory belongs to the one adk user `default` (a thread's session is the
+thread's, whoever takes a turn on it); what scopes memories is the control set.
 
 ## What gets stored, and when
 
@@ -28,12 +28,18 @@ embedding block's model (one request) and indexes one document each in the
 OpenSearch `memories` index:
 
 ```
-{ id, thread_id, author, text, embedding (kNN vector), created_at,
-  controlset_id, user_created_by, user_updated_by }
+{ id, thread_id, author, text, embedding (kNN vector),
+  controlset_id, user_created_by, user_updated_by, created_at, updated_at }
 ```
 
-Each entry is in its thread's control set, so document-level security limits who
-can recall it.
+**Each entry is in its thread's control set**, always: `remember` runs after
+each turn of a root thread, inside the run's context, so the write is made with
+the thread token and the run's caller, which labels every new document with the
+thread's `controlset_id` and refuses any other label (AUTH.md). `created_at` is
+when the remembered event was said (its session timestamp), `user_created_by`
+the user whose turn it was. Document-level security then limits who can recall
+the entry to the control set's users, and a run recalls only its own thread's
+control set (below).
 
 The document id is the event's id (a UUIDv7), so re-storing a session
 is idempotent. Embedding goes through the provider's `/embeddings` endpoint
@@ -115,4 +121,5 @@ storing hook do not change.
 - Every text turn is stored verbatim; there is no summarisation or
   deduplication across threads, so a fact repeated in many threads is stored
   many times and recalled many times.
-- No user scoping until identity exists.
+- Memories are scoped by control set, not by user: every user of a control set
+  recalls every memory of its threads.

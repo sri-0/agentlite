@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
-	"time"
 	"unicode/utf8"
 
 	"github.com/google/uuid"
@@ -32,8 +31,7 @@ func (h *Handler) CreateWorkspace(c *echo.Context) error {
 	if err != nil {
 		return err
 	}
-	now := time.Now()
-	w := &opensearch.Workspace{ID: uuid.Must(uuid.NewV7()).String(), Name: name, CreatedAt: now, UpdatedAt: now}
+	w := &opensearch.Workspace{ID: uuid.Must(uuid.NewV7()).String(), Name: name}
 	if err := h.Store.SaveWorkspace(c.Request().Context(), w); err != nil {
 		return err
 	}
@@ -51,10 +49,10 @@ func (h *Handler) RenameWorkspace(c *echo.Context) error {
 	if err != nil {
 		return err
 	}
-	if err := opensearch.CheckOwner(ctx, w.Labels); err != nil {
+	if err := opensearch.CheckOwner(ctx, w.Marks); err != nil {
 		return err
 	}
-	w.Name, w.UpdatedAt = name, time.Now()
+	w.Name = name
 	if err := h.Store.SaveWorkspace(ctx, w); err != nil {
 		return err
 	}

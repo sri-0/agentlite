@@ -45,10 +45,9 @@ internal/
   bootstrap/           wires config, logging, tracing, registry, Valkey, OpenSearch, S3,
                        sessions, memory, sources, artifacts, MCP, the runtime and run manager
   server/              Echo app: middleware, routes, error → status mapping
-  auth/                checking access tokens (every route but /health), the principal,
-                       X-Control-Set on the routes that create documents
-  tokens/              thread tokens: a user's token exchanged for one per conversation and
-                       user, kept in memory and refreshed; what runs call OpenSearch with
+  sts/                 thread tokens (the policy on pkg/auth): a user's token exchanged for
+                       one per conversation and user, kept in memory and refreshed; what
+                       runs call OpenSearch with
   handler/             REST reads and thread admin; the socket upgrade; handler/wellknown:
                        /.well-known/opencode and the skills discovery index
   ws/                  the agent chat socket: frames, requests, subscriptions
@@ -144,12 +143,14 @@ document-level security, is `not_found`. ARCHITECTURE.md has the frames.
 
 Every route but `/health` needs the user's access token (`Authorization: Bearer`, which
 the gateway in front attaches; `401` without one), the socket's upgrade included; the
-socket closes when that token expires. `POST /v1/agent/chat`, `/v1/workspaces`,
-`/v1/rag/files` and `/v1/skills` also need `X-Control-Set`: one of the user's control sets
-(`400` without, `403` for another's). Users see the documents of their control sets only
-(OpenSearch document-level security); deleting or editing a thread, workspace, file or
-skill is its creator's alone (`403`). Runs call OpenSearch with a thread token and see
-only their thread's control set. docs/AUTH.md has all of it.
+socket closes when that token expires. Every POST (the pass-through and the MCP proxy
+included, unless listed in `AUTH_CONTROLSET_EXEMPT_PATHS`) also needs `X-Control-Set`:
+one of the user's control sets (`400` without, `403` for another's), which the documents
+it creates get. Users see the documents of their control sets only (OpenSearch
+document-level security); deleting or editing a thread, workspace, file or skill is its
+creator's alone (`403`). Runs call OpenSearch with a thread token and see only their
+thread's control set. Refusals, runs and thread tokens are logged at the level `audit`.
+docs/AUTH.md has all of it.
 
 ## Configuration
 
@@ -161,7 +162,9 @@ origins; `*` allows any), `MAX_BODY_MB`
 `REDIS_DB_RUNS/SESSIONS/HITL` (default 1/2/3), `OPENSEARCH_URL` (no credentials: every call
 carries a user's token), `OPENSEARCH_INDEX_PREFIX` (default `user_ai_`; starts every index name),
 `OIDC_ISSUER_URL` and `OIDC_CLIENT_SECRET` (required), `OIDC_JWKS_URL`, `OIDC_AUDIENCE`,
-`OIDC_CLIENT_ID`, `OIDC_TOKEN_URL`, `OIDC_EXCHANGE_CONTROLSET_PARAM` (AUTH.md),
+`OIDC_CONTROLSET_CLAIM`, `OIDC_CLIENT_ID`, `OIDC_TOKEN_URL`, `OIDC_USERINFO_TTL`,
+`AUTH_CONTROLSET_HEADER`, `AUTH_CONTROLSET_EXEMPT_PATHS`, `STS_CONTROLSET_HEADER`,
+`STS_EARLY_EXPIRY`, `STS_MIN_LIFE` (AUTH.md),
 `S3_ENDPOINT/ACCESS_KEY/SECRET_KEY/BUCKET/REGION/USE_SSL` (required: artifact bodies and
 skill files), `TRANSPORT_SENSITIVE_HEADERS` (a caller's headers a forward drops),
 `TRANSPORT_RESPONSE_HEADER_TIMEOUT` (default 5m),

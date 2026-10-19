@@ -24,13 +24,12 @@ The record is one document per skill in the OpenSearch index `skills`
 | `title` (text) | a name to show people; the UI shows `name` when there is none |
 | `category`, `source` (keyword) | what the library files it under, free-form: a category such as Writing, and where it comes from, such as Internal or Open source |
 | `files` (object, not indexed) | every file, `SKILL.md` among them: `path` and `size` |
-| `created_at`, `updated_at` (date) | |
-| `controlset_id`, `user_created_by`, `user_updated_by` (keyword) | its control set and who created and last changed it (AUTH.md) |
+| `controlset_id`, `user_created_by`, `user_updated_by` (keyword), `created_at`, `updated_at` (date) | the marks every document carries: its control set, who created and last changed it, and when (AUTH.md) |
 
 The files are in S3 (`S3_ENDPOINT`, required; MinIO in `~/code/agentlite-infra`'s
 `docker-compose.yaml`) at `skills/<id>/<path>`, in the bucket artifact bodies use.
 
-A skill is in one control set: an upload names it in `X-Control-Set`, and `write_skill`
+A skill is in one control set: an upload names it in `X-Control-Set`, as every POST does, and `write_skill`
 puts a skill in its thread's. Users see the skills of their control sets only, in the
 API, `/.well-known` and the skill toolset alike; changing, replacing (an upload or
 `write_skill` of the same name) or deleting a skill is its creator's alone (`403`), and

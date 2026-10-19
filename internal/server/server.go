@@ -13,16 +13,19 @@ import (
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v5"
 	"github.com/labstack/echo/v5/middleware"
+	"github.com/rs/zerolog"
+	"golang.org/x/oauth2"
 
 	"agentlite/config"
-	"agentlite/internal/auth"
 	"agentlite/internal/handler"
 	"agentlite/internal/handler/wellknown"
 	"agentlite/internal/passthrough"
 	"agentlite/internal/runs"
 	"agentlite/internal/skills"
-	"agentlite/internal/tokens"
+	"agentlite/internal/sts"
+	"agentlite/pkg/auth"
 	"agentlite/pkg/db/opensearch"
+	"agentlite/pkg/logging"
 	"agentlite/pkg/s3"
 )
 
@@ -30,19 +33,21 @@ import (
 // pkg/logging routes to zerolog. Its request logger records each request's
 // real status and id; Recover runs inside it, so a panic is logged, with its
 // stack, as a 500. Every route but /health needs an access token (the
-// socket's upgrade too); CORS answers a preflight before that check. The
-// routes that create documents need X-Control-Set as well (auth.ControlSet).
+// socket's upgrade too); CORS answers a preflight before that check. Every
+// POST but AUTH_CONTROLSET_EXEMPT_PATHS needs X-Control-Set as well
+// (auth.Controlset), the pass-through and the MCP proxy included; then the
+// request's OpenSearch calls are made as its user (caller).
 func New(cfg *config.Config, h *handler.Handler) *echo.Echo {
 	e := echo.New()
 	e.Logger = slog.Default()
-	e.HTTPErrorHandler = errorHandler(echo.DefaultHTTPErrorHandler(false))
+	e.HTTPErrorHandler = errorHandler(echo.DefaultHTTPErrorHandler(false), h.Log)
 	e.Use(middleware.RequestID(), middleware.RequestLogger(), middleware.Recover(),
 		middleware.BodyLimit(cfg.MaxBodyMB<<20),
 		middleware.CORSWithConfig(middleware.CORSConfig{
 			AllowOrigins: cfg.AllowedOrigins,
-			AllowHeaders: []string{"Content-Type", "Authorization", auth.HeaderControlSet},
+			AllowHeaders: []string{"Content-Type", "Authorization", cfg.Controlsets.Header},
 		}),
-		h.Auth.Middleware("/health"))
+		h.Auth.Middleware("/health"), auth.Controlset(cfg.Controlsets), caller)
 
 	// Health, models, agents and connectors.
 	e.GET("/health", h.Health)
@@ -71,14 +76,14 @@ func New(cfg *config.Config, h *handler.Handler) *echo.Echo {
 
 	// Workspaces: the folders threads are filed under.
 	e.GET("/v1/workspaces", h.Workspaces)
-	e.POST("/v1/workspaces", h.CreateWorkspace, auth.ControlSet)
+	e.POST("/v1/workspaces", h.CreateWorkspace)
 	workspace := e.Group("/v1/workspaces/:id", uuidID)
 	workspace.PATCH("", h.RenameWorkspace)
 	workspace.DELETE("", h.DeleteWorkspace)
 
 	// The skills library.
 	e.GET("/v1/skills", h.ListSkills)
-	e.POST("/v1/skills", h.CreateSkill, auth.ControlSet, middleware.BodyLimit(skills.MaxBytes+1<<20)) // the zip, and the form around it
+	e.POST("/v1/skills", h.CreateSkill, middleware.BodyLimit(skills.MaxBytes+1<<20)) // the zip, and the form around it
 	skill := e.Group("/v1/skills/:id", uuidID)
 	skill.GET("", h.GetSkill)
 	skill.PATCH("", h.UpdateSkill)
@@ -88,7 +93,7 @@ func New(cfg *config.Config, h *handler.Handler) *echo.Echo {
 
 	// Files users upload for RAG, which a message names with #id (internal/rag/userfiles).
 	e.GET("/v1/rag/files", h.Files.ListFiles)
-	e.POST("/v1/rag/files", h.Files.PostFile, auth.ControlSet, middleware.BodyLimit(h.Files.MaxBytes()+1<<20)) // the file, and the form around it
+	e.POST("/v1/rag/files", h.Files.PostFile, middleware.BodyLimit(h.Files.MaxBytes()+1<<20)) // the file, and the form around it
 	file := e.Group("/v1/rag/files/:id", uuidID)
 	file.GET("", h.Files.GetFile)
 	file.GET("/content", h.Files.FileContent, sandboxed)
@@ -107,12 +112,29 @@ func New(cfg *config.Config, h *handler.Handler) *echo.Echo {
 	}
 
 	// Agent chat: a new thread, then the socket.
-	e.POST("/v1/agent/chat", h.StartThread, auth.ControlSet)
+	e.POST("/v1/agent/chat", h.StartThread)
 	e.GET("/v1/agent/chat", h.Chat)
 
 	// Pass-through to the providers (/v1/chat/completions and the rest).
 	passthrough.Register(e, h.Registry)
 	return e
+}
+
+// caller makes the request's OpenSearch calls as its user (pkg/auth's
+// principal): their own token, labelling new documents with the control set
+// the request named. Document-level security alone governs what they read;
+// a run is confined further (runs.Manager).
+func caller(next echo.HandlerFunc) echo.HandlerFunc {
+	return func(c *echo.Context) error {
+		r := c.Request()
+		if p := auth.From(r.Context()); p != nil {
+			c.SetRequest(r.WithContext(opensearch.WithCaller(r.Context(), opensearch.Caller{
+				Token:    oauth2.StaticTokenSource(&oauth2.Token{AccessToken: p.Token, Expiry: p.Expiry}),
+				Username: p.Username, Controlset: p.Controlset,
+			})))
+		}
+		return next(c)
+	}
 }
 
 // uuidID refuses an :id that is not a UUIDv7, the ids the server makes,
@@ -154,15 +176,17 @@ func Run(ctx context.Context, cfg *config.Config, e *echo.Echo) error {
 }
 
 // errorHandler turns the service's sentinel errors into HTTP statuses, so
-// handlers can return them as they are.
-func errorHandler(next echo.HTTPErrorHandler) echo.HTTPErrorHandler {
+// handlers can return them as they are, and records every refusal (a
+// control set that is not the user's, a change to someone else's document,
+// a label a run may not write) as an audit entry.
+func errorHandler(next echo.HTTPErrorHandler, log zerolog.Logger) echo.HTTPErrorHandler {
 	return func(c *echo.Context, err error) {
 		for _, m := range []struct {
 			err    error
 			status int
 		}{
 			{runs.ErrInvalid, http.StatusBadRequest},
-			{opensearch.ErrNoControlSet, http.StatusBadRequest},
+			{opensearch.ErrNoControlset, http.StatusBadRequest},
 			{skills.ErrInvalid, http.StatusBadRequest},
 			{opensearch.ErrUnknownWorkspace, http.StatusBadRequest},
 			{runs.ErrNotFound, http.StatusNotFound},
@@ -171,7 +195,7 @@ func errorHandler(next echo.HTTPErrorHandler) echo.HTTPErrorHandler {
 			{skills.ErrFileNotFound, http.StatusNotFound},
 			{s3.ErrNotFound, http.StatusNotFound},
 			{runs.ErrBusy, http.StatusConflict},
-			{tokens.ErrSignIn, http.StatusUnauthorized},
+			{sts.ErrSignIn, http.StatusUnauthorized},
 			{opensearch.ErrForbidden, http.StatusForbidden},
 		} {
 			if errors.Is(err, m.err) {
@@ -179,6 +203,21 @@ func errorHandler(next echo.HTTPErrorHandler) echo.HTTPErrorHandler {
 				break
 			}
 		}
+		// Echo's request logger and the server each call this once; the
+		// second call finds the response written.
+		if he, ok := errors.AsType[*echo.HTTPError](err); ok && he.Code == http.StatusForbidden && !committed(c) {
+			r := c.Request()
+			e := logging.Audit(log).Err(err).Str("method", r.Method).Str("path", r.URL.Path)
+			if p := auth.From(r.Context()); p != nil {
+				e = e.Str("user_id", p.Subject).Str("username", p.Username).Str("controlset_id", p.Controlset)
+			}
+			e.Msg("request refused")
+		}
 		next(c, err)
 	}
+}
+
+func committed(c *echo.Context) bool {
+	r, _ := echo.UnwrapResponse(c.Response())
+	return r != nil && r.Committed
 }

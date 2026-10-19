@@ -54,22 +54,19 @@ type Thread struct {
 	WorkspaceID string    `json:"workspace_id,omitempty"` // the workspace a root thread is filed under
 	Pinned      bool      `json:"pinned,omitempty"`       // kept at the top of the sidebar
 	Archived    bool      `json:"archived,omitempty"`     // left out of the sidebar
-	CreatedAt   time.Time `json:"created_at"`
-	UpdatedAt   time.Time `json:"updated_at"`
-	Labels
+	Marks
 }
 
 // Message is one turn's record: compacted AG-UI events and the extracted text.
 type Message struct {
-	ID        string            `json:"id"`
-	ThreadID  string            `json:"thread_id"`
-	RootID    string            `json:"root_id"`
-	Role      string            `json:"role"`
-	Seq       int64             `json:"seq"`
-	CreatedAt time.Time         `json:"created_at"`
-	Text      string            `json:"text"`
-	Events    []json.RawMessage `json:"events"`
-	Labels
+	ID       string            `json:"id"`
+	ThreadID string            `json:"thread_id"`
+	RootID   string            `json:"root_id"`
+	Role     string            `json:"role"`
+	Seq      int64             `json:"seq"`
+	Text     string            `json:"text"`
+	Events   []json.RawMessage `json:"events"`
+	Marks
 }
 
 // Errors the store returns for a missing document, and for creating one
@@ -136,7 +133,7 @@ func (c *Client) ix(index string) string { return c.prefix + index }
 // document-level security to a delete by id, so one the caller cannot see
 // would go.
 func (c *Client) delete(ctx context.Context, index, id string) error {
-	l, err := get[Labels](ctx, c, index, id)
+	l, err := get[Marks](ctx, c, index, id)
 	if err != nil {
 		return err
 	}
@@ -161,7 +158,7 @@ var refreshed = opensearchapi.IndexParams{Refresh: "true"}
 // index upserts a document and refreshes the index at once: writes are few,
 // and a thread or message must be readable as soon as its save returns
 // (under document-level security a get is not realtime either).
-func (c *Client) index(ctx context.Context, index, id string, doc labelled) error {
+func (c *Client) index(ctx context.Context, index, id string, doc marked) error {
 	return c.write(ctx, index, id, doc, refreshed)
 }
 
@@ -169,8 +166,8 @@ func (c *Client) index(ctx context.Context, index, id string, doc labelled) erro
 // (create of a taken id, an external version not above the stored one, a
 // document changed since it was read) keeps the stored document and returns
 // ErrConflict.
-func (c *Client) write(ctx context.Context, index, id string, doc labelled, params opensearchapi.IndexParams) error {
-	if err := stamp(ctx, doc.labels()); err != nil {
+func (c *Client) write(ctx context.Context, index, id string, doc marked, params opensearchapi.IndexParams) error {
+	if err := stamp(ctx, doc.marks()); err != nil {
 		return fmt.Errorf("index %s/%s: %w", index, id, err)
 	}
 	body, err := json.Marshal(doc)
@@ -245,24 +242,25 @@ func (c *Client) ThreadTitles(ctx context.Context, ids []string) (map[string]str
 	return titles, err
 }
 
-// search runs a query, confined to the caller's control sets, and decodes
-// each hit's source. The query is marshalled once, so every value in it is
-// JSON-escaped. A caller with no control set sees nothing.
+// search runs a query, confined to a run's control set (confine), and
+// decodes each hit's source. The query is marshalled once, so every value in
+// it is JSON-escaped. A token OpenSearch gives no access (none without a
+// control set) is ErrForbidden.
 func search[T any](ctx context.Context, c *Client, index string, query map[string]any) ([]T, error) {
 	caller, ok := CallerFrom(ctx)
 	if !ok {
 		return nil, ErrNoCaller
 	}
-	if len(caller.ControlSets) == 0 {
-		return nil, nil
-	}
-	confine(query, caller.ControlSets)
+	confine(query, caller.Controlsets)
 	body, err := json.Marshal(query)
 	if err != nil {
 		return nil, err
 	}
 	resp, err := c.api.Search(ctx, &opensearchapi.SearchReq{Indices: []string{c.ix(index)}, BodyReader: bytes.NewReader(body)})
-	if err != nil {
+	switch {
+	case errStatus(err) == 403:
+		return nil, fmt.Errorf("search %s: %w by OpenSearch", index, ErrForbidden)
+	case err != nil:
 		return nil, fmt.Errorf("search %s: %w", index, err)
 	}
 	out := make([]T, len(resp.Hits.Hits))
@@ -274,12 +272,12 @@ func search[T any](ctx context.Context, c *Client, index string, query map[strin
 	return out, nil
 }
 
-// get fetches one document by id; ErrNotFound when there is none, or when
-// it is outside the caller's control sets. Only labelled documents can be
-// read (P), so none slips past the control-set check.
+// get fetches one document by id; ErrNotFound when there is none, or, inside
+// a run, when it is outside the run's control set. Only marked documents
+// can be read (P), so none slips past the check.
 func get[T any, P interface {
 	*T
-	labelled
+	marked
 }](ctx context.Context, c *Client, index, id string) (*T, error) {
 	doc, _, err := getAt[T, P](ctx, c, index, id)
 	return doc, err
@@ -292,24 +290,26 @@ type at struct{ seq, term int }
 // getAt is get, with where the document stands.
 func getAt[T any, P interface {
 	*T
-	labelled
+	marked
 }](ctx context.Context, c *Client, index, id string) (*T, at, error) {
 	caller, ok := CallerFrom(ctx)
 	if !ok {
 		return nil, at{}, ErrNoCaller
 	}
 	resp, err := c.api.Document.Get(ctx, opensearchapi.GetReq{Index: c.ix(index), ID: id})
-	if err != nil {
-		if errStatus(err) == 404 {
-			return nil, at{}, ErrNotFound
-		}
+	switch {
+	case errStatus(err) == 404:
+		return nil, at{}, ErrNotFound
+	case errStatus(err) == 403:
+		return nil, at{}, fmt.Errorf("get %s/%s: %w by OpenSearch", index, id, ErrForbidden)
+	case err != nil:
 		return nil, at{}, fmt.Errorf("get %s/%s: %w", index, id, err)
 	}
 	var out T
 	if err := json.Unmarshal(resp.Source, &out); err != nil {
 		return nil, at{}, fmt.Errorf("get %s/%s: %w", index, id, err)
 	}
-	if !slices.Contains(caller.ControlSets, P(&out).labels().ControlSetID) {
+	if caller.Controlsets != nil && !slices.Contains(caller.Controlsets, P(&out).marks().ControlsetID) {
 		return nil, at{}, ErrNotFound
 	}
 	var pos at
@@ -331,7 +331,7 @@ const writeTries = 12
 // ErrNotFound otherwise; edit returning false leaves it as it is.
 func update[T any, P interface {
 	*T
-	labelled
+	marked
 }](ctx context.Context, c *Client, index, id string, create bool, edit func(P) bool) (P, error) {
 	for try := range writeTries {
 		if try > 0 { // a random while, so writers that collided do not collide again
@@ -370,15 +370,15 @@ func (c *Client) DeleteThread(ctx context.Context, rootID string) error {
 	return nil
 }
 
-// deleteWhere deletes an index's documents whose field holds value, of the
-// caller's control sets.
+// deleteWhere deletes an index's documents whose field holds value, inside
+// a run those of its control set.
 func (c *Client) deleteWhere(ctx context.Context, index, field, value string) error {
 	caller, ok := CallerFrom(ctx)
 	if !ok {
 		return ErrNoCaller
 	}
 	body := map[string]any{"query": map[string]any{"term": map[string]any{field: value}}}
-	confine(body, caller.ControlSets)
+	confine(body, caller.Controlsets)
 	q, _ := json.Marshal(body)
 	_, err := c.api.DeleteByQuery(ctx, &opensearchapi.DeleteByQueryReq{
 		Indices: []string{c.ix(index)}, BodyReader: bytes.NewReader(q), Params: &opensearchapi.DeleteByQueryParams{Refresh: "true"},

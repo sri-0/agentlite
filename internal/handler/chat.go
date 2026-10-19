@@ -6,8 +6,8 @@ import (
 	"github.com/coder/websocket"
 	"github.com/labstack/echo/v5"
 
-	"agentlite/internal/auth"
 	"agentlite/internal/ws"
+	"agentlite/pkg/auth"
 )
 
 // startedThread is the reply to StartThread: the new thread, its run, and the
@@ -20,8 +20,8 @@ type startedThread struct {
 
 // StartThread creates a thread with its first turn and queues the run; a
 // workspaceId files it under that workspace. The thread is in the control
-// set X-Control-Set names (auth.ControlSet), and everything it records is
-// too. It replies once the thread is stored, so a subscribe sent on the
+// set X-Control-Set names (auth.Controlset, on every POST), and everything
+// it records is too. It replies once the thread is stored, so a subscribe sent on the
 // reply finds it. Later turns on the thread go over the socket.
 func (h *Handler) StartThread(c *echo.Context) error {
 	var body struct {

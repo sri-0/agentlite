@@ -5,7 +5,6 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"time"
 
 	"github.com/opensearch-project/opensearch-go/v5/opensearchapi"
 )
@@ -24,15 +23,14 @@ const (
 
 // File is a file a user uploaded, filed under a workspace or none.
 type File struct {
-	ID          string    `json:"id"`
-	Name        string    `json:"name"`
-	MediaType   string    `json:"media_type"`
-	Size        int       `json:"size"`
-	WorkspaceID string    `json:"workspace_id,omitempty"`
-	Tags        []string  `json:"tags,omitempty"` // the uploader's, for finding it
-	Status      string    `json:"status"`
-	CreatedAt   time.Time `json:"created_at"`
-	Labels
+	ID          string   `json:"id"`
+	Name        string   `json:"name"`
+	MediaType   string   `json:"media_type"`
+	Size        int      `json:"size"`
+	WorkspaceID string   `json:"workspace_id,omitempty"`
+	Tags        []string `json:"tags,omitempty"` // the uploader's, for finding it
+	Status      string   `json:"status"`
+	Marks
 }
 
 // SaveFile upserts a file's record.
@@ -88,7 +86,7 @@ type FileChunk struct {
 	// EmbeddingModel is the model id that made Embedding (models.yaml's
 	// embedding.model): vectors of two models don't mix.
 	EmbeddingModel string `json:"embedding_model,omitempty"`
-	Labels
+	Marks
 }
 
 // SaveFileChunks stores a file's chunks in one bulk request, readable by
@@ -97,7 +95,7 @@ func (c *Client) SaveFileChunks(ctx context.Context, chunks []FileChunk) error {
 	var body bytes.Buffer
 	enc := json.NewEncoder(&body)
 	for _, ch := range chunks {
-		if err := stamp(ctx, &ch.Labels); err != nil {
+		if err := stamp(ctx, &ch.Marks); err != nil {
 			return fmt.Errorf("bulk %s: %w", c.chunks, err)
 		}
 		if err := enc.Encode(map[string]any{"index": map[string]any{"_index": c.ix(c.chunks), "_id": ch.ID}}); err != nil {

@@ -23,7 +23,7 @@ type record struct {
 	Owner      string `json:"owner"`
 	Updated    string `json:"updated"`
 	Marking    string `json:"marking"`
-	ControlSet string `json:"control_set"`
+	Controlset string `json:"control_set"`
 }
 
 type searchRecordsArgs struct {
@@ -58,7 +58,7 @@ func searchRecords(conn toolx.Connector) (toolx.Tool, error) {
 		for _, r := range rank(records, a.Query) {
 			n, err := tc.AddSource(citations.Source{
 				System: conn.ID, Key: r.ID, URL: "https://records.example.org/r/" + r.ID, Title: r.Title,
-				Metadata: map[string]any{"record_id": r.ID, "marking": r.Marking, "control_set": r.ControlSet, "owner": r.Owner, "updated": r.Updated},
+				Metadata: map[string]any{"record_id": r.ID, "marking": r.Marking, "control_set": r.Controlset, "owner": r.Owner, "updated": r.Updated},
 			})
 			if err != nil {
 				return nil, err

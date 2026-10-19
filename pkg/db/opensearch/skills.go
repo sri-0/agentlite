@@ -5,7 +5,6 @@ import (
 	"maps"
 	"slices"
 	"strings"
-	"time"
 )
 
 // indexSkills is the skills library: one document per skill, a uuid its id.
@@ -23,9 +22,7 @@ type Skill struct {
 	Category    string      `json:"category,omitempty"` // free-form, e.g. Writing
 	Source      string      `json:"source,omitempty"`   // where it comes from, e.g. Internal, Open source
 	Files       []SkillFile `json:"files"`
-	CreatedAt   time.Time   `json:"created_at"`
-	UpdatedAt   time.Time   `json:"updated_at"`
-	Labels
+	Marks
 }
 
 // SkillFile is one file of a skill.

@@ -7,7 +7,7 @@ in depth.
 | Document | What it covers |
 |---|---|
 | [ARCHITECTURE.md](ARCHITECTURE.md) | Components, the life of a run, threads, streaming, and where every piece of state lives (Valkey databases and keys, OpenSearch indices). |
-| [AUTH.md](AUTH.md) | Access tokens, control sets and document-level security, labels and ownership, thread tokens, how runs stay in their thread's control set. |
+| [AUTH.md](AUTH.md) | Access tokens, control sets and document-level security, marks and ownership, thread tokens, how runs stay in their thread's control set, roles and the audit log. |
 | [AGENT-ARCHITECTURE.md](AGENT-ARCHITECTURE.md) | The roster, the assistant as coordinator, the `subagent` tool and sub-agent threads, todos, connectors, models, the deep-research pipeline. |
 | [MODELS.md](MODELS.md) | Model ids (`<provider>/<model>`), strict routing, how discovery, model cards and `models.yaml` merge, per-model overrides, the pass-through proxy, embeddings. |
 | [TOOLS.md](TOOLS.md) | Building tools with `toolx`, the HTTP transports, sources and citations, artifacts and S3, tool UI renderers, the MCP tool hooks. |

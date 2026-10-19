@@ -9,8 +9,8 @@ import (
 
 	"github.com/ag-ui-protocol/ag-ui/sdks/community/go/pkg/core/types"
 
-	"agentlite/internal/auth"
 	"agentlite/internal/hitl"
+	"agentlite/pkg/auth"
 )
 
 // Answer records the user's answer to one of a paused run's interrupts. Once

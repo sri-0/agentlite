@@ -116,8 +116,8 @@ header, `X-Thread-ID`, `X-Root-Thread-ID`, `X-Run-ID`, and for toolx tools `X-Ag
 and `X-Tool-Name`. It is off by default: a tool such as `webfetch` talks to the public
 web. The user's `Authorization` is the access token of the request that queued the
 segment (`POST /v1/agent/chat`, a socket `run`, or the socket of the last `answer`;
-AUTH.md); it travels with the queue entry to the worker (entries are deleted once
-handled), and a sub-agent's run inherits it. It is the user's own token, not the thread
+AUTH.md; `toolx.Run.User`); it travels with the queue entry to the worker (entries are
+deleted once handled), and a sub-agent's run inherits it. It is the user's own token, not the thread
 token, and it can expire during a long run. A connector with `forward`
 therefore may not also set a static `Authorization` header (refused at start): calls
 without a user would silently go out as the service's identity.

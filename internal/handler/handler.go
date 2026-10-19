@@ -14,13 +14,13 @@ import (
 	"agentlite/config"
 	"agentlite/internal/agents"
 	"agentlite/internal/artifacts"
-	"agentlite/internal/auth"
 	"agentlite/internal/providers"
 	"agentlite/internal/rag/userfiles"
 	"agentlite/internal/runs"
 	"agentlite/internal/skills"
 	"agentlite/internal/suggest"
 	"agentlite/internal/voice"
+	"agentlite/pkg/auth"
 	"agentlite/pkg/db/opensearch"
 )
 

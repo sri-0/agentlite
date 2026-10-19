@@ -16,11 +16,9 @@ const indexWorkspaces = "workspaces"
 
 // Workspace is a folder of threads, the unit people will share.
 type Workspace struct {
-	ID        string    `json:"id"`
-	Name      string    `json:"name"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
-	Labels
+	ID   string `json:"id"`
+	Name string `json:"name"`
+	Marks
 }
 
 // SaveWorkspace upserts a workspace.
@@ -69,25 +67,26 @@ func (c *Client) Workspaces(ctx context.Context) ([]Workspace, error) {
 }
 
 // DeleteWorkspace removes a workspace the caller created. Its threads and
-// files stay, outside any workspace; they are moved out first, so a failure
-// can be retried. Only those the caller can see move: the rest, and a thread
-// being written at that moment (writes replace the whole document), keep
-// the id, and clients treat an unknown workspace as none.
+// files stay, outside any workspace; they are moved out first (marked as
+// updated by the caller, now), so a failure can be retried. Only those the
+// caller can see move: the rest, and a thread being written at that moment
+// (writes replace the whole document), keep the id, and clients treat an
+// unknown workspace as none.
 func (c *Client) DeleteWorkspace(ctx context.Context, id string) error {
 	w, err := c.Workspace(ctx, id)
 	if err != nil {
 		return err
 	}
-	if err := CheckOwner(ctx, w.Labels); err != nil {
+	if err := CheckOwner(ctx, w.Marks); err != nil {
 		return err
 	}
 	caller, _ := CallerFrom(ctx)
 	body := map[string]any{
 		"query": map[string]any{"term": map[string]any{"workspace_id": id}},
-		"script": map[string]any{"lang": "painless", "params": map[string]any{"user": caller.Username},
-			"source": "ctx._source.remove('workspace_id'); ctx._source.user_updated_by = params.user"},
+		"script": map[string]any{"lang": "painless", "params": map[string]any{"user": caller.Username, "now": time.Now()},
+			"source": "ctx._source.remove('workspace_id'); ctx._source.user_updated_by = params.user; ctx._source.updated_at = params.now"},
 	}
-	confine(body, caller.ControlSets)
+	confine(body, caller.Controlsets)
 	q, _ := json.Marshal(body)
 	_, err = c.api.UpdateByQuery(ctx, &opensearchapi.UpdateByQueryReq{
 		Indices: []string{c.ix(indexThreads), c.ix(indexFiles), c.ix(c.chunks)}, BodyReader: bytes.NewReader(q),

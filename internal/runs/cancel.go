@@ -5,6 +5,7 @@ import (
 	"errors"
 
 	"agentlite/internal/stream"
+	"agentlite/pkg/auth"
 )
 
 // ErrCancelled is the cause of a run's context when the user cancelled it, as
@@ -51,5 +52,8 @@ func (m *Manager) closeCancelled(ctx context.Context, run *Run, from Status) (bo
 	enc.Start(run.TurnID, run.AgentID)
 	enc.Cancel()
 	m.record(sink, StatusCancelled, run.Result, "")
+	if u := auth.From(ctx); u != nil {
+		m.audit(run, *u).Str("status", string(StatusCancelled)).Msg("run ended")
+	}
 	return true, nil
 }

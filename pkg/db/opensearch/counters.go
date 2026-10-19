@@ -17,7 +17,7 @@ type counters struct {
 	RootID    string         `json:"root_id"`
 	Sources   int            `json:"sources,omitempty"`
 	Artifacts map[string]int `json:"artifacts,omitempty"`
-	Labels
+	Marks
 }
 
 // NextSourceNumber returns the conversation's next source number.

@@ -12,10 +12,11 @@ import (
 	"github.com/google/uuid"
 	"github.com/rs/zerolog"
 
-	"agentlite/internal/auth"
 	"agentlite/internal/runs"
-	"agentlite/internal/tokens"
+	"agentlite/internal/sts"
+	"agentlite/pkg/auth"
 	"agentlite/pkg/db/opensearch"
+	"agentlite/pkg/logging"
 )
 
 const (
@@ -41,7 +42,7 @@ type Threads interface {
 // subscription that is replaced or unsubscribed must not write with its own.
 type client struct {
 	conn    *websocket.Conn
-	ctx     context.Context // the socket's lifetime, made by its user (auth.With)
+	ctx     context.Context // the socket's lifetime, made by its user (auth.With, the store's caller)
 	user    *auth.Principal
 	runs    *runs.Manager
 	threads Threads
@@ -267,12 +268,16 @@ func (c *client) sendError(f ClientFrame, code, msg string) {
 }
 
 // fail reports an error to the client. An internal one is logged, and the
-// client gets no more than that it happened.
+// client gets no more than that it happened; a refusal is an audit entry.
 func (c *client) fail(f ClientFrame, err error) {
 	code, msg := code(err), err.Error()
-	if code == CodeInternal {
+	switch code {
+	case CodeInternal:
 		c.log.Error().Err(err).Str("thread", f.ThreadID).Str("frame", f.Type).Msg("socket request failed")
 		msg = "internal error"
+	case CodeForbidden:
+		logging.Audit(c.log).Err(err).Str("user_id", c.user.Subject).Str("username", c.user.Username).
+			Str("thread_id", f.ThreadID).Str("frame", f.Type).Msg("request refused")
 	}
 	c.sendError(f, code, msg)
 }
@@ -301,9 +306,9 @@ func (c *client) ping(cancel context.CancelFunc) {
 // code names a service error for the client.
 func code(err error) string {
 	switch {
-	case errors.Is(err, runs.ErrInvalid), errors.Is(err, opensearch.ErrNoControlSet):
+	case errors.Is(err, runs.ErrInvalid), errors.Is(err, opensearch.ErrNoControlset):
 		return CodeBadRequest
-	case errors.Is(err, tokens.ErrSignIn):
+	case errors.Is(err, sts.ErrSignIn):
 		return CodeUnauthorized
 	case errors.Is(err, opensearch.ErrForbidden):
 		return CodeForbidden

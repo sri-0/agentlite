@@ -32,7 +32,7 @@ type Source struct {
 	RetrievedAt time.Time      `json:"retrieved_at"`
 	// CitedIn names what cites it: "message:<id>" or "artifact:<id>".
 	CitedIn []string `json:"cited_in,omitempty"`
-	Labels
+	Marks
 }
 
 // SourceKeyID is the document id of a source with an identity (its system

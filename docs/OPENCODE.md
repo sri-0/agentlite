@@ -27,7 +27,11 @@ at login, and again on every start (`internal/handler/wellknown/opencode.go`, it
 
 opencode puts `config` under the user's own configuration, so a user's settings win.
 The URLs start with `APP_URL` (default `http://localhost:8000`): this server as clients
-reach it, through whatever gateway is in front.
+reach it, through whatever gateway is in front. Every route needs the user's access
+token, which that gateway attaches, and every POST a control set in `X-Control-Set`
+(AUTH.md). opencode sends none: for it, exempt the pass-through and the MCP proxy
+with `AUTH_CONTROLSET_EXEMPT_PATHS=/v1/chat/completions,/mcp/:id` (the control set
+matters only to POSTs that create documents, which these are not).
 
 ## Login
 

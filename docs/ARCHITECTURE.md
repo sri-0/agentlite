@@ -17,12 +17,13 @@ browser (agentui)
    │  REST: reads and thread admin (threads, messages, models, agents, connectors)
    ▼
 Echo server (internal/server, internal/handler, internal/ws), :8010 locally;
-   │  every route but /health checks the token (internal/auth)
+   │  every route but /health checks the token, every POST its control set
+   │  (pkg/auth), and each request's OpenSearch calls are made as its user
    │
    ├─ runs (internal/runs): the run lifecycle. Manager starts runs, answers
    │    interrupts, cancels, and follows threads; the worker loops execute
    │    them and persist each segment, with the conversation's thread token
-   │    (internal/tokens). Everything else they share goes through Valkey.
+   │    (internal/sts). Everything else they share goes through Valkey.
    │      │
    │      └─ agents (internal/agents): the agent runtime. Builds adk agents from
    │           the roster and runs one segment of a run with adk's runner; the
@@ -53,8 +54,9 @@ implements it, so imports run one way.
 
 | Package | Files |
 |---|---|
-| `internal/runs` | `manager.go` (Manager and the interfaces it needs, a segment's caller), `start.go`, `answer.go`, `cancel.go`, `subscribe.go` (subscribe, wait, statuses), `worker.go` (worker loops, executing a segment), `finalizer.go`, `queue.go`, `log.go`, `store.go` (run records, leases), `run.go` |
-| `internal/auth`, `internal/tokens` | checking access tokens, the principal, `X-Control-Set`; thread tokens: exchange, memory cache, refresh (AUTH.md) |
+| `internal/runs` | `manager.go` (Manager and the interfaces it needs), `caller.go` (a segment's OpenSearch caller, the queue entry's user, run audit entries), `start.go`, `answer.go`, `cancel.go`, `subscribe.go` (subscribe, wait, statuses), `worker.go` (worker loops, executing a segment), `finalizer.go`, `queue.go`, `log.go`, `store.go` (run records, leases), `run.go` |
+| `pkg/auth` | generic: checking access tokens, the principal (control sets, roles, groups, userinfo), the control-set header on every POST, `RequireRole`; the service's OAuth client: token exchange, refresh, a refreshing token source, the token cache (AUTH.md) |
+| `internal/sts` | the thread-token policy on `pkg/auth`: one per conversation and user, minted from the request's token, kept in memory, refreshed (AUTH.md) |
 | `internal/agents` | `runtime.go` (Runtime, running a segment), `build.go` (roster → adk agents and tools), `connectors.go` (a client and toolset per connector), `mcptools.go` (the MCP tool hooks), `compaction.go`, `seed.go` (rebuild a session), `resume.go` (answers → adk responses) |
 | `internal/sources`, `internal/artifacts` | numbering and storing sources; storing artifacts (TOOLS.md) |
 | `internal/images` | `images.go` (making an image, keeping it as an artifact); its tool is `internal/tools/generate_image.go` (TOOLS.md) |
@@ -249,8 +251,9 @@ two (`embedding.index`, `memory.index`).
 Every name starts with `OPENSEARCH_INDEX_PREFIX` (default `user_ai_`:
 `user_ai_threads`, `user_ai_userfiles`, …), added in one place
 (`opensearch.Client.ix`), so deployments can share a cluster; `make indices` uses the
-same variable. Every document carries `controlset_id`, `user_created_by` and
-`user_updated_by`, and every call is made with a user's token, so document-level
+same variable. Every document carries `controlset_id`, `user_created_by`,
+`user_updated_by`, `created_at` and `updated_at` (`opensearch.Marks`, set on every
+write), and every call is made with a user's token, so document-level
 security limits it to the token's control sets (AUTH.md). The service never creates or
 changes an index, so users need no rights beyond reading and writing documents: each index's mapping is a file
 in `deploy/opensearch`, applied with `make indices` (curl: it creates a missing index,
@@ -276,8 +279,10 @@ allows any, and clients that send no `Origin` are not checked),
 `MAX_BODY_MB` (the largest request body, default 32), `REDIS_HOST`,
 `REDIS_PORT`, `REDIS_USER`, `REDIS_PASS`, `REDIS_DB_RUNS`, `REDIS_DB_SESSIONS`,
 `REDIS_DB_HITL`, `OPENSEARCH_URL` (no credentials: every call carries a user's token),
-`OIDC_ISSUER_URL`, `OIDC_JWKS_URL`, `OIDC_AUDIENCE`, `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET`,
-`OIDC_TOKEN_URL`, `OIDC_EXCHANGE_CONTROLSET_PARAM` (AUTH.md),
+`OIDC_ISSUER_URL`, `OIDC_JWKS_URL`, `OIDC_AUDIENCE`, `OIDC_CONTROLSET_CLAIM`, `OIDC_CLIENT_ID`,
+`OIDC_CLIENT_SECRET`, `OIDC_TOKEN_URL`, `OIDC_USERINFO_TTL`, `AUTH_CONTROLSET_HEADER`,
+`AUTH_CONTROLSET_EXEMPT_PATHS`, `STS_CONTROLSET_HEADER`, `STS_EARLY_EXPIRY`, `STS_MIN_LIFE`
+(AUTH.md),
 `S3_ENDPOINT`, `S3_ACCESS_KEY`, `S3_SECRET_KEY`, `S3_BUCKET`, `S3_REGION`, `S3_USE_SSL`,
 `TRANSPORT_SENSITIVE_HEADERS` (a caller's headers a forward drops),
 `TRANSPORT_RESPONSE_HEADER_TIMEOUT` (default 5m: how long a provider, MCP server or tool may
@@ -295,7 +300,9 @@ itself, or a missing default agent (`assistant`) fails the start.
 
 Logs are zerolog; Echo and adk log through slog, which `pkg/logging` routes to it.
 Each request is logged by Echo's request logger with its real status and request
-id, and a panic is logged with its stack. `make lint` runs `go vet` and staticcheck.
+id, and a panic is logged with its stack. Who did what (runs, sub-agents, thread
+tokens, refused requests) is logged at the level `audit`, which no `LOG_LEVEL`
+hides (AUTH.md). `make lint` runs `go vet` and staticcheck.
 
 With `OTEL_EXPORTER_OTLP_ENDPOINT` set, adk's own telemetry exports traces (Jaeger
 in `~/code/agentlite-infra`'s `docker-compose.yaml`, UI on :16686): a `run` span per run segment with adk's

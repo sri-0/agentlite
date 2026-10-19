@@ -14,7 +14,6 @@ import (
 	"mime"
 	"slices"
 	"strings"
-	"time"
 	"unicode/utf8"
 
 	"github.com/gabriel-vasile/mimetype"
@@ -99,7 +98,7 @@ func (s *Store) Add(ctx context.Context, name, workspaceID string, tags []string
 	}
 	f := &opensearch.File{
 		ID: uuid.Must(uuid.NewV7()).String(), Name: name, MediaType: mediaType, Size: len(body),
-		WorkspaceID: workspaceID, Tags: tags, Status: opensearch.FileStored, CreatedAt: time.Now(),
+		WorkspaceID: workspaceID, Tags: tags, Status: opensearch.FileStored,
 	}
 	chunks, err := s.index(ctx, f, body)
 	if err != nil {
@@ -138,7 +137,7 @@ func (s *Store) Delete(ctx context.Context, id string) error {
 	if err != nil {
 		return err
 	}
-	if err := opensearch.CheckOwner(ctx, f.Labels); err != nil {
+	if err := opensearch.CheckOwner(ctx, f.Marks); err != nil {
 		return err
 	}
 	if err := s.remove(ctx, id); err != nil {

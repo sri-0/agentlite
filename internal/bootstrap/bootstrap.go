@@ -16,7 +16,6 @@ import (
 	"agentlite/config"
 	"agentlite/internal/agents"
 	"agentlite/internal/artifacts"
-	"agentlite/internal/auth"
 	"agentlite/internal/hitl"
 	"agentlite/internal/images"
 	"agentlite/internal/mcp"
@@ -25,9 +24,10 @@ import (
 	"agentlite/internal/runs"
 	"agentlite/internal/skills"
 	"agentlite/internal/sources"
+	"agentlite/internal/sts"
 	"agentlite/internal/suggest"
-	"agentlite/internal/tokens"
 	"agentlite/internal/voice"
+	"agentlite/pkg/auth"
 	"agentlite/pkg/db/opensearch"
 	"agentlite/pkg/db/valkey"
 	"agentlite/pkg/logging"
@@ -87,14 +87,15 @@ func New(ctx context.Context) (_ *App, err error) {
 		return nil, err
 	}
 	// Users' access tokens are checked with the issuer's keys; runs use thread
-	// tokens the server's own client exchanges them for.
+	// tokens the server's own client exchanges them for (internal/sts).
 	if app.Auth, err = auth.New(ctx, cfg.OIDC); err != nil {
 		return nil, err
 	}
-	threadTokens, err := tokens.New(ctx, cfg.Tokens, cfg.OIDC.IssuerURL, app.Log)
+	client, err := auth.NewClient(ctx, cfg.OIDC)
 	if err != nil {
 		return nil, err
 	}
+	threadTokens := sts.New(client, cfg.STS, app.Log)
 	// One client per logical database: runs, sessions and interrupts are kept apart.
 	runsDB, err := app.valkey(cfg.Redis.DBRuns)
 	if err != nil {

@@ -48,13 +48,14 @@ func (m *Manager) execute(ctx context.Context, fields map[string]string) error {
 	}
 	run.Status = StatusRunning
 	if callerErr != nil { // no thread token: the run fails before it starts
-		m.logger.Warn().Err(callerErr).Str("run", run.ID).Msg("no thread token")
+		m.audit(run, user).Err(callerErr).Str("status", string(StatusError)).Msg("run refused: no thread token")
 		sink := m.sinkFor(bg, run)
 		msg := fmt.Sprintf("%v; the run could not reach the conversation's records", callerErr)
 		sink.Emit(events.NewRunErrorEvent(msg, events.WithRunID(run.ID)))
 		m.settle(sink, StatusRunning, StatusError, "", msg)
 		return nil
 	}
+	m.audit(run, user).Bool("resumed", fields["resume"] != "").Msg("run started")
 
 	runCtx, span := tracer.Start(otel.GetTextMapPropagator().Extract(ctx, propagation.MapCarrier(fields)), "run", trace.WithAttributes(
 		attribute.String("thread.id", run.ThreadID), attribute.String("run.id", run.ID), attribute.String("agent.id", run.AgentID)))
@@ -93,6 +94,7 @@ func (m *Manager) execute(ctx context.Context, fields map[string]string) error {
 		}
 	}
 	m.settle(sink, StatusRunning, result.Status, result.Text, errText)
+	m.audit(run, user).Str("status", string(result.Status)).Str("error", errText).Msg("run ended")
 	return nil
 }
 

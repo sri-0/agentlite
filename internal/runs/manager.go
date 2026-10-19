@@ -3,20 +3,17 @@ package runs
 import (
 	"context"
 	"errors"
-	"fmt"
-	"strings"
 	"sync"
 
 	"github.com/ag-ui-protocol/ag-ui/sdks/community/go/pkg/core/types"
 	"github.com/rs/zerolog"
 	"github.com/valkey-io/valkey-go"
-	"golang.org/x/oauth2"
 	"google.golang.org/adk/v2/session"
 
 	"agentlite/config"
-	"agentlite/internal/auth"
 	"agentlite/internal/hitl"
 	"agentlite/internal/stream"
+	"agentlite/pkg/auth"
 	"agentlite/pkg/db/opensearch"
 )
 
@@ -68,13 +65,6 @@ type History interface {
 	Messages(ctx context.Context, threadID string, before int64, limit int) ([]opensearch.Message, error)
 }
 
-// Tokens are the thread tokens runs call OpenSearch with (internal/tokens):
-// one per conversation and user, minted from subject, the user's access
-// token, when none is kept.
-type Tokens interface {
-	Source(ctx context.Context, rootID, controlSet, userID, subject string) (oauth2.TokenSource, error)
-}
-
 // Deps are the services the run manager uses.
 type Deps struct {
 	DB         valkey.Client // the run lifecycle: logs, run records, leases, queues
@@ -82,7 +72,7 @@ type Deps struct {
 	History    History
 	Sessions   session.Service
 	Runtime    Runtime
-	Tokens     Tokens
+	Tokens     Tokens // the thread tokens runs call OpenSearch with (caller.go)
 	Log        zerolog.Logger
 }
 
@@ -113,34 +103,6 @@ func New(cfg *config.Config, d Deps) *Manager {
 }
 
 // SessionUser is adk's required user id. A thread's session is the
-// thread's, whoever runs a turn on it, so it is the same for every user.
+// thread's, whoever runs a turn on it, so it is the same for every user:
+// a session per user would split a shared thread's history.
 const SessionUser = "default"
-
-// caller is who a segment's OpenSearch calls are made for: the user who
-// queued it, with the conversation's thread token for them (minted from
-// their access token if none is kept), confined to the thread's control
-// set. With no thread token to be had it fails with tokens.ErrSignIn.
-func (m *Manager) caller(ctx context.Context, run *Run, u auth.Principal) (opensearch.Caller, error) {
-	if run.ControlSet == "" { // queued before control sets: it could read and write nothing
-		return opensearch.Caller{}, fmt.Errorf("%w: the run has no control set; start a new turn", ErrInvalid)
-	}
-	src, err := m.tokens.Source(ctx, run.RootID, run.ControlSet, u.Subject, u.Token)
-	if err != nil {
-		return opensearch.Caller{}, err
-	}
-	return opensearch.Caller{Token: src, Username: u.Username, ControlSets: []string{run.ControlSet}, ControlSet: run.ControlSet}, nil
-}
-
-// entry is what a queued segment carries of its user. The access token is
-// what an executing replica that keeps no thread token mints one from; the
-// entry is deleted once handled, and the token expires in minutes.
-func entry(u auth.Principal, fields map[string]string) map[string]string {
-	fields["user_id"], fields["username"], fields["authorization"] = u.Subject, u.Username, u.Bearer()
-	return fields
-}
-
-// entryUser is the user an entry carries.
-func entryUser(fields map[string]string) auth.Principal {
-	token, _ := strings.CutPrefix(fields["authorization"], "Bearer ")
-	return auth.Principal{Subject: fields["user_id"], Username: fields["username"], Token: token}
-}

@@ -39,8 +39,8 @@ func (m *Manager) finalize(ctx context.Context, runID string, status Status) err
 	}
 	msg := &opensearch.Message{
 		ID: run.TurnID, ThreadID: run.ThreadID, RootID: run.RootID, Role: "assistant",
-		Seq: run.TurnSeq, CreatedAt: run.StartedAt, Text: run.Result, Events: raws,
-		Labels: opensearch.Labels{ControlSetID: run.ControlSet},
+		Seq: run.TurnSeq, Text: run.Result, Events: raws,
+		Marks: opensearch.Marks{ControlsetID: run.Controlset, CreatedAt: run.StartedAt}, // the turn's start, at every pause and the end
 	}
 	saveErr := m.history.SaveMessage(ctx, msg)
 	if status.Terminal() {

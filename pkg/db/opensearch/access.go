@@ -7,23 +7,25 @@ import (
 	"fmt"
 	"net/http"
 	"slices"
+	"time"
 
 	"golang.org/x/oauth2"
 )
 
 // Caller is who the store's calls are made for. There is no service
 // identity: every call carries Caller's bearer token, and OpenSearch's
-// document-level security limits it to the token's control sets. The store
-// confines every read and write to ControlSets as well, so a run, whose
-// ControlSets are its thread's one, never reads another control set's
-// documents even when its user may.
+// document-level security limits it to the token's control sets.
 type Caller struct {
-	Token       oauth2.TokenSource // the user's own token, or, inside a run, the thread token
-	Username    string             // preferred_username: user_created_by and user_updated_by
-	ControlSets []string           // what reads and writes are confined to
-	// ControlSet labels a new document that names none: the request's
+	Token    oauth2.TokenSource // the user's own token, or, inside a run, the thread token
+	Username string             // preferred_username: user_created_by and user_updated_by
+	// Controlset labels a new document that names none: the request's
 	// X-Control-Set, or the run's thread's.
-	ControlSet string
+	Controlset string
+	// Controlsets, set inside a run, confines every read and write to the
+	// thread's control set, so a run never reads another control set's
+	// documents even when its user may. Nil for a user's own request, which
+	// DLS alone governs.
+	Controlsets []string
 }
 
 type callerKey struct{}
@@ -40,64 +42,74 @@ func CallerFrom(ctx context.Context) (Caller, bool) {
 }
 
 // Errors for a call made without a caller (a bug: it is never sent), a
-// write or change the caller may not make, and a new document that has no
-// control set.
+// write or change the caller may not make (or a read OpenSearch refused:
+// a token without control sets), and a new document that has no control
+// set.
 var (
 	ErrNoCaller     = errors.New("opensearch: no user token in the context")
 	ErrForbidden    = errors.New("forbidden")
-	ErrNoControlSet = errors.New("no control set")
+	ErrNoControlset = errors.New("no control set")
 )
 
-// Labels are the fields every document carries for document-level security
-// and ownership: its control set, and who created and last changed it. The
-// store sets them on every write (stamp).
-type Labels struct {
-	ControlSetID  string `json:"controlset_id,omitempty"`
-	UserCreatedBy string `json:"user_created_by,omitempty"`
-	UserUpdatedBy string `json:"user_updated_by,omitempty"`
+// Marks are the fields every document carries for document-level security,
+// ownership and audit: its control set, who created and last changed it,
+// and when. The store sets them on every write (stamp).
+type Marks struct {
+	ControlsetID  string    `json:"controlset_id,omitempty"`
+	UserCreatedBy string    `json:"user_created_by,omitempty"`
+	UserUpdatedBy string    `json:"user_updated_by,omitempty"`
+	CreatedAt     time.Time `json:"created_at,omitzero"`
+	UpdatedAt     time.Time `json:"updated_at,omitzero"`
 }
 
-func (l *Labels) labels() *Labels { return l }
+func (m *Marks) marks() *Marks { return m }
 
-// labelled is a document with Labels.
-type labelled interface{ labels() *Labels }
+// marked is a document with Marks.
+type marked interface{ marks() *Marks }
 
-// stamp labels a document about to be written: a new one gets the caller's
-// control set and is created by them, and every write is updated by them. A
-// label outside the caller's control sets is refused: OpenSearch stores any
-// label it is given.
-func stamp(ctx context.Context, l *Labels) error {
+// stamp marks a document about to be written: a new one gets the caller's
+// control set, is created by them, now; every write is updated by them,
+// now. Inside a run, a label outside its control set is refused: OpenSearch
+// stores any label it is given. A user's own request labels only with the
+// control set it named, checked against their token, or one of a document
+// DLS let them read.
+func stamp(ctx context.Context, m *Marks) error {
 	c, ok := CallerFrom(ctx)
 	if !ok {
 		return ErrNoCaller
 	}
-	l.ControlSetID = cmp.Or(l.ControlSetID, c.ControlSet)
+	m.ControlsetID = cmp.Or(m.ControlsetID, c.Controlset)
 	switch {
-	case l.ControlSetID == "":
-		return fmt.Errorf("%w: send X-Control-Set", ErrNoControlSet)
-	case !slices.Contains(c.ControlSets, l.ControlSetID):
-		return fmt.Errorf("%w: control set %s", ErrForbidden, l.ControlSetID)
+	case m.ControlsetID == "":
+		return fmt.Errorf("%w: send X-Control-Set", ErrNoControlset)
+	case c.Controlsets != nil && !slices.Contains(c.Controlsets, m.ControlsetID):
+		return fmt.Errorf("%w: control set %s", ErrForbidden, m.ControlsetID)
 	}
-	l.UserCreatedBy = cmp.Or(l.UserCreatedBy, c.Username)
-	l.UserUpdatedBy = c.Username
+	now := time.Now()
+	m.UserCreatedBy, m.UserUpdatedBy = cmp.Or(m.UserCreatedBy, c.Username), c.Username
+	m.CreatedAt, m.UpdatedAt = cmp.Or(m.CreatedAt, now), now
 	return nil
 }
 
 // CheckOwner refuses a change to a document the caller did not create:
 // deleting, renaming or editing a thread, workspace, file or skill is its
 // creator's alone, whoever else may read it.
-func CheckOwner(ctx context.Context, l Labels) error {
+func CheckOwner(ctx context.Context, m Marks) error {
 	c, ok := CallerFrom(ctx)
-	if !ok || l.UserCreatedBy == "" || l.UserCreatedBy != c.Username {
-		return fmt.Errorf("%w: only its creator, %s, can change it", ErrForbidden, cmp.Or(l.UserCreatedBy, "unknown"))
+	if !ok || m.UserCreatedBy == "" || m.UserCreatedBy != c.Username {
+		return fmt.Errorf("%w: only its creator, %s, can change it", ErrForbidden, cmp.Or(m.UserCreatedBy, "unknown"))
 	}
 	return nil
 }
 
-// confine ANDs the caller's control sets into a search body: into a k-NN
-// query's own filter, so the k nearest are found among the allowed documents
-// rather than filtered after, and around any other query.
+// confine ANDs the control sets, when there are any (a run's), into a
+// search body: into a k-NN query's own filter, so the k nearest are found
+// among the allowed documents rather than filtered after, and around any
+// other query.
 func confine(body map[string]any, sets []string) {
+	if sets == nil {
+		return
+	}
 	only := map[string]any{"terms": map[string]any{"controlset_id": sets}}
 	q := body["query"]
 	if m, ok := q.(map[string]any); ok {

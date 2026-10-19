@@ -2,7 +2,6 @@ package opensearch
 
 import (
 	"context"
-	"time"
 
 	"github.com/opensearch-project/opensearch-go/v5/opensearchapi"
 )
@@ -19,8 +18,7 @@ type Memory struct {
 	Author    string    `json:"author"`
 	Text      string    `json:"text"`
 	Embedding []float32 `json:"embedding,omitempty"`
-	CreatedAt time.Time `json:"created_at"`
-	Labels
+	Marks               // CreatedAt is the remembered event's time, set by the caller
 }
 
 // SaveMemory upserts a memory entry. Nothing reads one back at once, so the

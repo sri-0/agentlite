@@ -17,7 +17,6 @@ import (
 	"net/http"
 	"path"
 	"slices"
-	"time"
 
 	"github.com/google/uuid"
 	"github.com/rs/zerolog"
@@ -73,17 +72,14 @@ func (l *Library) Save(ctx context.Context, d Draft) (*opensearch.Skill, error) 
 	if err != nil {
 		return nil, err
 	}
-	now := time.Now()
-	s := &opensearch.Skill{
-		ID: uuid.Must(uuid.NewV7()).String(), Name: fm.Name, Description: fm.Description, CreatedAt: now, UpdatedAt: now,
-	}
+	s := &opensearch.Skill{ID: uuid.Must(uuid.NewV7()).String(), Name: fm.Name, Description: fm.Description}
 	prev, err := l.records.SkillNamed(ctx, s.Name)
 	switch {
 	case err == nil:
-		if err := opensearch.CheckOwner(ctx, prev.Labels); err != nil {
+		if err := opensearch.CheckOwner(ctx, prev.Marks); err != nil {
 			return nil, err
 		}
-		s.ID, s.CreatedAt, s.Labels = prev.ID, prev.CreatedAt, prev.Labels
+		s.ID, s.Marks = prev.ID, prev.Marks // its control set, creator and creation stand
 		s.Title, s.Category, s.Source = prev.Title, prev.Category, prev.Source
 	case !errors.Is(err, opensearch.ErrNotFound):
 		return nil, err
@@ -155,7 +151,7 @@ func (l *Library) edit(ctx context.Context, id string, files map[string][]byte, 
 	if err != nil {
 		return nil, err
 	}
-	if err := opensearch.CheckOwner(ctx, s.Labels); err != nil {
+	if err := opensearch.CheckOwner(ctx, s.Marks); err != nil {
 		return nil, err
 	}
 	if md, ok := files[SkillFile]; ok {

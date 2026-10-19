@@ -6,6 +6,7 @@ import (
 
 	"google.golang.org/adk/v2/agent"
 
+	"agentlite/pkg/auth"
 	"agentlite/pkg/citations"
 	"agentlite/pkg/modelcatalog"
 )
@@ -29,13 +30,10 @@ type Run struct {
 	Card       *modelcatalog.Model // that model's card: what it takes as input, among the rest
 	Connectors *[]string           // the connectors switched on; nil means all
 	ImageModel string              // the image model the user picked for generate_image; "" is the default
-	// UserID and Username are the user the run is for (the token's sub and
-	// preferred_username); a sub-agent runs for them too.
-	UserID, Username string
-	// Authorization is that user's Authorization header, as the request that
-	// queued the run's segment carried it.
-	Authorization string
-	Sources       citations.Recorder // nil outside a run: nothing is recorded
+	// User is who the run is for, with their access token as the request
+	// that queued the run's segment carried it; a sub-agent runs for them too.
+	User    auth.Principal
+	Sources citations.Recorder // nil outside a run: nothing is recorded
 }
 
 // Thread identifies the run a tool call belongs to.
@@ -86,8 +84,8 @@ func Headers(ctx context.Context) http.Header {
 		h.Set(HeaderThread, r.Thread.ID)
 		h.Set(HeaderRootThread, r.Thread.RootID)
 		h.Set(HeaderRun, r.Thread.RunID)
-		if r.Authorization != "" {
-			h.Set("Authorization", r.Authorization)
+		if b := r.User.Bearer(); b != "" {
+			h.Set("Authorization", b)
 		}
 	}
 	if c, ok := ctx.Value(callKey{}).(caller); ok {

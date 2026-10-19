@@ -12,8 +12,8 @@ import (
 	"github.com/rs/zerolog"
 	"github.com/sethvargo/go-envconfig"
 
-	"agentlite/internal/auth"
-	"agentlite/internal/tokens"
+	"agentlite/internal/sts"
+	"agentlite/pkg/auth"
 	"agentlite/pkg/db/opensearch"
 	"agentlite/pkg/db/valkey"
 	"agentlite/pkg/s3"
@@ -37,12 +37,16 @@ type Env struct {
 	// pass-through reads one whole to find its model.
 	MaxBodyMB int64 `env:"MAX_BODY_MB, default=32"`
 
-	// OIDC is the access tokens' issuer: every request but /health needs one
-	// (docs/AUTH.md).
+	// OIDC is the access tokens' issuer, every request but /health needs
+	// one, and the server's own client there, which exchanges a user's
+	// token for the thread token their runs use (docs/AUTH.md).
 	OIDC auth.Config `env:", prefix=OIDC_"`
-	// Tokens is the server's own client at the issuer, which exchanges a
-	// user's token for the thread token their runs use.
-	Tokens     tokens.Config     `env:", prefix=OIDC_"`
+	// Controlsets is the header every POST names its control set in, and
+	// the routes that need none.
+	Controlsets auth.ControlsetConfig `env:", prefix=AUTH_CONTROLSET_"`
+	// STS is the thread-token policy: the exchange's control-set header and
+	// the tokens' lifetimes.
+	STS        sts.Config        `env:", prefix=STS_"`
 	Redis      valkey.Config     `env:", prefix=REDIS_"` // the REDIS_ names are kept from agentic
 	OpenSearch opensearch.Config `env:", prefix=OPENSEARCH_"`
 	// S3 keeps artifact bodies and skill files; OpenSearch keeps their records.
