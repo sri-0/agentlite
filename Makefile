@@ -33,10 +33,12 @@ down:
 
 # Creates the OpenSearch indices from deploy/opensearch, or adds new fields to
 # existing ones; the service never changes a mapping (docs/ARCHITECTURE.md).
+# Each index is named with the server's prefix (OPENSEARCH_INDEX_PREFIX).
 OPENSEARCH_URL ?= http://localhost:9200
+OPENSEARCH_INDEX_PREFIX ?= user_ai_
 CURL = curl -sSf -H 'Content-Type: application/json' $(if $(OPENSEARCH_USERNAME),-u '$(OPENSEARCH_USERNAME):$(OPENSEARCH_PASSWORD)')
 indices:
-	@for f in deploy/opensearch/*.json; do i=$$(basename $$f .json); \
+	@for f in deploy/opensearch/*.json; do i=$(OPENSEARCH_INDEX_PREFIX)$$(basename $$f .json); \
 	  if $(CURL) -o /dev/null $(OPENSEARCH_URL)/$$i 2>/dev/null; then \
 	    jq .mappings $$f | $(CURL) -XPUT $(OPENSEARCH_URL)/$$i/_mapping -d @-; \
 	  else $(CURL) -XPUT $(OPENSEARCH_URL)/$$i -d @$$f; fi && echo " $$i"; done

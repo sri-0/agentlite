@@ -58,9 +58,10 @@ internal/
                        emit_artifact, report_progress, write_skill
   skills/              the skills library: records in OpenSearch, files in S3, uploads, adk's
                        skill toolset, /name
-  refs/                references in a message (/name; later @agent, #id), by sigil
+  refs/                references in a message (/name, #id; later @agent), by sigil
   sources/             numbers and stores the sources tools return
   artifacts/           artifact records (OpenSearch) and bodies (S3)
+  rag/userfiles/       files users upload for RAG: records (OpenSearch), bodies (S3), #id, the routes
   voice/               the voice prompt: a recording to text; apart from the agents; the route is handler/voice.go
   images/              image generation and editing (Studio), every image an artifact; its
                        tool is tools/generate_image.go
@@ -113,7 +114,9 @@ document-level security, is `not_found`. ARCHITECTURE.md has the frames.
 | GET | `/v1/threads` | root threads, newest first (capped at 200), with `run_status` from each thread's lease |
 | GET/PATCH/DELETE | `/v1/threads/{id}` | thread; `PATCH {title?, connectors?, workspace_id?}` (`""` takes it out of its workspace); delete removes its family (`409` while a run is active) |
 | GET/POST | `/v1/workspaces` | the workspaces threads are filed under, by name; `POST {name}` |
-| PATCH/DELETE | `/v1/workspaces/{id}` | rename (`{name}`); delete, which moves its threads out of it |
+| PATCH/DELETE | `/v1/workspaces/{id}` | rename (`{name}`); delete, which moves its threads and files out of it |
+| GET/POST | `/v1/rag/files` | files users upload for RAG, newest first (`?workspace=<id>` or `none`); `POST` a multipart `file`, optional `workspaceId` and `tags` (docs/FILES.md) |
+| GET/DELETE | `/v1/rag/files/{id}`, `/v1/rag/files/{id}/content` | one file's record; the file itself, as a download; delete it |
 | GET | `/v1/threads/{id}/messages?before=&limit=` | `{data: [{id, thread_id, role, seq, created_at, text, events}], cursor}` |
 | GET | `/v1/threads/{id}/interrupts` | the paused run's pending interrupts |
 | GET | `/v1/threads/{id}/sources`, `/v1/threads/{id}/sources/{n}` | the conversation's sources by number; one source, what `[source:n]` refers to |
@@ -139,7 +142,7 @@ server as clients reach it), `CONFIG_DIR`,
 `LOG_LEVEL`, `LOG_JSON`, `ALLOWED_ORIGINS` (CORS), `WS_ALLOWED_ORIGINS` (the socket's browser
 origins; `*` allows any), `MAX_BODY_MB`
 (the largest request body, default 32), `REDIS_HOST/PORT/USER/PASS`,
-`REDIS_DB_RUNS/SESSIONS/HITL` (default 1/2/3), `OPENSEARCH_URL/USERNAME/PASSWORD`,
+`REDIS_DB_RUNS/SESSIONS/HITL` (default 1/2/3), `OPENSEARCH_URL/USERNAME/PASSWORD`, `OPENSEARCH_INDEX_PREFIX` (default `user_ai_`; starts every index name),
 `S3_ENDPOINT/ACCESS_KEY/SECRET_KEY/BUCKET/REGION/USE_SSL` (required: artifact bodies and
 skill files), `TRANSPORT_SENSITIVE_HEADERS` (a caller's headers a forward drops),
 `TRANSPORT_RESPONSE_HEADER_TIMEOUT` (default 5m),

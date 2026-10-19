@@ -17,14 +17,17 @@ import (
 	"github.com/opensearch-project/opensearch-go/v5/opensearchapi"
 )
 
-// Config is the OpenSearch connection.
+// Config is the OpenSearch connection. IndexPrefix starts every index's
+// name (user_ai_threads, user_ai_userfiles, …), so several deployments can
+// share a cluster; set it empty for bare names.
 type Config struct {
-	URL      string `env:"URL, default=http://localhost:9200"`
-	Username string `env:"USERNAME"`
-	Password string `env:"PASSWORD"`
+	URL         string `env:"URL, default=http://localhost:9200"`
+	Username    string `env:"USERNAME"`
+	Password    string `env:"PASSWORD"`
+	IndexPrefix string `env:"INDEX_PREFIX, default=user_ai_"`
 }
 
-// Index names.
+// Index names, without the deployment's prefix (Client.ix adds it).
 const (
 	indexThreads  = "threads"
 	indexMessages = "messages"
@@ -66,7 +69,8 @@ var (
 
 // Client is the OpenSearch store.
 type Client struct {
-	api *opensearchapi.Client
+	api    *opensearchapi.Client
+	prefix string
 }
 
 // New returns a client of the cluster.
@@ -78,7 +82,7 @@ func New(cfg Config) (*Client, error) {
 	if err != nil {
 		return nil, fmt.Errorf("opensearch: %w", err)
 	}
-	return &Client{api: api}, nil
+	return &Client{api: api, prefix: cfg.IndexPrefix}, nil
 }
 
 // pageSize is how many entries a page of a list holds: 50 unless the client
@@ -94,11 +98,14 @@ func pageSize(limit int) int {
 // skills library and the workspaces.
 const listCap = 1000
 
+// ix is an index's full name: the deployment's prefix, then its own.
+func (c *Client) ix(index string) string { return c.prefix + index }
+
 // delete removes a document and refreshes the index; ErrNotFound when there
 // is none.
 func (c *Client) delete(ctx context.Context, index, id string) error {
 	_, err := c.api.Document.Delete(ctx, opensearchapi.DeleteReq{
-		Index: index, ID: id, Params: &opensearchapi.DeleteParams{Refresh: "true"},
+		Index: c.ix(index), ID: id, Params: &opensearchapi.DeleteParams{Refresh: "true"},
 	})
 	switch {
 	case errStatus(err) == 404:
@@ -126,7 +133,7 @@ func (c *Client) write(ctx context.Context, index, id string, doc any, params op
 	if err != nil {
 		return err
 	}
-	_, err = c.api.Document.Index(ctx, opensearchapi.IndexReq{Index: index, ID: id, Body: bytes.NewReader(body), Params: &params})
+	_, err = c.api.Document.Index(ctx, opensearchapi.IndexReq{Index: c.ix(index), ID: id, Body: bytes.NewReader(body), Params: &params})
 	if errStatus(err) == 409 {
 		return fmt.Errorf("index %s/%s: %w", index, id, ErrConflict)
 	}
@@ -194,7 +201,7 @@ func search[T any](ctx context.Context, c *Client, index string, query any) ([]T
 	if err != nil {
 		return nil, err
 	}
-	resp, err := c.api.Search(ctx, &opensearchapi.SearchReq{Indices: []string{index}, BodyReader: bytes.NewReader(body)})
+	resp, err := c.api.Search(ctx, &opensearchapi.SearchReq{Indices: []string{c.ix(index)}, BodyReader: bytes.NewReader(body)})
 	if err != nil {
 		return nil, fmt.Errorf("search %s: %w", index, err)
 	}
@@ -209,7 +216,7 @@ func search[T any](ctx context.Context, c *Client, index string, query any) ([]T
 
 // get fetches one document by id; ErrNotFound when there is none.
 func get[T any](ctx context.Context, c *Client, index, id string) (*T, error) {
-	resp, err := c.api.Document.Get(ctx, opensearchapi.GetReq{Index: index, ID: id})
+	resp, err := c.api.Document.Get(ctx, opensearchapi.GetReq{Index: c.ix(index), ID: id})
 	if err != nil {
 		if errStatus(err) == 404 {
 			return nil, ErrNotFound
@@ -241,7 +248,7 @@ func (c *Client) DeleteThread(ctx context.Context, rootID string) error {
 func (c *Client) deleteWhere(ctx context.Context, index, field, value string) error {
 	q, _ := json.Marshal(map[string]any{"query": map[string]any{"term": map[string]any{field: value}}})
 	_, err := c.api.DeleteByQuery(ctx, &opensearchapi.DeleteByQueryReq{
-		Indices: []string{index}, BodyReader: bytes.NewReader(q), Params: &opensearchapi.DeleteByQueryParams{Refresh: "true"},
+		Indices: []string{c.ix(index)}, BodyReader: bytes.NewReader(q), Params: &opensearchapi.DeleteByQueryParams{Refresh: "true"},
 	})
 	if err != nil {
 		return fmt.Errorf("delete %s: %w", index, err)

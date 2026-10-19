@@ -1,6 +1,6 @@
 // Package bootstrap wires the application from configuration: logging,
 // tracing, the provider registry, Valkey, OpenSearch, S3, sessions, memory,
-// sources, artifacts, MCP servers, the agent runtime and the run manager.
+// sources, artifacts, files, MCP servers, the agent runtime and the run manager.
 // Every command starts here.
 package bootstrap
 
@@ -19,6 +19,7 @@ import (
 	"agentlite/internal/images"
 	"agentlite/internal/mcp"
 	"agentlite/internal/providers"
+	"agentlite/internal/rag/userfiles"
 	"agentlite/internal/runs"
 	"agentlite/internal/skills"
 	"agentlite/internal/sources"
@@ -43,6 +44,7 @@ type App struct {
 	Voice     *voice.Transcriber // nil when the voice prompt is not configured
 	Artifacts *artifacts.Store
 	Skills    *skills.Library
+	Files     *userfiles.Store
 	Agents    *agents.Runtime
 	Runs      *runs.Manager
 
@@ -104,12 +106,13 @@ func New(ctx context.Context) (_ *App, err error) {
 		app.Voice = voice.New(app.Registry, *v)
 	}
 	recorder := sources.New(app.Store)
-	files, err := s3.New(ctx, cfg.S3) // artifact bodies and skill files
+	bucket, err := s3.New(ctx, cfg.S3) // artifact bodies, skill files and uploaded files
 	if err != nil {
 		return nil, err
 	}
-	app.Artifacts = artifacts.New(app.Store, files, recorder, app.Log)
-	app.Skills = skills.New(app.Store, files, app.Log)
+	app.Artifacts = artifacts.New(app.Store, bucket, recorder, app.Log)
+	app.Skills = skills.New(app.Store, bucket, app.Log)
+	app.Files = userfiles.New(app.Store, bucket, cfg.Models.Files)
 	var studio *images.Studio // nil without an image model: no generate_image
 	if m := cfg.Models.Images; m != nil {
 		studio = images.New(app.Registry, app.Artifacts, app.Store, *m)
@@ -120,7 +123,8 @@ func New(ctx context.Context) (_ *App, err error) {
 	}
 	app.Agents = agents.New(cfg, agents.Deps{
 		Registry: app.Registry, Sessions: app.Sessions, Memory: mem, Servers: servers,
-		Sources: recorder, Artifacts: app.Artifacts, Skills: app.Skills, Images: studio, Log: app.Log,
+		Sources: recorder, Artifacts: app.Artifacts, Skills: app.Skills, Images: studio,
+		Files: app.Files, Log: app.Log,
 	})
 	app.Runs = runs.New(cfg, runs.Deps{
 		DB: runsDB, Interrupts: hitl.NewStore(hitlDB), History: app.Store, Sessions: app.Sessions,

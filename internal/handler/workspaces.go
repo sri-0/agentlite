@@ -1,8 +1,6 @@
 package handler
 
 import (
-	"context"
-	"errors"
 	"fmt"
 	"net/http"
 	"strings"
@@ -80,16 +78,4 @@ func workspaceName(c *echo.Context) (string, error) {
 		return "", echo.NewHTTPError(http.StatusBadRequest, fmt.Sprintf("name must be 1 to %d characters", maxWorkspaceName))
 	}
 	return name, nil
-}
-
-// checkWorkspace refuses a workspace id that names no workspace; "" is none.
-func (h *Handler) checkWorkspace(ctx context.Context, id string) error {
-	if id == "" {
-		return nil
-	}
-	_, err := h.Store.Workspace(ctx, id)
-	if errors.Is(err, opensearch.ErrNotFound) {
-		return echo.NewHTTPError(http.StatusBadRequest, fmt.Sprintf("unknown workspace %q", id))
-	}
-	return err
 }

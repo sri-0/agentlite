@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"strings"
 	"testing"
+
+	"google.golang.org/genai"
 )
 
 type fakeResolver map[string]string
@@ -46,5 +48,23 @@ func TestExpand(t *testing.T) {
 				t.Errorf("parts %q, %d events; want %q, %d", got, len(events), tc.parts, tc.events)
 			}
 		})
+	}
+}
+
+type partResolver struct{}
+
+func (partResolver) Resolve(_ context.Context, name string) (Ref, bool, error) {
+	return Ref{Kind: "file", ID: name, Content: "about " + name, Part: genai.NewPartFromBytes([]byte("img"), "image/png")}, true, nil
+}
+
+// TestExpandPart: a reference's part follows its content, ahead of the message.
+func TestExpandPart(t *testing.T) {
+	c, events, err := Resolvers{'#': partResolver{}}.Expand(context.Background(), "turn", "look at #f1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(c.Parts) != 3 || c.Parts[0].Text != "about f1" || c.Parts[1].InlineData == nil ||
+		c.Parts[1].InlineData.MIMEType != "image/png" || c.Parts[2].Text != "look at #f1" || len(events) != 1 {
+		t.Errorf("parts %+v, %d events", c.Parts, len(events))
 	}
 }

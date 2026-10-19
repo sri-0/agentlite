@@ -29,6 +29,7 @@ import (
 	"agentlite/internal/images"
 	"agentlite/internal/mcp"
 	"agentlite/internal/providers"
+	"agentlite/internal/rag/userfiles"
 	"agentlite/internal/refs"
 	"agentlite/internal/runs"
 	"agentlite/internal/skills"
@@ -81,7 +82,8 @@ type Deps struct {
 	Sources   *sources.Recorder
 	Skills    *skills.Library
 	Artifacts *artifacts.Store
-	Images    *images.Studio // nil when no image model is configured
+	Images    *images.Studio   // nil when no image model is configured
+	Files     *userfiles.Store // uploaded files, which a message names with #id
 	Log       zerolog.Logger
 }
 
@@ -91,7 +93,7 @@ func New(cfg *config.Config, d Deps) *Runtime {
 		appName: cfg.AppName, defs: cfg.Defs(), registry: d.Registry, sessions: d.Sessions, memory: d.Memory,
 		defaultModel: cfg.Models.DefaultModel, compact: cfg.Models.Compaction, servers: d.Servers,
 		sources: d.Sources, artifacts: d.Artifacts, skills: d.Skills, images: d.Images,
-		refs: refs.Resolvers{'/': d.Skills}, log: d.Log,
+		refs: refs.Resolvers{'/': d.Skills, '#': d.Files}, log: d.Log,
 		connectors: cfg.Connectors, transport: cfg.Transport,
 		mcpTools: newMCPTools(cfg.Connectors),
 	}
@@ -214,6 +216,13 @@ func (rt *Runtime) Run(ctx context.Context, in runs.Input, sink stream.Sink) (ru
 	if err != nil {
 		return fail(err)
 	}
+	ctx = platform.WithUUIDProvider(stream.WithSink(ctx, sink), func() string { return uuid.Must(uuid.NewV7()).String() }) // adk's event ids too
+	ctx = toolx.WithRun(ctx, toolx.Run{
+		Thread: toolx.Thread{ID: run.ThreadID, RootID: run.RootID, RunID: run.ID},
+		Model:  run.Model, Connectors: run.Connectors, ImageModel: run.ImageModel,
+		Authorization: in.Authorization,
+		Sources:       rt.sources,
+	})
 	content, events, err := rt.content(ctx, run.ThreadID, in)
 	if err != nil {
 		return fail(err)
@@ -222,13 +231,6 @@ func (rt *Runtime) Run(ctx context.Context, in runs.Input, sink stream.Sink) (ru
 		sink.Emit(ev)
 	}
 
-	ctx = platform.WithUUIDProvider(stream.WithSink(ctx, sink), func() string { return uuid.Must(uuid.NewV7()).String() }) // adk's event ids too
-	ctx = toolx.WithRun(ctx, toolx.Run{
-		Thread: toolx.Thread{ID: run.ThreadID, RootID: run.RootID, RunID: run.ID},
-		Model:  run.Model, Connectors: run.Connectors, ImageModel: run.ImageModel,
-		Authorization: in.Authorization,
-		Sources:       rt.sources,
-	})
 	sse := adkagent.RunConfig{StreamingMode: adkagent.StreamingModeSSE}
 	for ev, err := range r.Run(ctx, runs.SessionUser, run.ThreadID, content, sse) {
 		if errors.Is(err, compaction.ErrCompaction) {

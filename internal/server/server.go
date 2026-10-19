@@ -77,6 +77,14 @@ func New(cfg *config.Config, h *handler.Handler) *echo.Echo {
 	skill.GET("/files/*", h.SkillFile, sandboxed)
 	skill.PUT("/files/*", h.WriteSkillFile, middleware.BodyLimit(skills.MaxBytes))
 
+	// Files users upload for RAG, which a message names with #id (internal/files).
+	e.GET("/v1/rag/files", h.Files.ListFiles)
+	e.POST("/v1/rag/files", h.Files.PostFile, middleware.BodyLimit(h.Files.MaxBytes()+1<<20)) // the file, and the form around it
+	file := e.Group("/v1/rag/files/:id", uuidID)
+	file.GET("", h.Files.GetFile)
+	file.GET("/content", h.Files.FileContent, sandboxed)
+	file.DELETE("", h.Files.DeleteFile)
+
 	// What opencode and npx skills set themselves up from (docs/OPENCODE.md).
 	wk := &wellknown.Handler{Config: cfg, Registry: h.Registry, Skills: h.Skills}
 	e.GET("/.well-known/opencode", wk.Opencode)
@@ -146,6 +154,7 @@ func errorHandler(next echo.HTTPErrorHandler) echo.HTTPErrorHandler {
 		}{
 			{runs.ErrInvalid, http.StatusBadRequest},
 			{skills.ErrInvalid, http.StatusBadRequest},
+			{opensearch.ErrUnknownWorkspace, http.StatusBadRequest},
 			{runs.ErrNotFound, http.StatusNotFound},
 			{opensearch.ErrNotFound, http.StatusNotFound},
 			{skills.ErrNotFound, http.StatusNotFound},

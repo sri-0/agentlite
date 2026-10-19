@@ -32,8 +32,9 @@ Echo server (internal/server, internal/handler, internal/ws)
    │
    ├─ Valkey: event logs, runs, queues, leases, adk sessions, interrupt records
    ├─ OpenSearch: threads, messages (the stored AG-UI events), memories, sources, artifacts,
-   │    counters (each conversation's last source number and artifact versions), skills
-   └─ S3 (MinIO locally): artifact bodies, skill files
+   │    counters (each conversation's last source number and artifact versions), skills,
+   │    workspaces, files
+   └─ S3 (MinIO locally): artifact bodies, skill files, uploaded files
 ```
 
 `internal/bootstrap` wires all of this from configuration; `cmd/server` serves
@@ -47,6 +48,7 @@ implements it, so imports run one way.
 | `internal/agents` | `runtime.go` (Runtime, running a segment), `build.go` (roster → adk agents and tools), `connectors.go` (a client and toolset per connector), `mcptools.go` (the MCP tool hooks), `compaction.go`, `seed.go` (rebuild a session), `resume.go` (answers → adk responses) |
 | `internal/sources`, `internal/artifacts` | numbering and storing sources; storing artifacts (TOOLS.md) |
 | `internal/images` | `images.go` (making an image, keeping it as an artifact); its tool is `internal/tools/generate_image.go` (TOOLS.md) |
+| `internal/rag/userfiles` | `userfiles.go` (keeping a file, what is accepted), `resolve.go` (`#id`), `handler.go` (the routes) (FILES.md) |
 | `internal/providers` | provider clients, model resolution, discovery, the pass-through, embeddings (MODELS.md) |
 | `internal/voice` | the voice prompt: `voice.go` (a recording to text); apart from the agents; its route, `POST /v1/voice/transcriptions`, is `internal/handler/voice.go` (MODELS.md) |
 | `pkg/toolx`, `pkg/citations`, `pkg/transport`, `pkg/s3`, `pkg/modelcatalog` | the tool wrapper; the source contract; HTTP clients; S3 through minio-go; models and model cards |
@@ -140,8 +142,8 @@ whose thread, skill or workspace id is not a UUIDv7 gets 400. Documents that mus
 - for a root thread, the **workspace** it is filed under (`workspace_id`), if any.
 
 A workspace (`internal/handler/workspaces.go`, index `workspaces`) is a folder of
-conversations with a name; deleting one moves its threads out of it rather than
-deleting them. Later it is what people share; today it only groups the sidebar.
+conversations, and of uploaded files (FILES.md), with a name; deleting one moves its
+threads and files out of it rather than deleting them. Later it is what people share; today it only groups the sidebar.
 
 A sub-agent's thread is followed like any other; the parent's agent card also
 mirrors its status, progress and pending requests (AGENT-ARCHITECTURE.md).
@@ -211,7 +213,11 @@ Valkey is split into logical databases, set by environment:
 OpenSearch indices: `threads`, `messages` (events stored unindexed), `memories`
 (kNN vectors), `sources`, `artifacts`, `counters` (each conversation's source
 numbers and artifact versions), `skills` (the skills library, one record per skill;
-its files are in S3; SKILLS.md), `workspaces`. The service never creates or changes an index, so it
+its files are in S3; SKILLS.md), `workspaces`, `userfiles` (the records of files
+users upload for RAG; FILES.md). Every name starts with `OPENSEARCH_INDEX_PREFIX`
+(default `user_ai_`: `user_ai_threads`, `user_ai_userfiles`, …), added in one place
+(`opensearch.Client.ix`), so deployments can share a cluster; `make indices` uses the
+same variable. The service never creates or changes an index, so it
 needs no rights beyond reading and writing documents: each index's mapping is a file
 in `deploy/opensearch`, applied with `make indices` (curl: it creates a missing index,
 and adds new fields to an existing one; a changed type needs a reindex). Mappings are
@@ -221,7 +227,8 @@ Writes a read follows at once refresh the index;
 memories, which nothing reads back straight away, do not.
 
 S3 (`S3_ENDPOINT`, required; MinIO in `docker-compose.yaml`): artifact bodies at
-`artifacts/{root}/{artifact id}/{version}`, and skill files at `skills/{skill id}/{path}`.
+`artifacts/{root}/{artifact id}/{version}`, skill files at `skills/{skill id}/{path}`, and
+uploaded files at `files/{file id}`.
 OpenSearch keeps only their records.
 
 ## Configuration
