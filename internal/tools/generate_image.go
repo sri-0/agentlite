@@ -1,4 +1,4 @@
-package builtin
+package tools
 
 import (
 	"agentlite/internal/artifacts"
@@ -15,17 +15,17 @@ type generateImageArgs struct {
 	Edit   string `json:"edit,omitempty" jsonschema:"id of an image artifact of this conversation to edit; omit for a new image"`
 }
 
-// generateImage makes an image with the image model the user picked for the
+// GenerateImage makes an image with the image model the user picked for the
 // turn (the default otherwise), saves it as an artifact of the conversation
 // (internal/images) and shows it in the thread.
-func generateImage(d Deps) (toolx.Tool, error) {
+func GenerateImage(studio *images.Studio) (toolx.Tool, error) {
 	return toolx.New(toolx.Spec{
 		Name: generateImageTool,
 		Description: "Generate an image from a description, or edit an image of this conversation (its artifact id " +
 			"in edit). The image is shown to the user and kept as an artifact; describe it, don't repeat it.",
 		UI: generateImageTool,
 	}, func(tc toolx.Context, a generateImageArgs) (map[string]any, error) {
-		img, err := d.Images.Make(tc, images.Request{
+		img, err := studio.Make(tc, images.Request{
 			RootID: tc.Thread.RootID, ThreadID: tc.Thread.ID, RunID: tc.Thread.RunID, Prompt: a.Prompt, Edit: a.Edit,
 			Model: toolx.RunFrom(tc).ImageModel,
 		})

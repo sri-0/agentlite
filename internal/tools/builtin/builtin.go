@@ -12,8 +12,6 @@ import (
 
 	"agentlite/config"
 	"agentlite/internal/artifacts"
-	"agentlite/internal/files"
-	"agentlite/internal/images"
 	"agentlite/internal/runs"
 	"agentlite/internal/skills"
 	"agentlite/pkg/toolx"
@@ -24,17 +22,6 @@ const (
 	Subagent = "subagent" // sub-agent dispatch; offered only to agents with subagents
 	Question = "question" // answered by the user, not approved
 )
-
-// Switchable are the builtin tools that do work in the world, and cost: the
-// runtime offers each as a connector of its own, so a thread can switch it
-// off like any connector. One tool each; a tool that isn't built (its model
-// isn't configured) has no connector.
-var Switchable = []config.Connector{
-	{ID: "images", Name: "Image generation", Description: "Make and edit images with the image model.",
-		Icon: "image", Type: config.ConnectorTools, Tools: []string{generateImageTool}},
-	{ID: "files", Name: "Your files", Description: "Search the files uploaded to the chat's workspace.",
-		Icon: "files", Type: config.ConnectorTools, Tools: []string{searchFilesTool}},
-}
 
 // Dispatcher starts, follows and stops child runs; runs.Manager implements it.
 type Dispatcher interface {
@@ -50,20 +37,12 @@ type Deps struct {
 	Defs       map[string]config.AgentDef
 	Artifacts  *artifacts.Store
 	Skills     *skills.Library
-	Images     *images.Studio // nil when no image model is configured: no generate_image
-	Files      *files.Store   // search_userfiles when its files are searchable
 	Log        zerolog.Logger
 }
 
 // All builds every builtin tool, keyed by name.
 func All(d Deps) (map[string]toolx.Tool, error) {
 	builders := []func(Deps) (toolx.Tool, error){subagent, todoWrite, question, reportProgress, emitArtifact, writeSkill}
-	if d.Images != nil {
-		builders = append(builders, generateImage)
-	}
-	if d.Files.Searchable() {
-		builders = append(builders, searchFiles)
-	}
 	out := make(map[string]toolx.Tool, len(builders))
 	for _, build := range builders {
 		t, err := build(d)

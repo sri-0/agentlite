@@ -117,8 +117,7 @@ type Memory interface {
 func (rt *Runtime) Bind(ctx context.Context, d builtin.Dispatcher) error {
 	var err error
 	rt.harness, err = builtin.All(builtin.Deps{
-		Dispatcher: d, Defs: rt.defs, Artifacts: rt.artifacts, Skills: rt.skills, Images: rt.images, Files: rt.files,
-		Log: rt.log,
+		Dispatcher: d, Defs: rt.defs, Artifacts: rt.artifacts, Skills: rt.skills, Log: rt.log,
 	})
 	if err != nil {
 		return err
@@ -129,7 +128,7 @@ func (rt *Runtime) Bind(ctx context.Context, d builtin.Dispatcher) error {
 	if err := rt.connectorSets(); err != nil {
 		return err
 	}
-	if err := rt.switchable(); err != nil {
+	if err := rt.ownSets(); err != nil {
 		return err
 	}
 	rt.toolUI = maps.Clone(rt.mcpTools.ui)

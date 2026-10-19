@@ -1,4 +1,4 @@
-package builtin
+package tools
 
 import (
 	"encoding/json"
@@ -29,10 +29,10 @@ type searchFilesArgs struct {
 const mediaNote = "Images, audio and video match by what they show or sound like. You are shown the images " +
 	"found if you can see images; otherwise name the file to the user."
 
-// searchFiles is search_userfiles: a semantic search over the files the user
+// SearchFiles is search_userfiles: a semantic search over the files the user
 // uploaded (internal/files), the conversation's workspace's unless it says
 // otherwise.
-func searchFiles(d Deps) (toolx.Tool, error) {
+func SearchFiles(store *files.Store) (toolx.Tool, error) {
 	return toolx.New(toolx.Spec{
 		Name: searchFilesTool,
 		Description: "Search the files the user uploaded (documents, images, audio, video) by meaning: by default " +
@@ -44,7 +44,7 @@ func searchFiles(d Deps) (toolx.Tool, error) {
 		if query == "" {
 			return nil, errors.New("say what to look for in query")
 		}
-		hits, err := d.Files.Search(tc, tc.Thread.RootID, query, a.Files, a.All)
+		hits, err := store.Search(tc, tc.Thread.RootID, query, a.Files, a.All)
 		if err != nil {
 			return nil, err
 		}

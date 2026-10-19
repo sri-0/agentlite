@@ -11,7 +11,6 @@ import (
 	"agentlite/internal/mcp"
 	"agentlite/internal/runs"
 	"agentlite/internal/tools"
-	"agentlite/internal/tools/builtin"
 	"agentlite/pkg/toolx"
 )
 
@@ -58,20 +57,30 @@ func (rt *Runtime) buildTools(c config.Connector) ([]toolx.Tool, error) {
 	return built, nil
 }
 
-// switchable moves the builtin tools that do work in the world (image
-// generation, file search) out of the harness into connectors of their own,
-// after connectors.yaml's, so a thread switches them like any connector.
-// Agents that list a tool by name still get it.
-func (rt *Runtime) switchable() error {
-	for _, c := range builtin.Switchable {
-		t, ok := rt.harness[c.Tools[0]]
-		if !ok {
-			continue // not configured
+// ownSets adds the server's own connectors (tools.Own) after connectors.yaml's:
+// image generation when an image model is configured, file search when the
+// uploaded files are searchable. Agents that list their tool by name get it too.
+func (rt *Runtime) ownSets() error {
+	var own []toolx.Tool
+	if rt.images != nil {
+		t, err := tools.GenerateImage(rt.images)
+		if err != nil {
+			return err
 		}
+		own = append(own, t)
+	}
+	if rt.files.Searchable() {
+		t, err := tools.SearchFiles(rt.files)
+		if err != nil {
+			return err
+		}
+		own = append(own, t)
+	}
+	for _, t := range own {
+		c := tools.Own[t.Name()]
 		if slices.ContainsFunc(rt.connectors, func(k config.Connector) bool { return k.ID == c.ID }) {
 			return fmt.Errorf("connector id %q is the server's own; connectors.yaml can't use it", c.ID)
 		}
-		delete(rt.harness, t.Name())
 		rt.world[t.Name()] = t
 		rt.sets[c.ID] = toolx.Toolset(c.ID, []toolx.Tool{t})
 		rt.connectors = append(slices.Clip(rt.connectors), c) // never into the config's array
