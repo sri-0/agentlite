@@ -34,7 +34,7 @@ func TestParse(t *testing.T) {
 	if utf8.RuneCountInString(got[0]) != maxLen || !strings.HasSuffix(got[0], "…") {
 		t.Errorf("a long suggestion is %d runes, want %d ending in …", utf8.RuneCountInString(got[0]), maxLen)
 	}
-	if _, err := parse("Sure! Here are some ideas"); !errors.Is(err, errModel) {
-		t.Errorf("prose: err %v, want errModel", err)
+	if _, err := parse("Sure! Here are some ideas"); !errors.Is(err, ErrModel) {
+		t.Errorf("prose: err %v, want ErrModel", err)
 	}
 }

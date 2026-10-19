@@ -301,4 +301,5 @@ Also check, outside `models.yaml`:
 | `config/models.go` | `models.yaml` and its checks |
 | `internal/voice/voice.go` | the voice prompt: a recording to text |
 | `internal/suggest/suggest.go` | next-prompt suggestions: from the last turn the UI sends, what's typed, or both |
+| `internal/handler/suggestions.go` | `POST /v1/suggestions` |
 | `internal/files/embed.go` | multimodal embeddings for uploaded files |

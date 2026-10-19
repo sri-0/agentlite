@@ -61,7 +61,7 @@ func New(cfg *config.Config, h *handler.Handler) *echo.Echo {
 	e.GET("/v1/artifacts", h.RecentArtifacts)
 
 	// Next-prompt suggestions, from a thread, what's being typed, or both (internal/suggest).
-	e.POST("/v1/suggestions", h.Suggest.Handle)
+	e.POST("/v1/suggestions", h.Suggestions)
 
 	// Workspaces: the folders threads are filed under.
 	e.GET("/v1/workspaces", h.Workspaces)

@@ -65,7 +65,7 @@ internal/
   files/               files users upload: records (OpenSearch), bodies (S3), #id, the routes,
                        what is embedded (chunks), the search behind search_userfiles
   voice/               the voice prompt: a recording to text, and its route; apart from the agents
-  suggest/             next-prompt suggestions (from a thread, what's typed, or both) and their route; apart from the agents
+  suggest/             next-prompt suggestions (from the last turn, what's typed, or both); apart from the agents; the route is handler/suggestions.go
   images/              image generation and editing (Studio), every image an artifact; its
                        tool is tools/generate_image.go
   mcp/                 mcp connectors → adk toolsets

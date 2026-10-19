@@ -11,12 +11,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"net/http"
 	"strings"
 	"time"
 	"unicode/utf8"
 
-	"github.com/labstack/echo/v5"
 	"github.com/openai/openai-go/v3"
 	"github.com/openai/openai-go/v3/option"
 	"github.com/openai/openai-go/v3/shared"
@@ -35,7 +33,7 @@ const (
 // model that failed.
 var (
 	ErrEmpty = errors.New("messages or text is required")
-	errModel = errors.New("the suggestions model failed")
+	ErrModel = errors.New("the suggestions model failed")
 )
 
 // Request is what the suggestions start from: the conversation's last turn as
@@ -112,10 +110,10 @@ func (s *Suggester) Suggest(ctx context.Context, r Request) ([]string, error) {
 		}},
 	})
 	if err != nil {
-		return nil, fmt.Errorf("%w: %w", errModel, err)
+		return nil, fmt.Errorf("%w: %w", ErrModel, err)
 	}
 	if len(resp.Choices) == 0 {
-		return nil, fmt.Errorf("%w: it returned nothing", errModel)
+		return nil, fmt.Errorf("%w: it returned nothing", ErrModel)
 	}
 	return parse(resp.Choices[0].Message.Content)
 }
@@ -127,7 +125,7 @@ func parse(content string) ([]string, error) {
 		Suggestions []string `json:"suggestions"`
 	}
 	if err := json.Unmarshal([]byte(content), &reply); err != nil {
-		return nil, fmt.Errorf("%w: its reply isn't the JSON asked for: %w", errModel, err)
+		return nil, fmt.Errorf("%w: its reply isn't the JSON asked for: %w", ErrModel, err)
 	}
 	out := make([]string, 0, count)
 	for _, s := range reply.Suggestions {
@@ -144,26 +142,4 @@ func clip(s string, n int) string {
 		return s
 	}
 	return string([]rune(s)[:n-1]) + "…"
-}
-
-// Handle is POST /v1/suggestions: {messages?, text?} in, {suggestions: [...]}
-// out. Neither is 400.
-func (s *Suggester) Handle(c *echo.Context) error {
-	var r Request
-	if err := c.Bind(&r); err != nil {
-		return err
-	}
-	got, err := s.Suggest(c.Request().Context(), r)
-	var upstream *openai.Error
-	switch {
-	case errors.Is(err, ErrEmpty):
-		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
-	case errors.As(err, &upstream):
-		return echo.NewHTTPError(http.StatusBadGateway, "the suggestions model refused: "+upstream.Message).Wrap(err)
-	case errors.Is(err, errModel):
-		return echo.NewHTTPError(http.StatusBadGateway, errModel.Error()).Wrap(err)
-	case err != nil:
-		return err
-	}
-	return c.JSON(http.StatusOK, map[string][]string{"suggestions": got})
 }
