@@ -1,6 +1,7 @@
 package config
 
 import (
+	"cmp"
 	"errors"
 	"fmt"
 	"os"
@@ -75,8 +76,16 @@ type MemoryConfig struct {
 // VoiceConfig enables the voice prompt: the transcription model that turns a
 // recording into the text of a message (internal/voice).
 type VoiceConfig struct {
-	Model string `yaml:"model"`
+	Model   string        `yaml:"model"`
+	MaxMB   int           `yaml:"max_mb"`  // the largest recording; default 25, the providers' own limit
+	Timeout time.Duration `yaml:"timeout"` // one transcription; default 60s
 }
+
+// Voice defaults.
+const (
+	defaultVoiceMaxMB   = 25
+	defaultVoiceTimeout = 60 * time.Second
+)
 
 // ImagesConfig enables image generation (internal/images): the image model
 // the generate_image tool uses, and the Images page's default.
@@ -134,6 +143,9 @@ func loadModels(dir string) (*ModelsConfig, error) {
 		if err := c.check(); err != nil {
 			return nil, fmt.Errorf("models.yaml: compaction: %w", err)
 		}
+	}
+	if v := cfg.Voice; v != nil {
+		v.MaxMB, v.Timeout = cmp.Or(v.MaxMB, defaultVoiceMaxMB), cmp.Or(v.Timeout, defaultVoiceTimeout)
 	}
 	seen := map[string]bool{}
 	for i := range cfg.Providers {

@@ -210,8 +210,9 @@ provider. It is the server calling a provider itself, not the pass-through.
 The voice prompt (`internal/voice`) is apart from the agents. The composer records,
 converts the recording to 16 kHz mono WAV (what every Voxtral route accepts; browsers
 record WebM), and posts it to `POST /v1/voice/transcriptions` as a multipart `file`
-(25 MiB at most). The server sends it to `voice.model`'s `/audio/transcriptions`, the
-OpenAI route OpenRouter, vLLM and LiteLLM all serve, and replies `{text}`. 25 MiB of
+(`voice.max_mb`, default 25 MiB, at most). The server sends it to `voice.model`'s `/audio/transcriptions`, the
+OpenAI route OpenRouter, vLLM and LiteLLM all serve, waits up to `voice.timeout` (default
+60s), and replies `{text}`. 25 MiB of
 that WAV is about 13 minutes. The text
 goes into the composer, and is sent as if typed. Without a `voice` block in
 `models.yaml` the route is not registered.
@@ -234,3 +235,4 @@ Voxtral's weights on `/v1/audio/transcriptions` with its transcription prompt.
 | `internal/providers/embed.go` | embeddings for memory |
 | `config/models.go` | `models.yaml` and its checks |
 | `internal/voice/voice.go` | the voice prompt: a recording to text |
+| `internal/handler/voice.go` | `POST /v1/voice/transcriptions` |

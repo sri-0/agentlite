@@ -46,7 +46,7 @@ implements it, so imports run one way.
 | `internal/sources`, `internal/artifacts` | numbering and storing sources; storing artifacts (TOOLS.md) |
 | `internal/images` | `images.go` (making an image, keeping it as an artifact); its tool is `internal/tools/builtin/generate_image.go` (TOOLS.md) |
 | `internal/providers` | provider clients, model resolution, discovery, the pass-through, embeddings (MODELS.md) |
-| `internal/voice` | the voice prompt: `voice.go` (a recording to text, `POST /v1/voice/transcriptions`); apart from the agents (MODELS.md) |
+| `internal/voice` | the voice prompt: `voice.go` (a recording to text); apart from the agents; its route, `POST /v1/voice/transcriptions`, is `internal/handler/voice.go` (MODELS.md) |
 | `pkg/toolx`, `pkg/citations`, `pkg/transport`, `pkg/s3`, `pkg/modelcatalog` | the tool wrapper; the source contract; HTTP clients; S3 through minio-go; models and model cards |
 
 ## The life of a run
