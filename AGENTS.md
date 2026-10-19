@@ -64,13 +64,15 @@ internal/
   artifacts/           artifact records (OpenSearch) and bodies (S3)
   rag/userfiles/       files users upload: records (OpenSearch), bodies (S3), #id, the routes,
                        what is embedded (chunks), the search behind search_userfiles
-  voice/               the voice prompt: a recording to text, and its route; apart from the agents
+  voice/               the voice prompt: a recording to text; apart from the agents; the route is handler/voice.go
   suggest/             next-prompt suggestions (from the last turn, what's typed, or both); apart from the agents; the route is handler/suggestions.go
   images/              image generation and editing (Studio), every image an artifact; its
                        tool is tools/generate_image.go
   mcp/                 mcp connectors → adk toolsets
-  providers/           provider clients, model resolution and discovery, the pass-through
-                       proxy, embeddings
+  passthrough/         the pass-through proxy's endpoints: a JSON body's model, or the image
+                       edit's multipart form's, rewritten to the provider's id
+  providers/           provider clients, model resolution and discovery, forwarding a
+                       pass-through request, embeddings
 pkg/
   toolx/               the tool wrapper every function tool is built with
   citations/           the source contract: Source, Origin, Recorder, [source:N]
@@ -132,7 +134,7 @@ document-level security, is `not_found`. ARCHITECTURE.md has the frames.
 | GET | `/.well-known/agent-skills/index.json`, `/.well-known/agent-skills/{name}/{path}` | the skills discovery index and files `npx skills add <server>` reads (no credentials) |
 | GET | `/.well-known/opencode` | what `opencode auth login <server>` configures: models, exposed MCP servers, skills (docs/OPENCODE.md) |
 | any | `/mcp/{id}` | an MCP connector with `mcp.expose: true`, proxied for clients such as opencode |
-| POST | `/v1/chat/completions`, `/v1/responses`, `/v1/messages`, `/v1/embeddings`, `/v1/decisions`, `/v1/systemone` | pass-through to the provider the body's `model` names, with the model rewritten to the provider's own id; each endpoint takes only models of its types (MODELS.md) |
+| POST | `/v1/chat/completions`, `/v1/responses`, `/v1/messages`, `/v1/embeddings`, `/v1/images/generations`, `/v1/images/edits` (a multipart form), `/v1/decisions`, `/v1/systemone` | pass-through to the provider the body's `model` names, with the model rewritten to the provider's own id; each endpoint takes only models of its types (MODELS.md) |
 
 There is no authentication yet. The `Authorization` header on `POST /v1/agent/chat`
 is kept with that run and forwarded to connectors that opt in (TOOLS.md); turns

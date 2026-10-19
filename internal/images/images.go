@@ -14,22 +14,19 @@ import (
 	"fmt"
 	"io"
 	"strings"
-	"time"
 
 	"github.com/google/uuid"
 	"github.com/openai/openai-go/v3"
 	"github.com/openai/openai-go/v3/option"
 
+	"agentlite/config"
 	"agentlite/internal/artifacts"
 	"agentlite/internal/providers"
 	"agentlite/pkg/db/opensearch"
 	"agentlite/pkg/modelcatalog"
 )
 
-const (
-	timeout  = 3 * time.Minute // an image takes tens of seconds
-	titleLen = 80
-)
+const titleLen = 80
 
 // ErrInvalid is a request no model call can satisfy: no prompt, an unknown
 // model or one that makes no images, an edit of what is not an image.
@@ -40,16 +37,15 @@ type Studio struct {
 	registry  *providers.Registry
 	artifacts *artifacts.Store
 	records   *opensearch.Client
-	model     string // the default image model
-	editModel string // the model that edits on /images/edits; "": none
+	cfg       config.ImagesConfig
 }
 
-// New returns a studio whose images come from model unless a request names
-// another image model. With editModel, edits go to it on /images/edits
-// (vLLM-Omni); without, to the image's model on /images/generations with
-// OpenRouter's input_references.
-func New(registry *providers.Registry, store *artifacts.Store, records *opensearch.Client, model, editModel string) *Studio {
-	return &Studio{registry: registry, artifacts: store, records: records, model: model, editModel: editModel}
+// New returns a studio for the images block: its images come from cfg.Model
+// unless a request names another image model. With cfg.EditModel, edits go to
+// it on /images/edits (vLLM-Omni); without, to the image's model on
+// /images/generations with OpenRouter's input_references.
+func New(registry *providers.Registry, store *artifacts.Store, records *opensearch.Client, cfg config.ImagesConfig) *Studio {
+	return &Studio{registry: registry, artifacts: store, records: records, cfg: cfg}
 }
 
 // reference is the image an edit starts from.
@@ -85,7 +81,7 @@ func (s *Studio) Make(ctx context.Context, r Request) (*opensearch.Artifact, err
 		}
 		a.ID, a.Title, ref = original.ID, original.Title, &reference{body: body, mediaType: original.MediaType}
 	}
-	img, err := s.generate(ctx, cmp.Or(r.Model, s.model), r.Prompt, ref)
+	img, err := s.generate(ctx, cmp.Or(r.Model, s.cfg.Model), r.Prompt, ref)
 	if err != nil {
 		return nil, err
 	}
@@ -119,15 +115,15 @@ func (s *Studio) image(ctx context.Context, rootID, id string) (*opensearch.Arti
 // and the only one vLLM-Omni's edits take. A generation is paid for, so a
 // failed one is not retried.
 func (s *Studio) generate(ctx context.Context, model, prompt string, ref *reference) ([]byte, error) {
-	edits := ref != nil && s.editModel != ""
+	edits := ref != nil && s.cfg.EditModel != ""
 	if edits {
-		model = s.editModel
+		model = s.cfg.EditModel
 	}
 	t, err := s.registry.ResolveAs(model, modelcatalog.TypeImage)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrInvalid, err)
 	}
-	ctx, cancel := context.WithTimeout(ctx, timeout)
+	ctx, cancel := context.WithTimeout(ctx, s.cfg.Timeout)
 	defer cancel()
 	// Not openai.NewClient: it would add OPENAI_ORG_ID and the like from the
 	// environment to a request for another provider.
