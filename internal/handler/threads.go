@@ -55,33 +55,46 @@ func (h *Handler) Thread(c *echo.Context) error {
 	return c.JSON(http.StatusOK, item)
 }
 
-// UpdateThread renames a thread or changes its connectors.
+// UpdateThread renames a thread, changes its connectors, or moves it to a
+// workspace ("" takes it out of its workspace).
 func (h *Handler) UpdateThread(c *echo.Context) error {
 	ctx := c.Request().Context()
 	var body struct {
-		Title      string    `json:"title"`
-		Connectors *[]string `json:"connectors"`
+		Title       string    `json:"title"`
+		Connectors  *[]string `json:"connectors"`
+		WorkspaceID *string   `json:"workspace_id"`
 	}
 	if err := c.Bind(&body); err != nil {
 		return err
 	}
-	if body.Title == "" && body.Connectors == nil {
-		return echo.NewHTTPError(http.StatusBadRequest, "title or connectors is required")
+	if body.Title == "" && body.Connectors == nil && body.WorkspaceID == nil {
+		return echo.NewHTTPError(http.StatusBadRequest, "title, connectors or workspace_id is required")
 	}
 	if body.Connectors != nil {
 		if err := h.Config.CheckConnectors(*body.Connectors); err != nil {
 			return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 		}
 	}
+	if body.WorkspaceID != nil {
+		if err := h.checkWorkspace(ctx, *body.WorkspaceID); err != nil {
+			return err
+		}
+	}
 	t, err := h.Store.Thread(ctx, c.Param("id"))
 	if err != nil {
 		return err
+	}
+	if body.WorkspaceID != nil && t.ParentID != "" {
+		return fmt.Errorf("%w: a sub-agent's thread is filed with its conversation; move %s", runs.ErrInvalid, t.RootID)
 	}
 	if body.Title != "" {
 		t.Title = body.Title
 	}
 	if body.Connectors != nil {
 		t.Connectors = body.Connectors
+	}
+	if body.WorkspaceID != nil {
+		t.WorkspaceID = *body.WorkspaceID
 	}
 	if err := h.Store.SaveThread(ctx, t); err != nil {
 		return err
