@@ -17,9 +17,9 @@ import (
 	"agentlite/config"
 	"agentlite/internal/handler"
 	"agentlite/internal/handler/wellknown"
+	"agentlite/internal/passthrough"
 	"agentlite/internal/runs"
 	"agentlite/internal/skills"
-	"agentlite/internal/voice"
 	"agentlite/pkg/db/opensearch"
 	"agentlite/pkg/s3"
 )
@@ -93,8 +93,8 @@ func New(cfg *config.Config, h *handler.Handler) *echo.Echo {
 	e.Any("/mcp/:id", h.MCPProxy)
 
 	// The voice prompt: a recording in, its text out (internal/voice).
-	if h.Voice != nil {
-		e.POST("/v1/voice/transcriptions", h.Voice.Handle, middleware.BodyLimit(voice.MaxBytes+1<<20))
+	if v := cfg.Models.Voice; v != nil {
+		e.POST("/v1/voice/transcriptions", h.Transcribe, middleware.BodyLimit(int64(v.MaxMB+1)<<20)) // the recording, and the form around it
 	}
 
 	// Agent chat: a new thread, then the socket.
@@ -102,7 +102,7 @@ func New(cfg *config.Config, h *handler.Handler) *echo.Echo {
 	e.GET("/v1/agent/chat", h.Chat)
 
 	// Pass-through to the providers (/v1/chat/completions and the rest).
-	h.RegisterProxies(e)
+	passthrough.Register(e, h.Registry)
 	return e
 }
 

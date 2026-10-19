@@ -35,6 +35,7 @@ import (
 	"agentlite/internal/skills"
 	"agentlite/internal/sources"
 	"agentlite/internal/stream"
+	"agentlite/internal/tools"
 	"agentlite/internal/tools/builtin"
 	"agentlite/pkg/db/opensearch"
 	"agentlite/pkg/modelcatalog"
@@ -116,10 +117,17 @@ type Memory interface {
 func (rt *Runtime) Bind(ctx context.Context, d builtin.Dispatcher) error {
 	var err error
 	rt.harness, err = builtin.All(builtin.Deps{
-		Dispatcher: d, Defs: rt.defs, Artifacts: rt.artifacts, Skills: rt.skills, Images: rt.images, Log: rt.log,
+		Dispatcher: d, Defs: rt.defs, Artifacts: rt.artifacts, Skills: rt.skills, Log: rt.log,
 	})
 	if err != nil {
 		return err
+	}
+	if rt.images != nil { // a world tool, offered with the harness tools
+		generate, err := tools.GenerateImage(rt.images)
+		if err != nil {
+			return err
+		}
+		rt.harness[generate.Name()] = generate
 	}
 	if rt.skillset, err = rt.skills.Toolset(ctx); err != nil {
 		return err

@@ -164,9 +164,12 @@ func searchRecords(conn toolx.Connector) (toolx.Tool, error) {
 - A world tool is a `tools.Builder`, `func(toolx.Connector) (toolx.Tool, error)`,
   registered by name in `tools.Catalog`; the runtime builds each one with its connector,
   on that connector's one HTTP client. A tool is only offered through a connector.
+- `generate_image` is a world tool built on the image studio
+  (`tools.GenerateImage(*images.Studio)`, `internal/tools/generate_image.go`), with its
+  work in `internal/images`; the runtime offers it with the harness tools.
 - A harness tool (`internal/tools/builtin`, one file per tool) is built the same way from
   `builtin.Deps`; its work lives in its own package (`emit_artifact` → `internal/artifacts`,
-  `write_skill` → `internal/skills`, `generate_image` → `internal/images`).
+  `write_skill` → `internal/skills`).
 - Registries and `toolx.Toolset` accept only `toolx.Tool`, and
   `TestOnlyToolxBuildsFunctionTools` fails if any package but `toolx` imports
   `functiontool`.
@@ -256,15 +259,15 @@ next page's `after`, so ties never drop an artifact.
 ## Images
 
 `internal/images` makes images and keeps each as an `image` artifact, so every image is
-on the artifacts page. `generate_image {prompt, edit?}` (`internal/tools/builtin/generate_image.go`)
-is a harness tool, offered when `models.yaml` has an `images` block: it makes the image, saves
+on the artifacts page. `generate_image {prompt, edit?}` (`internal/tools/generate_image.go`)
+is offered to every agent, with the harness tools, when `models.yaml` has an `images` block: it makes the image, saves
 it, and shows it in the thread as an `artifact` activity (its calls carry the UI renderer
 `generate_image`). `edit` names an image of the conversation: the result is that
 artifact's next version, under its title. The image model is the turn's `imageModel`
 (`POST /v1/agent/chat` and the socket's `run`; the run keeps it, and a sub-agent inherits
 it), else `images.model`; an unknown or non-image model, no prompt, or an edit of what is
-not an image fails the call with the reason. A generation has 3 minutes and is not
-retried (each is paid for).
+not an image fails the call with the reason. A generation has `images.timeout` (default
+3 minutes) and is not retried (each is paid for).
 
 The Images page starts a conversation with the `images` agent
 (`config/default/agents/images.md`, whose one tool is `generate_image`) and the image
