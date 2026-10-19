@@ -83,6 +83,11 @@ func New(cfg *config.Config, h *handler.Handler) *echo.Echo {
 	e.GET("/.well-known/agent-skills/:name/*", wk.SkillFile, sandboxed)
 	e.Any("/mcp/:id", h.MCPProxy)
 
+	// The voice prompt: a recording in, its text out (internal/voice).
+	if v := cfg.Models.Voice; v != nil {
+		e.POST("/v1/voice/transcriptions", h.Transcribe, middleware.BodyLimit(int64(v.MaxMB+1)<<20)) // the recording, and the form around it
+	}
+
 	// Agent chat: a new thread, then the socket.
 	e.POST("/v1/agent/chat", h.StartThread)
 	e.GET("/v1/agent/chat", h.Chat)

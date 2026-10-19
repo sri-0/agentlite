@@ -78,7 +78,8 @@ agents can run on it (`modelcatalog.Type*`):
 | `embedding` | embeddings | `/v1/embeddings`; memory |
 | `audio` | speech and audio understanding (Voxtral: transcripts and questions about a recording) | `/v1/chat/completions`, with the audio in an `input_audio` part |
 | `decision` | typed answers to questions | `/v1/decisions`, `/v1/systemone` |
-| `rerank`, `transcription`, `speech` | relevance scores, speech to text, text to speech | none yet |
+| `transcription` | speech to text (Voxtral's speech-to-text route, Whisper) | the voice prompt, `POST /v1/voice/transcriptions` |
+| `rerank`, `speech` | relevance scores, text to speech | none yet |
 
 A type is taken from, in order, `models.yaml`, the provider's list, the model card;
 with none of them saying, a model is an `llm`. What providers report:
@@ -102,9 +103,9 @@ picker take `llm` models only, so it stays out of them.
 A type no endpoint takes (LiteLLM's `video_generation` or `ocr`) is kept as reported
 and refused everywhere. A run on a model that is not an `llm` is refused when it is
 queued (`400`), and memory refuses an embedding model of another type.
-`default_model` and `memory.embedding_model` must be in the list after the start's
-first discovery, declared in models.yaml or listed by their provider, as an `llm` and an
-`embedding` model: the server refuses to start otherwise. Declaring them keeps them
+`default_model`, `memory.embedding_model` and `voice.model` must be in the list after the start's
+first discovery, declared in models.yaml or listed by their provider, as an `llm`, an
+`embedding` and a `transcription` model: the server refuses to start otherwise. Declaring them keeps them
 listed even when their provider is down at the start.
 
 `models.yaml` entries, and only they, may also set where a model's requests go
@@ -200,6 +201,22 @@ resolves the id on every call (so a model discovery adds after start works) and
 calls the provider's `/embeddings` with the openai-go client built once per
 provider. It is the server calling a provider itself, not the pass-through.
 
+## Voice
+
+The voice prompt (`internal/voice`) is apart from the agents. The composer records,
+converts the recording to 16 kHz mono WAV (what every Voxtral route accepts; browsers
+record WebM), and posts it to `POST /v1/voice/transcriptions` as a multipart `file`
+(`voice.max_mb`, default 25 MiB, at most). The server sends it to `voice.model`'s `/audio/transcriptions`, the
+OpenAI route OpenRouter, vLLM and LiteLLM all serve, waits up to `voice.timeout` (default
+60s), and replies `{text}`. 25 MiB of
+that WAV is about 13 minutes. The text
+goes into the composer, and is sent as if typed. Without a `voice` block in
+`models.yaml` the route is not registered.
+
+On OpenRouter use `mistralai/voxtral-small-24b-2507-stt`: through that route
+`voxtral-mini-3b-2507` answers the recording instead of transcribing it. vLLM serves
+Voxtral's weights on `/v1/audio/transcriptions` with its transcription prompt.
+
 ## Code map
 
 | File | Role |
@@ -213,3 +230,5 @@ provider. It is the server calling a provider itself, not the pass-through.
 | `internal/providers/reverseproxy.go` | forwarding a pass-through request to its provider |
 | `internal/providers/embed.go` | embeddings for memory |
 | `config/models.go` | `models.yaml` and its checks |
+| `internal/voice/voice.go` | the voice prompt: a recording to text |
+| `internal/handler/voice.go` | `POST /v1/voice/transcriptions` |

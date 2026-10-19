@@ -47,6 +47,9 @@ providers:
         owned_by: openai
       - id: mistralai/voxtral-small-24b-2507   # discovered as an llm; it is for voice
         type: audio
+      - id: mistralai/voxtral-small-24b-2507-stt   # Voxtral Small's speech-to-text route; vLLM serves the weights offline
+        name: Voxtral Small (speech to text)
+        type: transcription
 
 # A model id is "<provider>/<model>": the provider's id, then the provider's
 # own name for the model (openrouter/openai/gpt-4.1-mini). A request goes to
@@ -81,3 +84,11 @@ compaction: { token_threshold: 0.85, keep_events: 20 }
 memory:
   embedding_model: openrouter/openai/text-embedding-3-small
   preload: false
+
+# The voice prompt (internal/voice): the composer's microphone records, this
+# transcription model turns it into text, and the text is sent as typed. Omit
+# the block and there is no voice prompt. `max_mb` is the largest recording
+# (default 25, the providers' own limit) and `timeout` one transcription's
+# (default 60s).
+voice:
+  model: openrouter/mistralai/voxtral-small-24b-2507-stt

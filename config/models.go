@@ -1,6 +1,7 @@
 package config
 
 import (
+	"cmp"
 	"errors"
 	"fmt"
 	"os"
@@ -20,6 +21,7 @@ type ModelsConfig struct {
 	Memory       *MemoryConfig `yaml:"memory"`
 	DefaultModel string        `yaml:"default_model"` // answers when a request names no model
 	Compaction   *Compaction   `yaml:"compaction"`    // nil disables context compaction
+	Voice        *VoiceConfig  `yaml:"voice"`         // nil disables the voice prompt
 }
 
 // Compaction configures adk's session compaction for every run. Tail
@@ -70,6 +72,20 @@ type MemoryConfig struct {
 	Preload bool `yaml:"preload"`
 }
 
+// VoiceConfig enables the voice prompt: the transcription model that turns a
+// recording into the text of a message (internal/voice).
+type VoiceConfig struct {
+	Model   string        `yaml:"model"`
+	MaxMB   int           `yaml:"max_mb"`  // the largest recording; default 25, the providers' own limit
+	Timeout time.Duration `yaml:"timeout"` // one transcription; default 60s
+}
+
+// Voice defaults.
+const (
+	defaultVoiceMaxMB   = 25
+	defaultVoiceTimeout = 60 * time.Second
+)
+
 // Provider is one OpenAI-compatible upstream. Secrets are named by environment
 // variable; base_url and header values may use ${ENV} expansion.
 type Provider struct {
@@ -113,6 +129,9 @@ func loadModels(dir string) (*ModelsConfig, error) {
 		if err := c.check(); err != nil {
 			return nil, fmt.Errorf("models.yaml: compaction: %w", err)
 		}
+	}
+	if v := cfg.Voice; v != nil {
+		v.MaxMB, v.Timeout = cmp.Or(v.MaxMB, defaultVoiceMaxMB), cmp.Or(v.Timeout, defaultVoiceTimeout)
 	}
 	seen := map[string]bool{}
 	for i := range cfg.Providers {
