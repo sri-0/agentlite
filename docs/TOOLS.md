@@ -276,8 +276,8 @@ it, and shows it in the thread as an `artifact` activity (its calls carry the UI
 artifact's next version, under its title. The image model is the turn's `imageModel`
 (`POST /v1/agent/chat` and the socket's `run`; the run keeps it, and a sub-agent inherits
 it), else `images.model`; an unknown or non-image model, no prompt, or an edit of what is
-not an image fails the call with the reason. A generation has 3 minutes and is not
-retried (each is paid for).
+not an image fails the call with the reason. A generation has `images.timeout` (default
+3 minutes) and is not retried (each is paid for).
 
 The Images page starts a conversation with the `images` agent
 (`config/default/agents/images.md`, whose one tool is `generate_image`) and the image
