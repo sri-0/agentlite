@@ -54,8 +54,8 @@ internal/
   hitl/                interrupt records in Valkey
   stream/              AG-UI conventions, adk → AG-UI encoder, storage coalescing
   tools/               world tools (calculate, webfetch, write_note, search_records); the
-                       catalog; tools/builtin: subagent, todowrite, question, emit_artifact,
-                       report_progress, write_skill, generate_image, search_userfiles
+                       catalog; search_userfiles; tools/builtin: subagent, todowrite, question,
+                       emit_artifact, report_progress, write_skill, generate_image
   skills/              the skills library: records in OpenSearch, files in S3, uploads, adk's
                        skill toolset, /name
   refs/                references in a message (/name, #id; later @agent), by sigil

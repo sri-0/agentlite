@@ -164,10 +164,12 @@ func searchRecords(conn toolx.Connector) (toolx.Tool, error) {
 - A world tool is a `tools.Builder`, `func(toolx.Connector) (toolx.Tool, error)`,
   registered by name in `tools.Catalog`; the runtime builds each one with its connector,
   on that connector's one HTTP client. A tool is only offered through a connector.
+- `search_userfiles` is a world tool built on the files store
+  (`tools.SearchFiles(*userfiles.Store)`, `internal/tools/search_userfiles.go`), with its
+  work in `internal/rag/userfiles`; the runtime offers it with the harness tools.
 - A harness tool (`internal/tools/builtin`, one file per tool) is built the same way from
   `builtin.Deps`; its work lives in its own package (`emit_artifact` → `internal/artifacts`,
-  `write_skill` → `internal/skills`, `generate_image` → `internal/images`,
-  `search_userfiles` → `internal/rag/userfiles`).
+  `write_skill` → `internal/skills`, `generate_image` → `internal/images`).
 - Registries and `toolx.Toolset` accept only `toolx.Tool`, and
   `TestOnlyToolxBuildsFunctionTools` fails if any package but `toolx` imports
   `functiontool`.
@@ -296,12 +298,12 @@ start. Deleting the root thread deletes its bodies, then its records.
 ## Files
 
 `internal/rag/userfiles` keeps the files users upload (FILES.md). `search_userfiles {query,
-files?, all?}` (`internal/tools/builtin/search_userfiles.go`) is a harness tool, offered
-when files are searchable (`models.yaml` has an `embedding` block): a semantic search
+files?, all?}` (`internal/tools/search_userfiles.go`) is offered to every agent, with the
+harness tools, when files are searchable (`models.yaml` has an `embedding` block): a semantic search
 over the files it names (from any workspace), else the conversation's workspace's, else
 with `all` every workspace's, returning the `search_hits` best chunks (`{hits: [{fileId,
 name, mediaType, seq, text?}]}`). A model whose card lists `vision` is shown the images
-found, after the result (`builtin.ShowFound`, a before-model callback: adk
+found, after the result (`tools.ShowFound`, a before-model callback: adk
 leaves media out of tool results); audio and video hits are named only.
 
 ## Tool UI renderers
