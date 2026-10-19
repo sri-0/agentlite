@@ -169,8 +169,7 @@ result, and the UI's model view shows it.
 ## The pass-through proxy
 
 These endpoints are forwarded as they are, each for the model types it takes
-(`internal/handler/passthrough.go`; serving another upstream endpoint is one more line
-there):
+(`internal/passthrough`; serving another upstream endpoint is one more line there):
 
 | Endpoint | API | Types |
 |---|---|---|
@@ -183,11 +182,12 @@ there):
 | `/v1/decisions` | OpenAI's decisions API (beta, Oct 2026) | `decision` |
 | `/v1/systemone` | TypeSafe's System One API (also vLLM, LiteLLM, DigitalOcean) | `decision` |
 
-The handler (`internal/handler/passthrough.go`) reads the whole body (within the server's
-body limit, `MAX_BODY_MB`, default 32: Echo's `BodyLimit`, a `413` above it) for its
-`model`: a JSON object's, or a multipart form's `model` field (an image edit's upload,
-whose other parts pass as they came, under the same boundary). It
-resolves it, checks its type, rewrites it to the upstream id, and forwards the
+`internal/passthrough` reads the whole body (within the server's body limit,
+`MAX_BODY_MB`, default 32: Echo's `BodyLimit`, a `413` above it) for its `model`: a JSON
+object's on every endpoint but `/v1/images/edits`, whose body is a multipart form (an
+image edit's upload), parsed with Go's `mime/multipart` and written out again with the
+new `model` and every other field and file as it came (each file with its own headers),
+under a new boundary. It resolves the model, checks its type, rewrites it to the upstream id, and forwards the
 request to that provider (or the model's own `base_url`) with the provider's key
 (`providers.Registry.Forward`), streaming the response back as it arrives. Refusals
 are Echo errors (`{"message": ...}`); a provider that cannot be reached is a `502`. A body without a `model` of the form
@@ -230,7 +230,7 @@ Voxtral's weights on `/v1/audio/transcriptions` with its transcription prompt.
 | `pkg/modelcatalog/cards.go` | the model card loader and lookup |
 | `internal/providers/client.go` | one client per provider (pkg/transport, TLS) |
 | `internal/providers/registry.go` | per-provider model lists, `Resolve`, discovery |
-| `internal/handler/passthrough.go` | the pass-through endpoints, their model types, the checks |
+| `internal/passthrough/passthrough.go` | the pass-through endpoints, their model types, the checks; JSON bodies, and the image edit's form |
 | `internal/providers/reverseproxy.go` | forwarding a pass-through request to its provider |
 | `internal/providers/embed.go` | embeddings for memory |
 | `config/models.go` | `models.yaml` and its checks |

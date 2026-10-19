@@ -23,8 +23,10 @@ Echo server (internal/server, internal/handler, internal/ws)
    │           encoder (internal/stream) turns adk events into AG-UI events
    │           written to the thread's log
    │
-   ├─ pass-through proxy (internal/providers): /v1/chat/completions, /v1/responses,
-   │    /v1/messages, /v1/embeddings, /v1/decisions, /v1/systemone → the provider the
+   ├─ pass-through proxy (internal/passthrough, forwarded by internal/providers):
+   │    /v1/chat/completions, /v1/responses, /v1/messages, /v1/embeddings,
+   │    /v1/images/generations, /v1/images/edits (a multipart form), /v1/decisions,
+   │    /v1/systemone → the provider the
    │    body's model names, for models of the endpoint's types, with the model
    │    rewritten to the provider's own id (MODELS.md)
    │
