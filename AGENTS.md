@@ -61,7 +61,7 @@ internal/
   refs/                references in a message (/name; later @agent, #id), by sigil
   sources/             numbers and stores the sources tools return
   artifacts/           artifact records (OpenSearch) and bodies (S3)
-  voice/               the voice prompt: a recording to text, and its route; apart from the agents
+  voice/               the voice prompt: a recording to text; apart from the agents; the route is handler/voice.go
   mcp/                 mcp connectors → adk toolsets
   providers/           provider clients, model resolution and discovery, the pass-through
                        proxy, embeddings

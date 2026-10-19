@@ -19,7 +19,6 @@ import (
 	"agentlite/internal/handler/wellknown"
 	"agentlite/internal/runs"
 	"agentlite/internal/skills"
-	"agentlite/internal/voice"
 	"agentlite/pkg/db/opensearch"
 	"agentlite/pkg/s3"
 )
@@ -85,8 +84,8 @@ func New(cfg *config.Config, h *handler.Handler) *echo.Echo {
 	e.Any("/mcp/:id", h.MCPProxy)
 
 	// The voice prompt: a recording in, its text out (internal/voice).
-	if h.Voice != nil {
-		e.POST("/v1/voice/transcriptions", h.Voice.Handle, middleware.BodyLimit(voice.MaxBytes+1<<20))
+	if v := cfg.Models.Voice; v != nil {
+		e.POST("/v1/voice/transcriptions", h.Transcribe, middleware.BodyLimit(int64(v.MaxMB+1)<<20)) // the recording, and the form around it
 	}
 
 	// Agent chat: a new thread, then the socket.

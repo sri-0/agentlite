@@ -100,7 +100,7 @@ func New(ctx context.Context) (_ *App, err error) {
 		mem = app.Memory
 	}
 	if v := cfg.Models.Voice; v != nil {
-		app.Voice = voice.New(app.Registry, v.Model)
+		app.Voice = voice.New(app.Registry, *v)
 	}
 	recorder := sources.New(app.Store)
 	files, err := s3.New(ctx, cfg.S3) // artifact bodies and skill files
