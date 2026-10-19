@@ -56,7 +56,8 @@ func Controlset(cfg ControlsetConfig) echo.MiddlewareFunc {
 		return func(c *echo.Context) error {
 			r := c.Request()
 			p := From(r.Context())
-			if r.Method != http.MethodPost || p == nil || slices.Contains(cfg.ExemptPaths, r.URL.Path) || slices.Contains(cfg.ExemptPaths, c.Path()) {
+			exempt := slices.Contains(cfg.ExemptPaths, r.URL.Path) || slices.Contains(cfg.ExemptPaths, c.Path())
+			if r.Method != http.MethodPost || p == nil || exempt {
 				return next(c)
 			}
 			values := r.Header.Values(cfg.Header)

@@ -335,7 +335,11 @@ func update[T any, P interface {
 }](ctx context.Context, c *Client, index, id string, create bool, edit func(P) bool) (P, error) {
 	for try := range writeTries {
 		if try > 0 { // a random while, so writers that collided do not collide again
-			time.Sleep(rand.N(min(10*time.Millisecond<<try, time.Second)))
+			select {
+			case <-time.After(rand.N(min(10*time.Millisecond<<try, time.Second))):
+			case <-ctx.Done():
+				return nil, ctx.Err()
+			}
 		}
 		found, pos, err := getAt[T, P](ctx, c, index, id)
 		doc, params := P(found), opensearchapi.IndexParams{Refresh: "true", IfSeqNo: &pos.seq, IfPrimaryTerm: &pos.term}

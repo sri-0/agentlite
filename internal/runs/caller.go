@@ -14,10 +14,10 @@ import (
 )
 
 // Tokens are the thread tokens runs call OpenSearch with (internal/sts):
-// one per conversation and user, minted from subject, the user's access
-// token, when none is kept.
+// one per conversation and user, minted from the user's access token when
+// none is kept.
 type Tokens interface {
-	Source(ctx context.Context, rootID, controlset, userID, subject string) (oauth2.TokenSource, error)
+	Source(ctx context.Context, rootID, controlset string, user auth.Principal) (oauth2.TokenSource, error)
 }
 
 // caller is who a segment's OpenSearch calls are made for: the user who
@@ -28,11 +28,14 @@ func (m *Manager) caller(ctx context.Context, run *Run, u auth.Principal) (opens
 	if run.Controlset == "" { // queued before control sets: it could read and write nothing
 		return opensearch.Caller{}, fmt.Errorf("%w: the run has no control set; start a new turn", ErrInvalid)
 	}
-	src, err := m.tokens.Source(ctx, run.RootID, run.Controlset, u.Subject, u.Token)
+	src, err := m.tokens.Source(ctx, run.RootID, run.Controlset, u)
 	if err != nil {
 		return opensearch.Caller{}, err
 	}
-	return opensearch.Caller{Token: src, Username: u.Username, Controlsets: []string{run.Controlset}, Controlset: run.Controlset}, nil
+	return opensearch.Caller{
+		Token: src, Username: u.Username,
+		Controlsets: []string{run.Controlset}, Controlset: run.Controlset,
+	}, nil
 }
 
 // entry is what a queued segment carries of its user. The access token is

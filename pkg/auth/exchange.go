@@ -66,7 +66,7 @@ func (c *Client) Exchange(ctx context.Context, subject string, header http.Heade
 	if got.RefreshToken == "" {
 		return Token{}, errors.New("token exchange: no refresh token was issued")
 	}
-	return token(got, time.Time{}), nil
+	return token(got), nil
 }
 
 // Refresh renews a token with its refresh token; the new refresh token, when
@@ -77,12 +77,13 @@ func (c *Client) Refresh(ctx context.Context, refresh string) (Token, error) {
 	if err := refused(err, "token refresh"); err != nil {
 		return Token{}, err
 	}
-	return token(got, time.Time{}), nil
+	return token(got), nil
 }
 
 // refused maps an endpoint's refusal (400, 401) to ErrRefused.
 func refused(err error, what string) error {
-	if e, ok := errors.AsType[*oauth2.RetrieveError](err); ok && (e.Response.StatusCode == http.StatusBadRequest || e.Response.StatusCode == http.StatusUnauthorized) {
+	e, ok := errors.AsType[*oauth2.RetrieveError](err)
+	if ok && (e.Response.StatusCode == http.StatusBadRequest || e.Response.StatusCode == http.StatusUnauthorized) {
 		return fmt.Errorf("%w: %s: %s %s", ErrRefused, what, e.ErrorCode, e.ErrorDescription)
 	}
 	if err != nil {
@@ -92,9 +93,10 @@ func refused(err error, what string) error {
 }
 
 // token is an endpoint's response as a Token: refresh_expires_in, when it
-// says (Keycloak does), is the refresh token's lifetime; else refreshExpiry.
-func token(t *oauth2.Token, refreshExpiry time.Time) Token {
-	tok := Token{Access: t.AccessToken, AccessExpiry: t.Expiry, Refresh: t.RefreshToken, RefreshExpiry: refreshExpiry}
+// says (Keycloak does), is the refresh token's lifetime; else it is unknown
+// (zero), and a kept token's stands (Source).
+func token(t *oauth2.Token) Token {
+	tok := Token{Access: t.AccessToken, AccessExpiry: t.Expiry, Refresh: t.RefreshToken}
 	if s, ok := t.Extra("refresh_expires_in").(float64); ok && s > 0 {
 		tok.RefreshExpiry = time.Now().Add(time.Duration(s) * time.Second)
 	}

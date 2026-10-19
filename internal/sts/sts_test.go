@@ -69,7 +69,7 @@ func TestSource(t *testing.T) {
 	var wg sync.WaitGroup
 	for range 20 {
 		wg.Go(func() {
-			src, err := s.Source(t.Context(), "root", "C1000", "alice", "good")
+			src, err := s.Source(t.Context(), "root", "C1000", auth.Principal{Subject: "alice", Token: "good"})
 			if err == nil {
 				_, err = src.Token()
 			}
@@ -82,26 +82,26 @@ func TestSource(t *testing.T) {
 	if n := ep.exchanges.Load(); n != 1 || ep.headers[0] != "C1000" {
 		t.Fatalf("%d exchanges, header %q; want 1, C1000", n, ep.headers[0])
 	}
-	if _, err := s.Source(t.Context(), "root", "C1000", "alice", ""); err != nil || ep.exchanges.Load() != 1 {
+	if _, err := s.Source(t.Context(), "root", "C1000", auth.Principal{Subject: "alice", Token: ""}); err != nil || ep.exchanges.Load() != 1 {
 		t.Fatalf("kept token: %v, %d exchanges", err, ep.exchanges.Load())
 	}
-	if _, err := s.Source(t.Context(), "root", "C1000", "bob", ""); !errors.Is(err, ErrSignIn) {
+	if _, err := s.Source(t.Context(), "root", "C1000", auth.Principal{Subject: "bob", Token: ""}); !errors.Is(err, ErrSignIn) {
 		t.Fatalf("bob without a subject: got %v, want ErrSignIn", err)
 	}
-	if _, err := s.Source(t.Context(), "other", "C1000", "alice", "expired"); !errors.Is(err, ErrSignIn) || !errors.Is(err, auth.ErrRefused) {
+	if _, err := s.Source(t.Context(), "other", "C1000", auth.Principal{Subject: "alice", Token: "expired"}); !errors.Is(err, ErrSignIn) || !errors.Is(err, auth.ErrRefused) {
 		t.Fatalf("refused exchange: got %v, want ErrSignIn", err)
 	}
 	// A kept token near its end is minted again rather than used.
 	kept, _ := s.cache.Get(key("root", "alice"))
 	kept.RefreshExpiry = time.Now().Add(time.Minute)
 	s.cache.Put(key("root", "alice"), kept)
-	if _, err := s.Source(t.Context(), "root", "C1000", "alice", "good"); err != nil || ep.exchanges.Load() != 2 {
+	if _, err := s.Source(t.Context(), "root", "C1000", auth.Principal{Subject: "alice", Token: "good"}); err != nil || ep.exchanges.Load() != 2 {
 		t.Fatalf("near its end: %v, %d exchanges; want a new one", err, ep.exchanges.Load())
 	}
 	kept, _ = s.cache.Get(key("root", "alice"))
 	kept.RefreshExpiry = time.Now().Add(time.Minute)
 	s.cache.Put(key("root", "alice"), kept)
-	if _, err := s.Source(t.Context(), "root", "C1000", "alice", ""); !errors.Is(err, ErrSignIn) {
+	if _, err := s.Source(t.Context(), "root", "C1000", auth.Principal{Subject: "alice", Token: ""}); !errors.Is(err, ErrSignIn) {
 		t.Fatalf("near its end without a subject: got %v, want ErrSignIn", err)
 	}
 }

@@ -108,7 +108,7 @@ func (m *Manager) prepare(ctx context.Context, in StartInput, run *Run) error {
 		return err
 	}
 	if in.ParentID == "" {
-		if _, err := m.tokens.Source(ctx, thread.RootID, thread.ControlsetID, in.User.Subject, in.User.Token); err != nil {
+		if _, err := m.tokens.Source(ctx, thread.RootID, thread.ControlsetID, in.User); err != nil {
 			return err
 		}
 	}

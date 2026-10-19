@@ -63,23 +63,23 @@ func New(client *auth.Client, cfg Config, log zerolog.Logger) *STS {
 func key(rootID, userID string) string { return rootID + "\x00" + userID }
 
 // Source returns the thread token of the conversation and user, minting one
-// from subject (the user's access token) when none is kept, or the one kept
-// is near its end. Without a subject only a kept one will do. controlset is
-// the conversation's, sent on the exchange.
-func (s *STS) Source(ctx context.Context, rootID, controlset, userID, subject string) (oauth2.TokenSource, error) {
-	k := key(rootID, userID)
-	log := s.log.With().Str("user_id", userID).Str("root_id", rootID).Str("controlset_id", controlset).Logger()
+// from the user's access token when none is kept, or the one kept is near
+// its end. A user without a token (one a queue entry carries) gets only a
+// kept one. controlset is the conversation's, sent on the exchange.
+func (s *STS) Source(ctx context.Context, rootID, controlset string, user auth.Principal) (oauth2.TokenSource, error) {
+	k := key(rootID, user.Subject)
+	log := s.log.With().Str("user_id", user.Subject).Str("root_id", rootID).Str("controlset_id", controlset).Logger()
 	if kept, ok := s.cache.Get(k); ok && time.Until(kept.RefreshExpiry) > s.cfg.MinLife {
 		return source{s.client.Source(s.cache, k, s.cfg.EarlyExpiry, log)}, nil
 	}
-	if subject == "" {
+	if user.Token == "" {
 		logging.Audit(log).Msg("thread token refused: none is kept and the request carries no token")
 		return nil, fmt.Errorf("%w: no thread token is kept for this conversation", ErrSignIn)
 	}
 	_, err, _ := s.group.Do(k, func() (any, error) {
 		header := http.Header{}
 		header.Set(s.cfg.ControlsetHeader, controlset)
-		tok, err := s.client.Exchange(ctx, subject, header)
+		tok, err := s.client.Exchange(ctx, user.Token, header)
 		if err == nil {
 			s.cache.Put(k, tok)
 			logging.Audit(log).Time("refresh_expiry", tok.RefreshExpiry).Msg("thread token minted")
