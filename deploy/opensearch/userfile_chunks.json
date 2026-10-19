@@ -39,6 +39,12 @@
           "engine": "lucene"
         }
       },
+      "created_at": {
+        "type": "date"
+      },
+      "updated_at": {
+        "type": "date"
+      },
       "controlset_id": {
         "type": "keyword"
       },

@@ -47,19 +47,23 @@ indices:
 	    jq .mappings $$f | $(CURL) -XPUT $(OPENSEARCH_URL)/$$i/_mapping -d @-; \
 	  else $(CURL) -XPUT $(OPENSEARCH_URL)/$$i -d @$$f; fi && echo " $$i"; done
 
-# Labels every document that has no control set yet (docs/AUTH.md): in every
-# index named with the prefix, sets controlset_id (BACKFILL_CONTROLSET) and,
-# where missing, user_created_by and user_updated_by (BACKFILL_USER). It first
-# adds the three fields to each index's mapping, so indices that make indices
-# does not manage take them too. Documents without a controlset_id are
-# invisible to every user once DLS is on. Safe to run again: it only touches
-# unlabelled ones.
+# Marks every document that lacks a mark (docs/AUTH.md): in every index named
+# with the prefix, sets, where missing, controlset_id (BACKFILL_CONTROLSET),
+# user_created_by and user_updated_by (BACKFILL_USER), created_at (the
+# document's own retrieved_at if it has one, else now) and updated_at (its
+# created_at). It first adds the five fields to each index's mapping, so
+# indices that make indices does not manage take them too. Documents without
+# a controlset_id are invisible to every user once DLS is on. Safe to run
+# again: it only touches what is missing.
 BACKFILL_CONTROLSET ?= C1000
 BACKFILL_USER ?= alice
-BACKFILL_MAPPING = {"properties": {"controlset_id": {"type": "keyword"}, "user_created_by": {"type": "keyword"}, "user_updated_by": {"type": "keyword"}}}
-BACKFILL_QUERY = {"query": {"bool": {"must_not": {"exists": {"field": "controlset_id"}}}}, "script": {"lang": "painless", "params": {"cs": "$(BACKFILL_CONTROLSET)", "user": "$(BACKFILL_USER)"}, "source": "ctx._source.controlset_id = params.cs; if (ctx._source.user_created_by == null) { ctx._source.user_created_by = params.user } if (ctx._source.user_updated_by == null) { ctx._source.user_updated_by = params.user }"}}
+BACKFILL_NOW = $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
+BACKFILL_MAPPING = {"properties": {"controlset_id": {"type": "keyword"}, "user_created_by": {"type": "keyword"}, "user_updated_by": {"type": "keyword"}, "created_at": {"type": "date"}, "updated_at": {"type": "date"}}}
+BACKFILL_MISSING = {"bool": {"should": [{"bool": {"must_not": {"exists": {"field": "controlset_id"}}}}, {"bool": {"must_not": {"exists": {"field": "created_at"}}}}, {"bool": {"must_not": {"exists": {"field": "updated_at"}}}}], "minimum_should_match": 1}}
+BACKFILL_SCRIPT = if (ctx._source.controlset_id == null) { ctx._source.controlset_id = params.cs } if (ctx._source.user_created_by == null) { ctx._source.user_created_by = params.user } if (ctx._source.user_updated_by == null) { ctx._source.user_updated_by = params.user } if (ctx._source.created_at == null) { ctx._source.created_at = ctx._source.retrieved_at != null ? ctx._source.retrieved_at : params.now } if (ctx._source.updated_at == null) { ctx._source.updated_at = ctx._source.created_at }
+BACKFILL_QUERY = {"query": $(BACKFILL_MISSING), "script": {"lang": "painless", "params": {"cs": "$(BACKFILL_CONTROLSET)", "user": "$(BACKFILL_USER)", "now": "$(BACKFILL_NOW)"}, "source": "$(BACKFILL_SCRIPT)"}}
 backfill:
 	@for i in $$($(CURL) '$(OPENSEARCH_URL)/_cat/indices/$(OPENSEARCH_INDEX_PREFIX)*?h=index&s=index'); do \
 	  $(CURL) -o /dev/null -XPUT $(OPENSEARCH_URL)/$$i/_mapping -d '$(BACKFILL_MAPPING)' && \
 	  r=$$($(CURL) -XPOST "$(OPENSEARCH_URL)/$$i/_update_by_query?conflicts=proceed&refresh=true" -d '$(BACKFILL_QUERY)') && \
-	  echo "$$r" | jq -r --arg i $$i '"\($$i): \(.updated) of \(.total) labelled, \(.failures | length) failures"' || exit 1; done
+	  echo "$$r" | jq -r --arg i $$i '"\($$i): \(.updated) of \(.total) marked, \(.failures | length) failures"' || exit 1; done
