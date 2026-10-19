@@ -69,7 +69,8 @@ func (c *Client) DeleteFile(ctx context.Context, id string) error {
 }
 
 // indexFileChunks holds what files hold, embedded for search: a text file's
-// chunks, an image, audio or video whole.
+// chunks, an image, audio or video whole. It is the default name;
+// models.yaml's embedding.index can name another (Config.ChunkIndex).
 const indexFileChunks = "userfile_chunks"
 
 // FileChunk is one embedded piece of a file. It repeats the file's name,
@@ -91,7 +92,7 @@ func (c *Client) SaveFileChunks(ctx context.Context, chunks []FileChunk) error {
 	var body bytes.Buffer
 	enc := json.NewEncoder(&body)
 	for _, ch := range chunks {
-		if err := enc.Encode(map[string]any{"index": map[string]any{"_index": c.ix(indexFileChunks), "_id": ch.ID}}); err != nil {
+		if err := enc.Encode(map[string]any{"index": map[string]any{"_index": c.ix(c.chunks), "_id": ch.ID}}); err != nil {
 			return err
 		}
 		if err := enc.Encode(ch); err != nil {
@@ -100,12 +101,12 @@ func (c *Client) SaveFileChunks(ctx context.Context, chunks []FileChunk) error {
 	}
 	resp, err := c.api.Bulk(ctx, opensearchapi.BulkReq{Body: &body, Params: &opensearchapi.BulkParams{Refresh: "true"}})
 	if err != nil {
-		return fmt.Errorf("bulk %s: %w", indexFileChunks, err)
+		return fmt.Errorf("bulk %s: %w", c.chunks, err)
 	}
 	for _, item := range resp.Items {
 		if r := item.Index; r != nil && r.Error != nil {
 			cause, _ := json.Marshal(r.Error)
-			return fmt.Errorf("bulk %s: %s", indexFileChunks, cause)
+			return fmt.Errorf("bulk %s: %s", c.chunks, cause)
 		}
 	}
 	return nil
@@ -124,7 +125,7 @@ func (c *Client) SearchFileChunks(
 	case workspaceID != nil:
 		knn["filter"] = inWorkspace(*workspaceID)
 	}
-	return search[FileChunk](ctx, c, indexFileChunks, map[string]any{
+	return search[FileChunk](ctx, c, c.chunks, map[string]any{
 		"size": k, "_source": map[string]any{"excludes": []string{"embedding"}},
 		"query": map[string]any{"knn": map[string]any{"embedding": knn}},
 	})
@@ -137,5 +138,5 @@ const knnCandidates = 100
 
 // DeleteFileChunks removes a file's chunks.
 func (c *Client) DeleteFileChunks(ctx context.Context, fileID string) error {
-	return c.deleteWhere(ctx, indexFileChunks, "file_id", fileID)
+	return c.deleteWhere(ctx, c.chunks, "file_id", fileID)
 }

@@ -89,7 +89,10 @@ an image, audio or video whole. A model refusal is `502` with the model's messag
 nothing is kept; a failed upload's body and chunks are removed even if the client has
 gone. A text is searchable up to `searchable_text_mb`; a bigger one is `400`.
 
-The chunks go to the `userfile_chunks` index (`deploy/opensearch/userfile_chunks.json`):
+The chunks go to the `userfile_chunks` index, or the one `embedding.index` names in
+`models.yaml`, after the deployment's prefix like every index (`user_ai_userfile_chunks`
+by default; `deploy/opensearch/userfile_chunks.json`, created by `make indices`, which
+takes the same name as `CHUNK_INDEX=…`):
 a chunk is `{id: <file id>:<seq>, file_id, name, media_type, workspace_id?, seq, text?,
 embedding}`, a
 768-dimension kNN vector (cosine, HNSW on Lucene), repeating the file's name, type and

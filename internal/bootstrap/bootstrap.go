@@ -93,7 +93,14 @@ func New(ctx context.Context) (_ *App, err error) {
 	if err != nil {
 		return nil, err
 	}
-	if app.Store, err = opensearch.New(cfg.OpenSearch); err != nil {
+	store := cfg.OpenSearch
+	if e := cfg.Models.Embedding; e != nil {
+		store.ChunkIndex = e.Index
+	}
+	if m := cfg.Models.Memory; m != nil {
+		store.MemoryIndex = m.Index
+	}
+	if app.Store, err = opensearch.New(store); err != nil {
 		return nil, err
 	}
 	app.Sessions = valkeysession.New(sessionsDB)

@@ -213,7 +213,8 @@ OpenSearch indices: `threads`, `messages` (events stored unindexed), `sources`,
 `skills` (the skills library, one record per skill; its files are in S3; SKILLS.md),
 `workspaces`, `userfiles` (the records of files users upload for RAG; FILES.md),
 `userfile_chunks` (the files' chunks, kNN vectors; FILES.md), `memories` (long-term
-memory entries, kNN vectors of the same model; MEMORY.md).
+memory entries, kNN vectors of the same model; MEMORY.md); `models.yaml` can rename these
+two (`embedding.index`, `memory.index`).
 Every name starts with `OPENSEARCH_INDEX_PREFIX` (default `user_ai_`:
 `user_ai_threads`, `user_ai_userfiles`, …), added in one place
 (`opensearch.Client.ix`), so deployments can share a cluster; `make indices` uses the
