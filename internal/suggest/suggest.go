@@ -6,6 +6,7 @@
 package suggest
 
 import (
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -58,15 +59,18 @@ type Message struct {
 type Suggester struct {
 	registry *providers.Registry
 	model    string
+	prompt   string // the system prompt
 }
 
-// New returns a suggester that asks model, an LLM.
-func New(registry *providers.Registry, model string) *Suggester {
-	return &Suggester{registry: registry, model: model}
+// New returns a suggester that asks model, an LLM, with the system prompt
+// prompt ("": defaultPrompt).
+func New(registry *providers.Registry, model, prompt string) *Suggester {
+	return &Suggester{registry: registry, model: model, prompt: cmp.Or(prompt, defaultPrompt)}
 }
 
-// instruction tells the model what to write and in which shape.
-const instruction = `You suggest what the user could send next to an AI assistant. ` +
+// defaultPrompt tells the model what to write and in which shape;
+// suggestions.prompt in models.yaml replaces it.
+const defaultPrompt = `You suggest what the user could send next to an AI assistant. ` +
 	`Write exactly three short messages in the user's own voice, as they would type them: ` +
 	`each a different direction, at most twelve words, no numbering, no quotes. ` +
 	`When the user has started typing, each one completes or sharpens what they typed; ` +
@@ -103,7 +107,7 @@ func (s *Suggester) Suggest(ctx context.Context, r Request) ([]string, error) {
 	)
 	resp, err := chat.New(ctx, openai.ChatCompletionNewParams{
 		Model:    target.Model.UpstreamID,
-		Messages: []openai.ChatCompletionMessageParamUnion{openai.SystemMessage(instruction), openai.UserMessage(input)},
+		Messages: []openai.ChatCompletionMessageParamUnion{openai.SystemMessage(s.prompt), openai.UserMessage(input)},
 		ResponseFormat: openai.ChatCompletionNewParamsResponseFormatUnion{OfJSONSchema: &shared.ResponseFormatJSONSchemaParam{
 			JSONSchema: shared.ResponseFormatJSONSchemaJSONSchemaParam{Name: "suggestions", Schema: schema, Strict: openai.Bool(true)},
 		}},

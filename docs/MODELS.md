@@ -247,7 +247,8 @@ second after they stop. The server reads nothing stored, so it never waits on it
 of an answer that has just ended. It takes the last two messages and the typed text (each
 cut to 4,000 characters), asks `suggestions.model` (`default_model` without the block) for
 three short messages in the user's voice (following the answer, or completing what is
-typed), as JSON held to a schema, and replies `{suggestions: [...]}`: at most three, each at
+typed), as JSON held to a schema; `suggestions.prompt`, when set, replaces the built-in
+system prompt, and replies `{suggestions: [...]}`: at most three, each at
 most 80 characters. Nothing is kept. `400` with neither; `502` when the model fails.
 
 ## Disconnected deployment

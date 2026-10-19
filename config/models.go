@@ -112,9 +112,11 @@ type ImagesConfig struct {
 }
 
 // SuggestionsConfig is the small LLM that proposes what the user might send
-// next once a turn is answered (internal/suggest).
+// next once a turn is answered (internal/suggest), and its system prompt
+// ("": the built-in one).
 type SuggestionsConfig struct {
-	Model string `yaml:"model"`
+	Model  string `yaml:"model"`
+	Prompt string `yaml:"prompt"`
 }
 
 // FilesConfig is the files block (internal/files, docs/FILES.md): limits on

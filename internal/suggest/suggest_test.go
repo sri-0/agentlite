@@ -40,7 +40,7 @@ func TestSuggestRefuses(t *testing.T) {
 		{"blank messages", Request{Messages: []Message{{"assistant", " "}}}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
-			if _, err := New(nil, "m").Suggest(context.Background(), tc.r); !errors.Is(err, ErrEmpty) {
+			if _, err := New(nil, "m", "").Suggest(context.Background(), tc.r); !errors.Is(err, ErrEmpty) {
 				t.Errorf("err %v, want ErrEmpty", err)
 			}
 		})
