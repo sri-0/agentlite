@@ -54,14 +54,15 @@ internal/
   hitl/                interrupt records in Valkey
   stream/              AG-UI conventions, adk → AG-UI encoder, storage coalescing
   tools/               world tools (calculate, webfetch, write_note, search_records); the
-                       catalog; generate_image; tools/builtin: subagent, todowrite, question,
-                       emit_artifact, report_progress, write_skill
+                       catalog; generate_image and search_userfiles; tools/builtin: subagent,
+                       todowrite, question, emit_artifact, report_progress, write_skill
   skills/              the skills library: records in OpenSearch, files in S3, uploads, adk's
                        skill toolset, /name
   refs/                references in a message (/name, #id; later @agent), by sigil
   sources/             numbers and stores the sources tools return
   artifacts/           artifact records (OpenSearch) and bodies (S3)
-  rag/userfiles/       files users upload for RAG: records (OpenSearch), bodies (S3), #id, the routes
+  rag/userfiles/       files users upload: records (OpenSearch), bodies (S3), #id, the routes,
+                       what is embedded (chunks), the search behind search_userfiles
   voice/               the voice prompt: a recording to text; apart from the agents; the route is handler/voice.go
   images/              image generation and editing (Studio), every image an artifact; its
                        tool is tools/generate_image.go
@@ -78,7 +79,8 @@ pkg/
                        proxy the pass-through and the MCP proxy share
   opencode/            what opencode reads from /.well-known/opencode
   s3/                  S3-compatible object storage (minio-go)
-  db/opensearch/       threads, messages, memories (kNN), sources, artifacts, skills; typed queries
+  db/opensearch/       threads, messages, memories and file chunks (kNN), sources, artifacts,
+                       skills, userfiles; typed queries
   db/valkey/           Valkey settings and a client per logical database
   memory/              adk memory.Service on OpenSearch
   session/valkey/      adk session.Service on Valkey
@@ -152,7 +154,8 @@ plus what the YAML references (
 headers and MCP endpoints.
 
 - `models.yaml`: `providers[]` (`id, base_url, api_key_env, api: chat_completions|responses,
-  headers, discover, models[], tls`), `default_model`, `compaction`, `memory`. A model id is
+  headers, discover, models[], tls`), `default_model`, `compaction`, `memory`, `voice`,
+  `images`, `files` (FILES.md). A model id is
   `<provider>/<model>` and routes only to that provider (MODELS.md); models are declared by
   the provider's own id and override, field by field, discovery and the model cards, with
   an optional per-model `base_url` and `api`. A provider with an empty `base_url` is skipped.

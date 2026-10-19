@@ -16,10 +16,10 @@ func TestParse(t *testing.T) {
 		want           []Model
 	}{
 		{"/models", `{"data":[{"id":"openai/gpt-4.1","name":"GPT-4.1","context_length":1047576,
-			"supported_parameters":["tools","reasoning"],"architecture":{"input_modalities":["text","image"]}},
+			"supported_parameters":["tools","reasoning"],"architecture":{"input_modalities":["text","image","file"]}},
 			{"id":"Qwen/Qwen3-32B","max_model_len":32768}]}`, []Model{
 			{ID: "openai/gpt-4.1", Name: "GPT-4.1", ContextLength: 1047576, SupportedParameters: []string{"tools", "reasoning"},
-				Architecture: Architecture{InputModalities: []string{"text", "image"}}, Capabilities: []string{CapToolCalling, CapReasoning, CapVision}},
+				Architecture: Architecture{InputModalities: []string{"text", "image", "file"}}, Capabilities: []string{CapToolCalling, CapReasoning, CapVision, CapFiles}},
 			{ID: "Qwen/Qwen3-32B", ContextLength: 32768, Capabilities: []string{}},
 		}},
 		{"/model/info", `{"data":[{"model_name":"glm-4.6","model_info":{"mode":"chat","max_input_tokens":200000,"supports_function_calling":true}},

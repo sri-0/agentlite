@@ -35,7 +35,7 @@ and goes there. A provider whose discovery fails keeps its last successful listi
 (only its `models.yaml` models until discovery first succeeds), and a request for
 any other model is refused rather than sent elsewhere. Runs
 check the model before they are queued (`runs.Start`, a `400` on the thread POST),
-`default_model` and `memory.embedding_model` must start with a provider id
+`default_model` and `embedding.model` must start with a provider id
 (checked at start), and the pass-through refuses with a `400`.
 
 A thread can change model between turns. The thread record keeps the last turn's
@@ -75,7 +75,7 @@ agents can run on it (`modelcatalog.Type*`):
 |---|---|---|
 | `llm` | chat, completions, responses | `/v1/chat/completions`, `/v1/responses`, `/v1/messages`; agent runs |
 | `image` | image generation and editing | `images.model` (the `generate_image` tool's default; a turn's `imageModel` picks another; made on `/images/generations`; edited by `images.edit_model` on `/images/edits`, or without it there with the original in OpenRouter's `input_references`; TOOLS.md); `/v1/images/generations` and `/v1/images/edits` passed through; `/v1/chat/completions` (vLLM-Omni serves Qwen-Image and Qwen-Image-Edit there, returning images in `message.content`; OpenRouter generates images there) |
-| `embedding` | embeddings | `/v1/embeddings`; memory |
+| `embedding` | embeddings | `/v1/embeddings`; `embedding.model`: memory and the files (FILES.md) |
 | `audio` | speech and audio understanding (Voxtral: transcripts and questions about a recording) | `/v1/chat/completions`, with the audio in an `input_audio` part |
 | `decision` | typed answers to questions | `/v1/decisions`, `/v1/systemone` |
 | `transcription` | speech to text (Voxtral's speech-to-text route, Whisper) | the voice prompt, `POST /v1/voice/transcriptions` |
@@ -103,10 +103,10 @@ picker take `llm` models only, so it stays out of them.
 A type no endpoint takes (LiteLLM's `video_generation` or `ocr`) is kept as reported
 and refused everywhere. A run on a model that is not an `llm` is refused when it is
 queued (`400`), and memory refuses an embedding model of another type.
-`default_model`, `memory.embedding_model`, `voice.model`, `images.model` and `images.edit_model` must be in the list
-after the start's first discovery, declared in models.yaml or listed by their provider, as an
-`llm`, an `embedding`, a `transcription` and `image` models: the server refuses to start
-otherwise. Declaring them keeps them
+`default_model`, `embedding.model`, `voice.model`, `images.model` and `images.edit_model`
+must be in the list after the start's first discovery, declared in models.yaml or listed by
+their provider, as an `llm`, an `embedding`, a `transcription` and `image` models: the
+server refuses to start otherwise. Declaring them keeps them
 listed even when their provider is down at the start.
 
 `models.yaml` entries, and only they, may also set where a model's requests go
@@ -147,7 +147,7 @@ reaches a provider.
 The development provider `openrouter` takes its base URL from `OPENROUTER_BASE_URL`;
 unset (production) it is skipped like any provider without a base URL, so a model id
 naming it is refused instead of reaching openrouter.ai. `default_model` and
-`memory.embedding_model` must name a provider the environment has: the server
+`embedding.model` must name a provider the environment has: the server
 refuses to start otherwise, rather than refusing every run that names no model.
 
 ## Model cards
@@ -159,7 +159,8 @@ checked out locally and named by `MODEL_CARDS_DIR`. Empty, there are no cards.
 A card's path mirrors the model's OpenRouter id (`anthropic/claude-sonnet-4.5.md`),
 so one card serves every provider of that model; `aliases` lists the names other
 providers use. The frontmatter holds the model's fields (name, description,
-context length, max output tokens, capabilities, architecture, pricing in US
+context length, max output tokens, capabilities (`tool_calling`, `reasoning`, `vision`
+for images and `files` for PDFs as input, two separate things), architecture, pricing in US
 dollars per million tokens, benchmarks, licence, release date, knowledge cutoff,
 sources), and the body is notes on what the model is good at and its limits. The
 cards are reread every refresh (10 minutes), so a pulled card needs no restart; a
@@ -200,10 +201,26 @@ field.
 
 ## Embeddings
 
-Long-term memory embeds text through `providers.Registry.Embedder(id)`, which
-resolves the id on every call (so a model discovery adds after start works) and
-calls the provider's `/embeddings` with the openai-go client built once per
-provider. It is the server calling a provider itself, not the pass-through.
+One model embeds for long-term memory and the files: `models.yaml`'s `embedding` block
+(`model`, `dimensions`, `query_prefix`, `document_prefix`), behind
+`providers.Registry.Embedder` (`internal/providers/embed.go`), which resolves the model
+on every call (so one discovery adds after start works). It is the server calling a
+provider itself, not the pass-through, and it speaks the OpenAI embeddings API with
+openai-go's typed client and nothing per provider:
+
+- texts: `input: [texts]`, `encoding_format: "float"`, and `dimensions` when the block
+  sets it (0 leaves it out, for a model whose vectors are the index's size anyway: vLLM
+  refuses `dimensions` for EmbeddingGemma 2, vllm#60977);
+- an image, audio or video: the API takes only text, so `input` is one chat message
+  holding the file as a content part, `[{role: "user", content: [part]}]`, the rest of
+  the request as typed. vLLM (main since 2026-06) and OpenRouter's Gemini Embedding 2
+  take that. The part is OpenAI's `image_url` or `input_audio`; video, which OpenAI has
+  no part for, vLLM's `video_url`.
+
+The prefixes are for a model trained with them (EmbeddingGemma 2: `task: search result |
+query: ` and `title: none | text: `); empty, nothing is added. The memory and file
+chunk indexes are both sized for 768 dimensions, so the model's vectors must be that
+size, and changing the model means re-embedding both.
 
 ## Voice
 
@@ -221,6 +238,38 @@ On OpenRouter use `mistralai/voxtral-small-24b-2507-stt`: through that route
 `voxtral-mini-3b-2507` answers the recording instead of transcribing it. vLLM serves
 Voxtral's weights on `/v1/audio/transcriptions` with its transcription prompt.
 
+## Disconnected deployment
+
+The server itself fetches nothing from the internet: every model call goes to a
+provider in `models.yaml`. `openrouter` is for development only: without
+`OPENROUTER_BASE_URL` it is skipped, and a model id naming it is refused, never sent.
+`config/default/models.yaml` names OpenRouter models for every feature, so a disconnected deployment brings its own config
+(`CONFIG_DIR`) that names local models. Run them on `vllm`, or `litellm` in front of
+local servers, and declare the non-LLM models under the provider's `models:` with their
+`type` (discovery reads `/models`, which doesn't say what a model is):
+
+| Feature | `models.yaml` | Local server |
+|---|---|---|
+| Agents and chat | `default_model: vllm/<llm>` | vLLM, chat completions (or `/v1/responses` through LiteLLM) |
+| Embeddings: long-term memory and file search | `embedding: {model: vllm/google/embeddinggemma-2, dimensions: 0, query_prefix: "task: search result \| query: ", document_prefix: "title: none \| text: "}` (`type: embedding`) | vLLM with EmbeddingGemma 2 support (main since 2026-10-06, so a nightly until the next release): `--runner pooling --dtype bfloat16`; text, images, audio and video. Its vectors are 768, the size of the `memories` and `userfile_chunks` indexes. Avoid sm_86 and sm_120 GPUs until vllm#60847 is fixed |
+| Voice prompt | `voice.model: vllm/mistralai/Voxtral-Small-24B-2507` (`type: transcription`) | vLLM serves Voxtral on `/v1/audio/transcriptions` |
+| Image generation and edits | `images: {model: vllm/Qwen/Qwen-Image-2.1, edit_model: vllm/Qwen/Qwen-Image-2.1}` (`type: image`, each with the `base_url` of its server) | vLLM-Omni (`vllm serve <model> --omni`, one model per server): makes on `/v1/images/generations`, edits on `/v1/images/edits`. Qwen-Image 2.1 does both; earlier Qwen-Image models edit with Qwen-Image-Edit on a second server, its `edit_model` (TOOLS.md) |
+| Model descriptions | `MODEL_CARDS_DIR`: a checkout of the model-cards repository | none |
+
+Leave out a feature's block and the feature is off: no voice route, no
+`generate_image`, files kept but not searchable, no memory.
+
+Also check, outside `models.yaml`:
+- **Connectors:** the `web` connector (`webfetch`) reads public web pages. Drop it from
+  `connectors.yaml`, or limit it to internal sites. MCP connectors (`slides`:
+  `OPEN_SLIDE_MCP_URL`) must point at servers inside the network.
+- **Tracing:** exported only when `OTEL_EXPORTER_OTLP_ENDPOINT` is set (to the local
+  Jaeger, say).
+- **Building and running:** Go modules (an internal `GOPROXY`, or `go mod vendor`), the
+  container images in `docker-compose.yaml` (OpenSearch, Valkey, MinIO, Jaeger) from an
+  internal registry, and the UI's npm packages. The UI's fonts are an npm package
+  (sri-0/agentui#28), not Google Fonts.
+
 ## Code map
 
 | File | Role |
@@ -232,7 +281,7 @@ Voxtral's weights on `/v1/audio/transcriptions` with its transcription prompt.
 | `internal/providers/registry.go` | per-provider model lists, `Resolve`, discovery |
 | `internal/passthrough/passthrough.go` | the pass-through endpoints, their model types, the checks; JSON bodies, and the image edit's form |
 | `internal/providers/reverseproxy.go` | forwarding a pass-through request to its provider |
-| `internal/providers/embed.go` | embeddings for memory |
+| `internal/providers/embed.go` | the one embedder: memory's, and the uploaded files' (text, images, audio, video) |
 | `config/models.go` | `models.yaml` and its checks |
 | `internal/voice/voice.go` | the voice prompt: a recording to text |
 | `internal/handler/voice.go` | `POST /v1/voice/transcriptions` |

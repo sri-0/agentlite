@@ -58,6 +58,7 @@ type Runtime struct {
 	artifacts    *artifacts.Store
 	skills       *skills.Library
 	images       *images.Studio // nil when no image model is configured
+	files        *userfiles.Store
 	refs         refs.Resolvers // what a message's /name, @agent, #id refer to
 	log          zerolog.Logger
 
@@ -83,7 +84,7 @@ type Deps struct {
 	Skills    *skills.Library
 	Artifacts *artifacts.Store
 	Images    *images.Studio   // nil when no image model is configured
-	Files     *userfiles.Store // uploaded files, which a message names with #id
+	Files     *userfiles.Store // uploaded files: #id, and search_userfiles when searchable
 	Log       zerolog.Logger
 }
 
@@ -92,7 +93,7 @@ func New(cfg *config.Config, d Deps) *Runtime {
 	rt := &Runtime{
 		appName: cfg.AppName, defs: cfg.Defs(), registry: d.Registry, sessions: d.Sessions, memory: d.Memory,
 		defaultModel: cfg.Models.DefaultModel, compact: cfg.Models.Compaction, servers: d.Servers,
-		sources: d.Sources, artifacts: d.Artifacts, skills: d.Skills, images: d.Images,
+		sources: d.Sources, artifacts: d.Artifacts, skills: d.Skills, images: d.Images, files: d.Files,
 		refs: refs.Resolvers{'/': d.Skills, '#': d.Files}, log: d.Log,
 		connectors: cfg.Connectors, transport: cfg.Transport,
 		mcpTools: newMCPTools(cfg.Connectors),
@@ -121,6 +122,13 @@ func (rt *Runtime) Bind(ctx context.Context, d builtin.Dispatcher) error {
 	})
 	if err != nil {
 		return err
+	}
+	if rt.files.Searchable() { // a world tool, offered with the harness tools
+		search, err := tools.SearchFiles(rt.files)
+		if err != nil {
+			return err
+		}
+		rt.harness[search.Name()] = search
 	}
 	if rt.images != nil { // a world tool, offered with the harness tools
 		generate, err := tools.GenerateImage(rt.images)
@@ -202,6 +210,10 @@ func (rt *Runtime) Run(ctx context.Context, in runs.Input, sink stream.Sink) (ru
 	if err != nil {
 		return fail(err)
 	}
+	target, err := rt.registry.ResolveAs(run.Model, modelcatalog.TypeLLM)
+	if err != nil {
+		return fail(err)
+	}
 	watch := &compactionWatch{sink: sink}
 	compact, err := rt.compaction(ctx, run.Model, watch)
 	if err != nil {
@@ -219,7 +231,7 @@ func (rt *Runtime) Run(ctx context.Context, in runs.Input, sink stream.Sink) (ru
 	ctx = platform.WithUUIDProvider(stream.WithSink(ctx, sink), func() string { return uuid.Must(uuid.NewV7()).String() }) // adk's event ids too
 	ctx = toolx.WithRun(ctx, toolx.Run{
 		Thread: toolx.Thread{ID: run.ThreadID, RootID: run.RootID, RunID: run.ID},
-		Model:  run.Model, Connectors: run.Connectors, ImageModel: run.ImageModel,
+		Model:  run.Model, Card: &target.Model, Connectors: run.Connectors, ImageModel: run.ImageModel,
 		Authorization: in.Authorization,
 		Sources:       rt.sources,
 	})

@@ -22,9 +22,9 @@ session in a detached goroutine, so storing never delays the answer
 
 `pkg/memory.Service.AddSessionToMemory` takes the session's latest turn (the
 last user message and everything after it) and, for each text event in it
-(user or model; tool calls and reasoning are skipped), embeds the text with the
-configured embedding model and indexes one document in the OpenSearch
-`memories` index:
+(user or model; tool calls and reasoning are skipped), embeds the texts with the
+embedding block's model (one request) and indexes one document each in the
+OpenSearch `memories` index:
 
 ```
 { id, thread_id, author, text, embedding (kNN vector), created_at }
@@ -66,15 +66,24 @@ Jaeger shows it. With preload off, recall costs nothing until the agent asks.
 
 ```yaml
 # models.yaml
+embedding:                 # the one embedding model, memory's and the files' (MODELS.md)
+  model: openrouter/google/gemini-embedding-2
+  dimensions: 768
 memory:
-  embedding_model: openai/text-embedding-3-small   # must be served by a provider
   preload: false
+  index: memories          # optional; the default
 ```
 
-Omit the block and there is no memory: no tools, no storing. The `memories` index
-is created with the others (`make indices`, ARCHITECTURE.md) for 1536-dimension
-vectors (`deploy/opensearch/memories.json`); a model with another size needs that
-file changed and the index recreated.
+Omit the `memory` block and there is no memory: no tools, no storing; it needs the
+`embedding` block. Entries are in the `memories` index, or the one `memory.index` names,
+after the deployment's prefix like every index (`user_ai_memories` by default;
+`deploy/opensearch/memories.json`, created with the others by `make indices`, which takes
+the same name as `MEMORY_INDEX=…`; ARCHITECTURE.md), sized for 768-dimension
+vectors like the files' chunks: a model of another size needs both files changed and the
+indexes recreated, and a new model means
+re-embedding what is there (vectors of two models don't mix). What is remembered is
+embedded as documents, a search as a query (the block's prefixes); a turn's texts go in
+one request.
 
 ## Swapping it
 

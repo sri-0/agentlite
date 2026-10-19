@@ -20,6 +20,7 @@ import (
 	"agentlite/internal/runs"
 	"agentlite/internal/skills"
 	"agentlite/internal/stream"
+	"agentlite/internal/tools"
 	"agentlite/internal/tools/builtin"
 )
 
@@ -65,6 +66,10 @@ func (rt *Runtime) buildLLM(ctx context.Context, def config.AgentDef, run *runs.
 			fns = append(fns, preloadmemorytool.New())
 		}
 	}
+	var beforeModel []llmagent.BeforeModelCallback
+	if rt.files.Searchable() && card.HasVision() {
+		beforeModel = append(beforeModel, tools.ShowFound(rt.files))
+	}
 	maxTokens := def.MaxOutputTokens
 	if maxTokens == 0 {
 		maxTokens = cmp.Or(min(card.MaxOutputTokens, maxOutputTokens), defaultMaxOutputTokens)
@@ -79,6 +84,7 @@ func (rt *Runtime) buildLLM(ctx context.Context, def config.AgentDef, run *runs.
 		GenerateContentConfig:    &genai.GenerateContentConfig{MaxOutputTokens: int32(maxTokens)},
 		DisallowTransferToParent: true,
 		DisallowTransferToPeers:  true,
+		BeforeModelCallbacks:     beforeModel,
 		BeforeToolCallbacks:      []llmagent.BeforeToolCallback{rt.fillThreadArgs},
 		AfterToolCallbacks:       []llmagent.AfterToolCallback{rt.recordURLArtifact},
 	})

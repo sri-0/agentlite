@@ -7,7 +7,9 @@ import (
 	"github.com/opensearch-project/opensearch-go/v5/opensearchapi"
 )
 
-// indexMemories holds long-term memory entries with their embeddings.
+// indexMemories holds long-term memory entries with their embeddings, from
+// models.yaml's embedding block like the file chunks'. It is the default
+// name; models.yaml's memory.index can name another (Config.MemoryIndex).
 const indexMemories = "memories"
 
 // Memory is one remembered piece of conversation.
@@ -23,19 +25,19 @@ type Memory struct {
 // SaveMemory upserts a memory entry. Nothing reads one back at once, so the
 // index refreshes on its own schedule.
 func (c *Client) SaveMemory(ctx context.Context, m *Memory) error {
-	return c.write(ctx, indexMemories, m.ID, m, opensearchapi.IndexParams{})
+	return c.write(ctx, c.memories, m.ID, m, opensearchapi.IndexParams{})
 }
 
 // DeleteMemories deletes a thread's memory entries.
 func (c *Client) DeleteMemories(ctx context.Context, threadID string) error {
-	return c.deleteWhere(ctx, indexMemories, "thread_id", threadID)
+	return c.deleteWhere(ctx, c.memories, "thread_id", threadID)
 }
 
 // SearchMemories returns the k entries nearest to the vector, leaving out the
 // entries of one thread (the one asking, whose turns are already in context).
 func (c *Client) SearchMemories(ctx context.Context, vector []float32, k int, excludeThread string) ([]Memory, error) {
 	notThread := map[string]any{"bool": map[string]any{"must_not": map[string]any{"term": map[string]any{"thread_id": excludeThread}}}}
-	return search[Memory](ctx, c, indexMemories, map[string]any{
+	return search[Memory](ctx, c, c.memories, map[string]any{
 		"size": k, "_source": map[string]any{"excludes": []string{"embedding"}},
 		"query": map[string]any{"knn": map[string]any{"embedding": map[string]any{"vector": vector, "k": k, "filter": notThread}}},
 	})
