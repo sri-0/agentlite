@@ -15,11 +15,11 @@ import (
 	"agentlite/config"
 	"agentlite/internal/agents"
 	"agentlite/internal/artifacts"
-	"agentlite/internal/files"
 	"agentlite/internal/hitl"
 	"agentlite/internal/images"
 	"agentlite/internal/mcp"
 	"agentlite/internal/providers"
+	"agentlite/internal/rag/userfiles"
 	"agentlite/internal/runs"
 	"agentlite/internal/skills"
 	"agentlite/internal/sources"
@@ -46,7 +46,7 @@ type App struct {
 	Suggest   *suggest.Suggester
 	Artifacts *artifacts.Store
 	Skills    *skills.Library
-	Files     *files.Store
+	Files     *userfiles.Store
 	Agents    *agents.Runtime
 	Runs      *runs.Manager
 
@@ -95,7 +95,14 @@ func New(ctx context.Context) (_ *App, err error) {
 	if err != nil {
 		return nil, err
 	}
-	if app.Store, err = opensearch.New(cfg.OpenSearch); err != nil {
+	store := cfg.OpenSearch
+	if e := cfg.Models.Embedding; e != nil {
+		store.ChunkIndex = e.Index
+	}
+	if m := cfg.Models.Memory; m != nil {
+		store.MemoryIndex = m.Index
+	}
+	if app.Store, err = opensearch.New(store); err != nil {
 		return nil, err
 	}
 	app.Sessions = valkeysession.New(sessionsDB)
@@ -125,11 +132,11 @@ func New(ctx context.Context) (_ *App, err error) {
 	}
 	app.Artifacts = artifacts.New(app.Store, bucket, recorder, app.Log)
 	app.Skills = skills.New(app.Store, bucket, app.Log)
-	var filesEmbedder files.Embedder // nil without one (a nil *providers.Embedder in it would not be)
+	var filesEmbedder userfiles.Embedder // nil without one (a nil *providers.Embedder in it would not be)
 	if embedder != nil {
 		filesEmbedder = embedder
 	}
-	app.Files = files.New(app.Store, bucket, cfg.Models.Files, filesEmbedder)
+	app.Files = userfiles.New(app.Store, bucket, cfg.Models.Files, filesEmbedder)
 	var studio *images.Studio // nil without an image model: no generate_image
 	if m := cfg.Models.Images; m != nil {
 		studio = images.New(app.Registry, app.Artifacts, app.Store, m.Model, m.EditModel)

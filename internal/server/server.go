@@ -81,7 +81,7 @@ func New(cfg *config.Config, h *handler.Handler) *echo.Echo {
 	skill.GET("/files/*", h.SkillFile, sandboxed)
 	skill.PUT("/files/*", h.WriteSkillFile, middleware.BodyLimit(skills.MaxBytes))
 
-	// Files users upload for RAG, which a message names with #id (internal/files).
+	// Files users upload for RAG, which a message names with #id (internal/rag/userfiles).
 	e.GET("/v1/rag/files", h.Files.ListFiles)
 	e.POST("/v1/rag/files", h.Files.PostFile, middleware.BodyLimit(h.Files.MaxBytes()+1<<20)) // the file, and the form around it
 	file := e.Group("/v1/rag/files/:id", uuidID)

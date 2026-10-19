@@ -6,6 +6,7 @@ package opensearch
 
 import (
 	"bytes"
+	"cmp"
 	"context"
 	"encoding/json"
 	"errors"
@@ -25,6 +26,10 @@ type Config struct {
 	Username    string `env:"USERNAME"`
 	Password    string `env:"PASSWORD"`
 	IndexPrefix string `env:"INDEX_PREFIX, default=user_ai_"`
+	// The file chunks' and the memories' indexes, without the prefix, from
+	// models.yaml (embedding.index, memory.index) rather than the
+	// environment; "" is indexFileChunks or indexMemories.
+	ChunkIndex, MemoryIndex string
 }
 
 // Index names, without the deployment's prefix (Client.ix adds it).
@@ -71,8 +76,9 @@ var (
 
 // Client is the OpenSearch store.
 type Client struct {
-	api    *opensearchapi.Client
-	prefix string
+	api              *opensearchapi.Client
+	prefix           string
+	chunks, memories string // the two indexes models.yaml can name
 }
 
 // New returns a client of the cluster.
@@ -84,7 +90,8 @@ func New(cfg Config) (*Client, error) {
 	if err != nil {
 		return nil, fmt.Errorf("opensearch: %w", err)
 	}
-	return &Client{api: api, prefix: cfg.IndexPrefix}, nil
+	return &Client{api: api, prefix: cfg.IndexPrefix,
+		chunks: cmp.Or(cfg.ChunkIndex, indexFileChunks), memories: cmp.Or(cfg.MemoryIndex, indexMemories)}, nil
 }
 
 // pageSize is how many entries a page of a list holds: 50 unless the client
@@ -246,7 +253,7 @@ func get[T any](ctx context.Context, c *Client, index, id string) (*T, error) {
 // evidence of what was said. The threads go last, so a failure can be retried.
 func (c *Client) DeleteThread(ctx context.Context, rootID string) error {
 	for _, d := range []struct{ index, field string }{
-		{indexMessages, "root_id"}, {indexMemories, "thread_id"}, {indexThreads, "root_id"},
+		{indexMessages, "root_id"}, {c.memories, "thread_id"}, {indexThreads, "root_id"},
 	} {
 		if err := c.deleteWhere(ctx, d.index, d.field, rootID); err != nil {
 			return err
