@@ -23,26 +23,33 @@ func (m *Manager) Cancel(ctx context.Context, threadID string) error {
 	}
 	switch run.Status {
 	case StatusQueued, StatusAwaitingInput:
-		return m.closeCancelled(ctx, run)
+		if closed, err := m.closeCancelled(ctx, run, run.Status); closed || err != nil {
+			return err
+		}
+		// A worker took it, or an answer resumed it: stop it as a running run.
 	}
-	// The flag catches a run that pauses before the message reaches its worker.
+	// The flag catches a run that pauses, or subscribes, before the message
+	// reaches its worker.
 	if err := m.store.requestCancel(ctx, run.ID); err != nil {
 		return err
 	}
 	return m.store.publish(ctx, ctlChannel(run.ID), "cancel")
 }
 
-// closeCancelled ends a run that has no worker executing it: its interrupts
-// are closed and a cancelled segment is written, so the stored turn ends as
-// cancelled too.
-func (m *Manager) closeCancelled(ctx context.Context, run *Run) error {
+// closeCancelled ends a run no worker is executing, if it is still in from:
+// its interrupts are closed and a cancelled segment is written, so the stored
+// turn ends as cancelled too. False when the run moved first.
+func (m *Manager) closeCancelled(ctx context.Context, run *Run, from Status) (bool, error) {
+	if closed, err := m.store.transition(ctx, run.ID, from, StatusCancelled); !closed || err != nil {
+		return false, err
+	}
 	if err := m.hitl.Cancel(ctx, run.ThreadID); err != nil {
-		return err
+		return true, err
 	}
 	sink := m.sinkFor(ctx, run)
 	enc := stream.NewEncoder(run.ThreadID, run.ID, run.Model, sink.Emit)
 	enc.Start(run.TurnID, run.AgentID)
 	enc.Cancel()
-	m.settle(sink, StatusCancelled, run.Result, "")
-	return nil
+	m.record(sink, StatusCancelled, run.Result, "")
+	return true, nil
 }

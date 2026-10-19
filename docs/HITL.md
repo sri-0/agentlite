@@ -38,15 +38,18 @@ run executes ─► tool raises confirmation ─► adk stops the loop
    │  toolCallId, message: hint, metadata: {toolName, args, request?}}
    ├─ RUN_FINISHED {outcome: {type: "interrupt", interrupts: [...]}}
    ├─ worker (internal/runs/worker.go): status awaiting_input; hitl.Add stores each
-   │  interrupt (internal/hitl); the thread's lease is made permanent while paused
+   │  interrupt (internal/hitl); the thread's lease lives as long as the run record
+   │  while paused (7 days); a failure to record them fails the run instead
    └─ finalizer persists the turn so far
 
 user answers over the socket:
    {type: "answer", requestId, threadId, interruptId, approved, justification} | {…, output}
    │
    ├─ ws (internal/ws/conn.go) ─► Manager.Answer (internal/runs/answer.go): the run
-   │  must be paused and the interrupt pending on that thread; hitl.Decide moves
-   │  it from the pending set to the decided set in one script
+   │  must be paused and the interrupt pending on that thread; hitl.Decide marks
+   │  the record resolved with a compare-and-set on it (SET … IFEQ the JSON just
+   │  read), then adds it to the decided set before taking it out of the pending
+   │  one, so whoever sees none pending finds every answer decided
    ├─ more interrupts still pending: ack, and the run stays paused
    ├─ the last one answered: the run is moved back to queued (a compare-and-set
    │  on awaiting_input, so two last answers cannot both resume it), every
@@ -79,17 +82,18 @@ child thread. The parent is not involved in answering it:
 parent run                               child run (child thread)
 ──────────                               ────────────────────────
 subagent(report-writer, prompt) ───────► starts, works…
-  waits for the child to end             write_note ─► confirmation ─► paused
-  (the parent's run keeps running;         (hitl record on the child thread,
-   its model is not called)                 RUN_FINISHED interrupt on its log)
-  the call's log follower sees the
-  pause on the child's log and puts
-  the requests on the agent card ──────► parent thread: card "Needs you", with
+  follows the child's log until it ends   write_note ─► confirmation ─► paused
+  (the parent's run keeps running, its     (hitl record on the child thread,
+   worker slot given back; its model is     RUN_FINISHED interrupt on its log)
+   not called)
+  the call sees the pause on the child's
+  log and puts the requests on the
+  agent card ──────────────────────────► parent thread: card "Needs you", with
                                            the request and Approve / Deny
 user answers on the card:
   {type: "answer", threadId: <child>, interruptId, approved…}  ─► child resumes,
                                                                     keeps working
-  the follower sees the child's next segment start and clears the request
+  the call sees the child's next segment start and clears the request
   the child ends ─► subagent returns {result} to the parent's model
 ```
 
@@ -108,7 +112,7 @@ thread and interrupt, and the second answer gets `not_paused`.
   cancelled while it is pausing is closed as cancelled, not left paused.
 - **Durability.** The child's pause is durable: it survives a server restart and
   can be answered afterwards from its own thread. The parent's wait is a running
-  run holding one worker slot. A shutdown ends the parent's turn as cancelled
+  run that has given its worker slot back. A shutdown ends the parent's turn as cancelled
   but leaves the child alone, so its request stays answerable; its result just
   no longer reaches the parent. (opencode keeps neither across a restart.)
 
@@ -120,7 +124,7 @@ thread and interrupt, and the second answer gets `not_paused`.
 | Valkey DB `REDIS_DB_HITL`: `hitl:{interruptId}` | the interrupt record: thread, run, reason, tool name, args (the questions for a question), message, status (`pending`, `resolved`, `cancelled`), decision, timestamps | 7 days |
 | Valkey DB `REDIS_DB_HITL`: `hitl:thread:{thread}:pending` | the set of a thread's open interrupt ids | removed as each is decided or cancelled |
 | Valkey DB `REDIS_DB_HITL`: `hitl:thread:{thread}:decided` | the ids answered while others are still open | taken when the last is answered; deleted on cancel |
-| Valkey DB `REDIS_DB_RUNS`: `run:{id}`, `thread:{id}:run` | run status `awaiting_input`; the lease, made permanent while paused | run: 7 days |
+| Valkey DB `REDIS_DB_RUNS`: `run:{id}:status`, `thread:{id}:run` | run status `awaiting_input`; the lease, kept as long as the record while paused | 7 days |
 | Event log and OpenSearch message | the `RUN_FINISHED` interrupt outcome, the later `CUSTOM approval`, and the agent card's snapshots | as the thread |
 
 adk's session is what actually resumes the run; the `hitl` records are the
@@ -151,7 +155,7 @@ client that wants them without folding the stream.
 | `internal/tools/builtin/subagent.go` | sub-agent dispatch; `follow` puts a paused child's requests on the card |
 | `internal/mcp/mcp.go` | MCP tools needing approval (`require_confirmation`) |
 | `internal/stream/encode.go` | `call`, `interrupt`, `confirmation`: adk events → the AG-UI interrupt outcome |
-| `internal/runs/worker.go` | records interrupts on pause, persists the lease |
+| `internal/runs/worker.go` | records interrupts on pause, holds the lease for it |
 | `internal/runs/answer.go` | `Answer`: validate, record, resume once all are answered |
 | `internal/runs/cancel.go` | `Cancel`: closes interrupts and writes a cancelled segment |
 | `internal/hitl/hitl.go` | the interrupt records |
@@ -165,5 +169,6 @@ client that wants them without folding the stream.
   of those need approval or ask questions. A sub-agent given such a tool or a
   connector pauses as described.
 - Two clients answering the same interrupt at the same moment: one wins, the
-  other gets `not_paused` and changes nothing. The decision is one Valkey
-  script, so the race is decided there.
+  other gets `not_paused` and changes nothing. An answer and a cancel at the same
+  moment: one wins too, by the same compare-and-set on the record and on the run's
+  status, so an interrupt is never both answered and cancelled.

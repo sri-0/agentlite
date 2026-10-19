@@ -20,6 +20,14 @@ const (
 	ToolEmitArtifact = "emit_artifact"
 )
 
+// Interrupt metadata: the paused tool call's name and arguments, and the
+// request a confirmation carries (a question's questions).
+const (
+	MetaToolName = "toolName"
+	MetaArgs     = "args"
+	MetaRequest  = "request"
+)
+
 // Encoder turns one run segment's adk events into AG-UI events. Every model
 // call becomes a step named after its author; text and reasoning stream as
 // deltas; tool calls, results and interrupts are emitted when adk reports
@@ -208,13 +216,13 @@ func (e *Encoder) call(ev *session.Event, fc *genai.FunctionCall) {
 	if fc.Name == toolconfirmation.FunctionCallName {
 		original, err := toolconfirmation.OriginalCallFrom(fc)
 		if err != nil {
-			return
+			original = fc // still ask: an answer needs only the confirmation's id
 		}
 		e.toolCall(original)
 		hint, payload := confirmation(fc.Args["toolConfirmation"])
 		in := interrupt(fc.ID, ReasonConfirmation, original, hint)
 		if payload != nil {
-			in.Metadata["request"] = payload
+			in.Metadata[MetaRequest] = payload
 		}
 		e.interrupts = append(e.interrupts, in)
 		return
@@ -227,7 +235,7 @@ func (e *Encoder) call(ev *session.Event, fc *genai.FunctionCall) {
 func interrupt(id, reason string, call *genai.FunctionCall, message string) types.Interrupt {
 	return types.Interrupt{
 		ID: id, Reason: reason, ToolCallID: call.ID, Message: message,
-		Metadata: types.Metadata{"toolName": call.Name, "args": call.Args},
+		Metadata: types.Metadata{MetaToolName: call.Name, MetaArgs: call.Args},
 	}
 }
 

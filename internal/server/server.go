@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log/slog"
+	"net"
 	"net/http"
 	"time"
 
@@ -121,6 +122,11 @@ func Run(ctx context.Context, cfg *config.Config, e *echo.Echo) error {
 		BeforeServeFunc: func(s *http.Server) error {
 			s.ReadHeaderTimeout = 10 * time.Second
 			s.WriteTimeout = 0 // sockets and proxied streams are long-lived
+			// Shutdown does not close hijacked connections; ending their
+			// requests' context closes the sockets as going away.
+			base, cancel := context.WithCancel(context.Background())
+			s.BaseContext = func(net.Listener) context.Context { return base }
+			s.RegisterOnShutdown(cancel)
 			return nil
 		},
 	}

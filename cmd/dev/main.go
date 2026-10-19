@@ -8,6 +8,8 @@ import (
 	"context"
 	"fmt"
 	"os"
+	"os/signal"
+	"syscall"
 
 	"github.com/joho/godotenv"
 	adkagent "google.golang.org/adk/v2/agent"
@@ -27,7 +29,8 @@ func main() {
 }
 
 func run() error {
-	ctx := context.Background()
+	ctx, stop := signal.NotifyContext(context.Background(), syscall.SIGINT, syscall.SIGTERM)
+	defer stop()
 	app, err := bootstrap.New(ctx)
 	if err != nil {
 		return err

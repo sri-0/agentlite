@@ -4,7 +4,6 @@
 package runs
 
 import (
-	"context"
 	"encoding/json"
 	"strconv"
 	"time"
@@ -28,9 +27,10 @@ func (s Status) Terminal() bool {
 	return s == StatusDone || s == StatusError || s == StatusCancelled
 }
 
-// Run is one assistant turn. It is stored as a Valkey hash. A turn may span
-// several segments when it pauses for input; the log cursors mark where the
-// turn and the current segment begin.
+// Run is one assistant turn. It is stored as a Valkey hash, its status as a
+// key of its own (store.transition). A turn may span several segments when
+// it pauses for input; the log cursors mark where the turn and the current
+// segment begin.
 type Run struct {
 	ID       string
 	ThreadID string
@@ -63,7 +63,7 @@ func (r *Run) fields() map[string]string {
 		"id": r.ID, "thread_id": r.ThreadID, "root_id": r.RootID, "agent_id": r.AgentID, "model": r.Model,
 		"previous_model": r.PreviousModel,
 		"message_id":     r.MessageID, "turn_id": r.TurnID, "turn_seq": strconv.FormatInt(r.TurnSeq, 10),
-		"turn_from": r.TurnFrom, "segment_from": r.SegmentFrom, "status": string(r.Status),
+		"turn_from": r.TurnFrom, "segment_from": r.SegmentFrom,
 		"result": r.Result, "error": r.Error,
 		"started_at": strconv.FormatInt(r.StartedAt.UnixMilli(), 10),
 	}
@@ -83,7 +83,7 @@ func runFromFields(f map[string]string) *Run {
 		ID: f["id"], ThreadID: f["thread_id"], RootID: f["root_id"], AgentID: f["agent_id"], Model: f["model"],
 		PreviousModel: f["previous_model"],
 		MessageID:     f["message_id"], TurnID: f["turn_id"], TurnSeq: n("turn_seq"),
-		TurnFrom: f["turn_from"], SegmentFrom: f["segment_from"], Status: Status(f["status"]),
+		TurnFrom: f["turn_from"], SegmentFrom: f["segment_from"],
 		Result: f["result"], Error: f["error"],
 		StartedAt: time.UnixMilli(n("started_at")),
 	}
@@ -92,14 +92,3 @@ func runFromFields(f map[string]string) *Run {
 	}
 	return r
 }
-
-type runCtxKey struct{}
-
-// WithRun attaches the run a tool call is serving; RunFrom reads it back so a
-// tool can start child runs on the same model.
-func WithRun(ctx context.Context, r *Run) context.Context {
-	return context.WithValue(ctx, runCtxKey{}, r)
-}
-
-// RunFrom returns the run attached by WithRun, or nil.
-func RunFrom(ctx context.Context) *Run { r, _ := ctx.Value(runCtxKey{}).(*Run); return r }

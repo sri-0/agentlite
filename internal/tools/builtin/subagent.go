@@ -5,8 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"maps"
 	"slices"
-	"sync"
 	"time"
 
 	"github.com/ag-ui-protocol/ag-ui/sdks/community/go/pkg/core/events"
@@ -55,7 +55,8 @@ type progressLine struct {
 // The child's activity stays on the child thread; the parent gets a card with
 // status, a bounded progress log, and, while the child is paused, the
 // requests it is waiting on, which the user answers on the child's thread.
-// The call itself just waits for the child to finish, as opencode's does.
+// The call itself just follows the child until it finishes, as opencode's
+// does, with its worker slot given back meanwhile.
 func subagent(d Deps) (toolx.Tool, error) {
 	return toolx.New(toolx.Spec{
 		Name:        Subagent,
@@ -65,15 +66,15 @@ func subagent(d Deps) (toolx.Tool, error) {
 		if !slices.Contains(parent.Subagents, a.SubagentType) {
 			return nil, fmt.Errorf("unknown subagent_type %q; choose one of %v", a.SubagentType, parent.Subagents)
 		}
-		sink, parentRun := stream.SinkFrom(ctx), runs.RunFrom(ctx)
-		if sink == nil || parentRun == nil {
+		sink, parentRun := stream.SinkFrom(ctx), toolx.RunFrom(ctx)
+		if sink == nil || parentRun.Thread.ID == "" {
 			return nil, fmt.Errorf("subagent tool needs a run context")
 		}
 		childThread := uuid.Must(uuid.NewV7()).String()
 		run, err := d.Dispatcher.Start(ctx, runs.StartInput{
 			ThreadID: childThread, ParentID: ctx.SessionID(), AgentID: a.SubagentType, Model: parentRun.Model,
 			Connectors: parentRun.Connectors, MessageID: uuid.Must(uuid.NewV7()).String(), Text: a.Prompt,
-			Authorization: toolx.RunFrom(ctx).Authorization, // the child acts for the same user
+			Authorization: parentRun.Authorization, // the child acts for the same user
 		})
 		if err != nil {
 			return nil, fmt.Errorf("start %s: %w", a.SubagentType, err)
@@ -85,15 +86,9 @@ func subagent(d Deps) (toolx.Tool, error) {
 		sink.Emit(events.NewSubagentStartedEvent(run.ID, a.SubagentType, events.WithSubagentDescription(a.Description), events.WithParentToolCall(ctx.FunctionCallID(), "")))
 		card.emit()
 
-		followCtx, stopFollow := context.WithCancel(ctx)
-		followed := make(chan struct{})
-		go func() {
-			defer close(followed)
-			follow(followCtx, d.Dispatcher, childThread, card)
-		}()
-		final, err := d.Dispatcher.Wait(ctx, run.ID)
-		stopFollow()
-		<-followed
+		resume := runs.Yield(ctx)
+		final, err := follow(ctx, d.Dispatcher, childThread, run.ID, card)
+		resume()
 		switch {
 		case err != nil:
 			// The user cancelled the parent: the child goes too. On a server
@@ -121,10 +116,8 @@ func subagent(d Deps) (toolx.Tool, error) {
 	})
 }
 
-// cardState serialises updates to the card from the tail goroutine and the
-// tool's own goroutine.
+// cardState is the card and the sink it is sent on.
 type cardState struct {
-	mu   sync.Mutex
 	card agentCard
 	sink stream.Sink
 }
@@ -134,11 +127,6 @@ func (c *cardState) emit() {
 }
 
 func (c *cardState) progress(message string) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if c.finished() {
-		return
-	}
 	c.card.Progress = message
 	c.card.Log = append(c.card.Log, progressLine{At: time.Now().UnixMilli(), Message: message})
 	if len(c.card.Log) > progressKeep {
@@ -149,11 +137,6 @@ func (c *cardState) progress(message string) {
 
 // waiting shows the child's pending requests, or clears them when it resumes.
 func (c *cardState) waiting(interrupts []types.Interrupt) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
-	if c.finished() {
-		return
-	}
 	c.card.Interrupts, c.card.Status = interrupts, "running"
 	if len(interrupts) > 0 {
 		c.card.Status = "waiting"
@@ -161,30 +144,28 @@ func (c *cardState) waiting(interrupts []types.Interrupt) {
 	c.emit()
 }
 
-func (c *cardState) finished() bool { return c.card.Status == "done" || c.card.Status == "error" }
-
 func (c *cardState) finish(status, text, errText string) {
-	c.mu.Lock()
-	defer c.mu.Unlock()
 	c.card.Status, c.card.Text, c.card.Error, c.card.Interrupts = status, text, errText, nil
 	c.card.DurationMs = time.Now().UnixMilli() - c.card.StartedAt
 	c.emit()
 }
 
-// follow reads the child's log while the call waits, across the child's
-// segments: each tool call becomes a progress line, a pause puts the child's
-// pending requests on the card, and the next segment clears them.
-func follow(ctx context.Context, d Dispatcher, threadID string, card *cardState) {
+// follow reads the child's log until its run ends, across its segments: each
+// tool call becomes a progress line, a pause puts the child's pending
+// requests on the card, and the next segment clears them. It returns the run
+// as it ended.
+func follow(ctx context.Context, d Dispatcher, threadID, runID string, card *cardState) (*runs.Run, error) {
 	after := ""
 	names, args := map[string]string{}, map[string]string{}
-	for ctx.Err() == nil {
+	for {
 		entries, err := d.Subscribe(ctx, threadID, after)
-		if err != nil || entries == nil {
-			return
+		if err != nil {
+			return nil, err
 		}
-		for e, err := range entries {
+		paused := false
+		for e, err := range entries { // none once the child is finished
 			if err != nil {
-				return
+				return nil, err
 			}
 			after = e.Seq
 			switch ev := e.Event.(type) {
@@ -199,12 +180,18 @@ func follow(ctx context.Context, d Dispatcher, threadID string, card *cardState)
 			case *events.RunFinishedEvent:
 				if ev.Outcome != nil && ev.Outcome.Type == events.RunFinishedOutcomeTypeInterrupt {
 					card.waiting(ev.Outcome.Interrupts)
+					paused = true
 				}
 			}
+		}
+		if !paused { // the child's last segment is over
+			return d.Wait(ctx, runID)
 		}
 	}
 }
 
+// progressFor is a progress line for a tool call: report_progress's message,
+// or the tool and its first string argument by name.
 func progressFor(name, rawArgs string) string {
 	var a map[string]any
 	_ = json.Unmarshal([]byte(rawArgs), &a)
@@ -213,10 +200,10 @@ func progressFor(name, rawArgs string) string {
 			return m
 		}
 	}
-	for _, v := range a {
-		if s, ok := v.(string); ok {
-			if len(s) > 60 {
-				s = s[:60] + "…"
+	for _, k := range slices.Sorted(maps.Keys(a)) {
+		if s, ok := a[k].(string); ok {
+			if r := []rune(s); len(r) > 60 {
+				s = string(r[:60]) + "…"
 			}
 			return name + ": " + s
 		}

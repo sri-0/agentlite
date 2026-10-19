@@ -55,18 +55,20 @@ client: POST /v1/agent/chat {agentId?, model?, connectors?, messages}   (a new t
   │
   Manager.Start (internal/runs/start.go)
   ├─ validate the agent and connectors; for the POST, create the thread
-  ├─ claim the thread: SET thread:{id}:run = runId NX (a 60 s lease); a second
+  ├─ claim the thread: SET thread:{id}:run = runId NX (a 10 min lease while it
+  │  waits in the queue, cut to 60 s once a worker runs it); a second
   │  start while a run owns the thread is `busy` (a retry of the same message id
   │  returns the existing run)
   ├─ save the user message (OpenSearch); rebuild the adk session if it is missing
-  ├─ record the run (run:{id}) with the log cursors where its turn starts
+  ├─ record the run (run:{id}) with the log cursors where its turn starts, and
+  │  its status queued (run:{id}:status)
   └─ enqueue on runs:{agentId}       → 201 {threadId, runId, seq}, or
                                        {type: "ack", requestId, threadId, runId, seq}
 
 client: {type: "subscribe", threadId, after: seq}
 
 worker (consumer group "workers" on runs:{agentId}, up to 32 at a time)
-  ├─ status running; keep the lease alive; listen for cancel on run:{id}:ctl
+  ├─ status queued → running; keep the lease alive; listen for cancel on run:{id}:ctl
   ├─ Runtime.Run: build the agent tree, run adk's runner, encode each adk event
   │  into AG-UI events, append them to thread:{id}:log
   └─ settle: status done | error | cancelled | awaiting_input; enqueue runs:done
@@ -83,14 +85,22 @@ segment's `RUN_FINISHED` or `RUN_ERROR`. Because the log is the source of truth,
 a client that reconnects, reloads mid-answer or opens the thread on another device
 resumes from its cursor and loses nothing.
 
-A run that pauses (see HITL.md) keeps its lease until it is answered or
-cancelled; once every pending interrupt is answered (`answer` frames), a new
-**segment** of the same run is queued, which streams into the same assistant
-message.
+A run's status is a key of its own, and every change is one compare-and-set
+(`SET … IFEQ`): queued → running for the worker that takes it, queued or
+awaiting_input → cancelled for a cancel, awaiting_input → queued for the last
+answer. Whoever moves it first wins, and the other side falls back (a cancel
+that loses to a worker stops the run as a running one). There is no Lua: the
+lease is released with `DELIFEQ` (Valkey 9), so a late notice never releases a
+newer run.
 
-Each consumer handles up to 32 entries at once. A parent waiting on its
-sub-agents holds one of them for the whole wait, and its children need their
-own, so the limit is set well above the number of sub-agents one turn starts.
+A run that pauses (see HITL.md) keeps its lease as long as its record (7 days)
+until it is answered or cancelled; once every pending interrupt is answered
+(`answer` frames), a new **segment** of the same run is queued, which streams into
+the same assistant message.
+
+Each consumer executes up to 32 entries at once. A parent waiting on its
+sub-agents gives its slot back for the wait (`runs.Yield`), so waiting parents,
+even on children that wait for the user, never fill an agent's slots.
 
 Queue entries are acknowledged and deleted when the handler returns; an entry
 may carry the user's `Authorization` (TOOLS.md), so none outlives its run. An entry whose handler
@@ -98,7 +108,15 @@ failed, or whose consumer died, is retried once the queue is idle and the entry
 is older than twice the lease. A run found still running on redelivery is left
 alone while its lease names it (its worker is alive and the run is just long);
 otherwise it is closed with `RUN_ERROR` ("interrupted by a restart"), never
-re-executed, because tools have side effects.
+re-executed, because tools have side effects; when a newer run already holds the
+thread, it is only marked as an error, and nothing is written into the newer run's
+log. Acknowledgements are written even during a shutdown. Consumer groups are
+created at start, before any request can arrive, and read from the stream's
+beginning.
+
+A shutdown cancels the worker loops and waits for their runs to settle and for
+memory writes in flight; sockets are closed as going away (1001), so clients
+reconnect and resume from their cursors.
 
 ## Threads
 
@@ -177,8 +195,8 @@ Valkey is split into logical databases, set by environment:
 
 | Env | Default | Holds | Keys |
 |---|---|---|---|
-| `REDIS_DB_RUNS` | 1 | the run lifecycle | `thread:{id}:log` (stream of AG-UI events), `thread:{id}:seq` (message order), `thread:{id}:run` (lease), `run:{id}` (run record, 7 days), `runs:{agentId}` and `runs:done` (queues), `run:{id}:ctl` (cancel, pub/sub) |
-| `REDIS_DB_SESSIONS` | 2 | adk sessions: agent state and history | `session:{id}` (metadata), `session:{id}:events`, `session:{id}:state` (30 days), `sessions:{app}` (index for adk's launcher) |
+| `REDIS_DB_RUNS` | 1 | the run lifecycle | `thread:{id}:log` (stream of AG-UI events), `thread:{id}:seq` (message order), `thread:{id}:run` (lease), `run:{id}` (run record, 7 days), `run:{id}:status` (its status, 7 days), `runs:{agentId}` and `runs:done` (queues), `run:{id}:ctl` (cancel, pub/sub) |
+| `REDIS_DB_SESSIONS` | 2 | adk sessions: agent state and history | `session:{app}:{user}:{id}` (metadata), `…:events`, `…:state` (30 days), `state:{app}` and `state:{app}:{user}` (adk's `app:` and `user:` state), `sessions:{app}` (index for adk's launcher); adk's own `sessiontestsuite` runs against it |
 | `REDIS_DB_HITL` | 3 | interrupts | `hitl:{interruptId}` (record and decision, 7 days), `hitl:thread:{id}:pending` (open), `hitl:thread:{id}:decided` (answered, waiting for the rest) |
 
 OpenSearch indices: `threads`, `messages` (events stored unindexed), `memories`

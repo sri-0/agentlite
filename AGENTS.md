@@ -17,7 +17,7 @@ commit.
 ## Quick start
 
 ```bash
-make up                     # Valkey :6379, OpenSearch :9200, MinIO :9000, Jaeger :16686
+make up                     # Valkey 9 :6379, OpenSearch :9200, MinIO :9000, Jaeger :16686
 make indices                # the OpenSearch indices, from deploy/opensearch
 cp .env.example .env.local  # provider keys and base URLs, MODEL_CARDS_DIR
 make run                    # :8000

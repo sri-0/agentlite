@@ -2,9 +2,8 @@ package runs
 
 import (
 	"context"
-	"errors"
+	"fmt"
 	"strconv"
-	"strings"
 	"sync"
 	"time"
 
@@ -21,9 +20,10 @@ const (
 	workerGroup = "workers"
 	finalGroup  = "finalizers"
 	staleAfter  = 2 * leaseTTL // longer than a dead worker's lease survives
-	// maxInFlight is how many entries one consumer handles at once. A parent
-	// waiting on a sub-agent (even one paused for the user) holds a slot.
+	// maxInFlight is how many entries one consumer executes at once. A parent
+	// waiting on a sub-agent gives its slot back (Yield).
 	maxInFlight = 32
+	ackTimeout  = 5 * time.Second
 )
 
 // A queue is a Valkey stream with a consumer group: at-least-once delivery,
@@ -45,15 +45,36 @@ func (q *queue) enqueue(ctx context.Context, fields map[string]string) error {
 	return q.db.Do(ctx, cmd.Build()).Error()
 }
 
+// createGroup makes the queue's consumer group if it is missing, reading
+// from the stream's start: handled entries are deleted, so only requests
+// waiting for a consumer are there.
+func (q *queue) createGroup(ctx context.Context) error {
+	err := q.db.Do(ctx, q.db.B().XgroupCreate().Key(q.key).Group(q.group).Id("0").Mkstream().Build()).Error()
+	if err != nil && !valkey.IsValkeyBusyGroup(err) {
+		return fmt.Errorf("queue %s: create group: %w", q.key, err)
+	}
+	return nil
+}
+
+type slotKey struct{}
+
+// Yield gives the caller's worker slot back while it waits on other runs, so
+// parents waiting on their sub-agents never fill an agent's slots; the
+// returned func takes a slot again before the caller goes on.
+func Yield(ctx context.Context) (resume func()) {
+	slots, ok := ctx.Value(slotKey{}).(chan struct{})
+	if !ok {
+		return func() {}
+	}
+	<-slots
+	return func() { slots <- struct{}{} }
+}
+
 // consume runs handler for every entry until ctx ends, up to maxInFlight at
 // a time, and returns once the entries in flight have finished. A nil return
 // acknowledges the entry; an error leaves it pending, and pending entries
 // older than staleAfter are retried whenever the queue is idle.
 func (q *queue) consume(ctx context.Context, handler func(context.Context, map[string]string) error) {
-	if err := q.db.Do(ctx, q.db.B().XgroupCreate().Key(q.key).Group(q.group).Id("$").Mkstream().Build()).Error(); err != nil && !strings.Contains(err.Error(), "BUSYGROUP") {
-		q.log.Error().Err(err).Str("queue", q.key).Msg("create consumer group")
-		return
-	}
 	slots := make(chan struct{}, maxInFlight)
 	var inFlight sync.WaitGroup
 	defer inFlight.Wait()
@@ -65,7 +86,7 @@ func (q *queue) consume(ctx context.Context, handler func(context.Context, map[s
 		}
 		inFlight.Go(func() {
 			defer func() { <-slots }()
-			q.handle(ctx, x, handler)
+			q.handle(context.WithValue(ctx, slotKey{}, slots), x, handler)
 		})
 	}
 	q.reclaim(ctx, dispatch)
@@ -76,9 +97,12 @@ func (q *queue) consume(ctx context.Context, handler func(context.Context, map[s
 			switch {
 			case valkey.IsValkeyNil(err):
 				q.reclaim(ctx, dispatch)
-			case !errors.Is(err, context.Canceled):
+			case ctx.Err() == nil:
 				q.log.Error().Err(err).Str("queue", q.key).Msg("read")
-				time.Sleep(time.Second)
+				select { // back off, unless shutting down
+				case <-time.After(time.Second):
+				case <-ctx.Done():
+				}
 			}
 			continue
 		}
@@ -92,11 +116,14 @@ func (q *queue) consume(ctx context.Context, handler func(context.Context, map[s
 func (q *queue) reclaim(ctx context.Context, dispatch func(valkey.XRangeEntry)) {
 	res, err := q.db.Do(ctx, q.db.B().Xautoclaim().Key(q.key).Group(q.group).Consumer(q.consumer).
 		MinIdleTime(strconv.FormatInt(staleAfter.Milliseconds(), 10)).Start("0-0").Count(100).Build()).ToArray()
-	if err != nil || len(res) < 2 {
-		return
+	var entries []valkey.XRangeEntry
+	if err == nil && len(res) > 1 {
+		entries, err = res[1].AsXRange()
 	}
-	entries, err := res[1].AsXRange()
 	if err != nil {
+		if ctx.Err() == nil {
+			q.log.Error().Err(err).Str("queue", q.key).Msg("reclaim")
+		}
 		return
 	}
 	for _, x := range entries {
@@ -111,6 +138,9 @@ func (q *queue) handle(ctx context.Context, x valkey.XRangeEntry, handler func(c
 	}
 	// Each queue has one consumer group, so a handled entry can go: the
 	// stream stays small and an entry's fields (a user's token) do not linger.
+	// The ack must land during a shutdown too, or the entry runs again.
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), ackTimeout)
+	defer cancel()
 	ack := q.db.B().Xack().Key(q.key).Group(q.group).Id(x.ID).Build()
 	del := q.db.B().Xdel().Key(q.key).Id(x.ID).Build()
 	for _, res := range q.db.DoMulti(ctx, ack, del) {
