@@ -134,7 +134,7 @@ voice:
 images:
   model: openrouter/qwen/qwen-image-2.1-turbo
 
-# Files users upload for RAG (internal/files, docs/FILES.md): limits and
+# Files users upload for RAG (internal/rag/userfiles, docs/FILES.md): limits and
 # search, each with this default. They are embedded with the embedding block's
 # model, so search_userfiles can find them; without that block, files are kept
 # and referenceable with #id, but not searchable.

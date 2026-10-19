@@ -108,7 +108,7 @@ type ImagesConfig struct {
 	EditModel string `yaml:"edit_model"`
 }
 
-// FilesConfig is the files block (internal/files, docs/FILES.md): limits on
+// FilesConfig is the files block (internal/rag/userfiles, docs/FILES.md): limits on
 // the files users upload and on what a #reference puts in the model's context
 // as it is, and how files are embedded and searched. Files are searchable
 // only with the embedding block; without it they are kept, not searchable. A

@@ -3,7 +3,7 @@
 Users upload files (documents, images, audio, video) for RAG, to talk about them. A
 file is kept once, named in any message with `#id` (the composer shows it as a chip
 with the file's name), and, with an embedding model configured, searched by the
-agents with `search_userfiles`. Everything files-specific is `internal/files` (the
+agents with `search_userfiles`. Everything files-specific is `internal/rag/userfiles` (the
 store, the `#` resolver, the routes under `/v1/rag/files`, embedding and the search)
 and `pkg/db/opensearch/files.go` (the records, in the `userfiles` index, and the
 chunks); the tool's wrapper is `internal/tools/builtin/search_userfiles.go`, like
@@ -120,7 +120,7 @@ video hits are named only: adk-go refuses audio and video parts.
 `vision`, a separate capability: vLLM takes images but has no PDF part), but not
 embedded: no open embedding model takes a PDF and nothing here converts files. A
 pipeline that extracts a PDF's text plugs into one place: `Store.index` in
-`internal/files/index.go`, the switch that decides what of a file is embedded. A
+`internal/rag/userfiles/index.go`, the switch that decides what of a file is embedded. A
 separate system can instead write a PDF's chunks to the `userfile_chunks` index itself
 (the fields above, the same model and size) and set the record's `status` to `ready`.
 

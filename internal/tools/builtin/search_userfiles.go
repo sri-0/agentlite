@@ -11,7 +11,7 @@ import (
 	"google.golang.org/adk/v2/model"
 	"google.golang.org/genai"
 
-	"agentlite/internal/files"
+	"agentlite/internal/rag/userfiles"
 	"agentlite/pkg/toolx"
 )
 
@@ -30,7 +30,7 @@ const mediaNote = "Images, audio and video match by what they show or sound like
 	"found if you can see images; otherwise name the file to the user."
 
 // searchFiles is search_userfiles: a semantic search over the files the user
-// uploaded (internal/files), the conversation's workspace's unless it says
+// uploaded (internal/rag/userfiles), the conversation's workspace's unless it says
 // otherwise.
 func searchFiles(d Deps) (toolx.Tool, error) {
 	return toolx.New(toolx.Spec{
@@ -49,7 +49,7 @@ func searchFiles(d Deps) (toolx.Tool, error) {
 			return nil, err
 		}
 		out := map[string]any{"hits": hits}
-		if slices.ContainsFunc(hits, func(h files.Hit) bool { return h.Text == "" }) {
+		if slices.ContainsFunc(hits, func(h userfiles.Hit) bool { return h.Text == "" }) {
 			out["note"] = mediaNote
 		}
 		return out, nil
@@ -60,12 +60,12 @@ func searchFiles(d Deps) (toolx.Tool, error) {
 // found: adk leaves media out of tool results, so they go
 // as a user message after the result, on the call that reads it (the next
 // call no longer ends with the result, so they are sent once).
-func ShowFound(store *files.Store) llmagent.BeforeModelCallback {
+func ShowFound(store *userfiles.Store) llmagent.BeforeModelCallback {
 	return func(ctx agent.Context, req *model.LLMRequest) (*model.LLMResponse, error) {
 		if len(req.Contents) == 0 {
 			return nil, nil
 		}
-		var hits []files.Hit
+		var hits []userfiles.Hit
 		for _, p := range req.Contents[len(req.Contents)-1].Parts {
 			if r := p.FunctionResponse; r != nil && r.Name == searchFilesTool {
 				hits = append(hits, foundIn(r.Response)...)
@@ -80,12 +80,12 @@ func ShowFound(store *files.Store) llmagent.BeforeModelCallback {
 
 // foundIn is the hits of a search_userfiles result, as the tool returned them
 // or as they read back from the session (JSON).
-func foundIn(response map[string]any) []files.Hit {
+func foundIn(response map[string]any) []userfiles.Hit {
 	raw, err := json.Marshal(response["hits"])
 	if err != nil {
 		return nil
 	}
-	var hits []files.Hit
+	var hits []userfiles.Hit
 	_ = json.Unmarshal(raw, &hits) // a result without hits (an error) has none
 	return hits
 }

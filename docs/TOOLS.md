@@ -167,7 +167,7 @@ func searchRecords(conn toolx.Connector) (toolx.Tool, error) {
 - A harness tool (`internal/tools/builtin`, one file per tool) is built the same way from
   `builtin.Deps`; its work lives in its own package (`emit_artifact` → `internal/artifacts`,
   `write_skill` → `internal/skills`, `generate_image` → `internal/images`,
-  `search_userfiles` → `internal/files`).
+  `search_userfiles` → `internal/rag/userfiles`).
 - Registries and `toolx.Toolset` accept only `toolx.Tool`, and
   `TestOnlyToolxBuildsFunctionTools` fails if any package but `toolx` imports
   `functiontool`.
@@ -295,7 +295,7 @@ start. Deleting the root thread deletes its bodies, then its records.
 
 ## Files
 
-`internal/files` keeps the files users upload (FILES.md). `search_userfiles {query,
+`internal/rag/userfiles` keeps the files users upload (FILES.md). `search_userfiles {query,
 files?, all?}` (`internal/tools/builtin/search_userfiles.go`) is a harness tool, offered
 when files are searchable (`models.yaml` has an `embedding` block): a semantic search
 over the files it names (from any workspace), else the conversation's workspace's, else

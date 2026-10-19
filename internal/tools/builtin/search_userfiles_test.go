@@ -4,13 +4,13 @@ import (
 	"encoding/json"
 	"testing"
 
-	"agentlite/internal/files"
+	"agentlite/internal/rag/userfiles"
 )
 
 // TestFoundIn: the hits of a search_userfiles result, as the tool returned
 // them and as they read back from the session (JSON); none from an error.
 func TestFoundIn(t *testing.T) {
-	hits := []files.Hit{
+	hits := []userfiles.Hit{
 		{FileID: "f1", Name: "a.png", MediaType: "image/png"},
 		{FileID: "f2", Name: "b.md", MediaType: "text/markdown", Text: "x"},
 	}

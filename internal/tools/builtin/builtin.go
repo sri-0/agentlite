@@ -12,8 +12,8 @@ import (
 
 	"agentlite/config"
 	"agentlite/internal/artifacts"
-	"agentlite/internal/files"
 	"agentlite/internal/images"
+	"agentlite/internal/rag/userfiles"
 	"agentlite/internal/runs"
 	"agentlite/internal/skills"
 	"agentlite/pkg/toolx"
@@ -39,8 +39,8 @@ type Deps struct {
 	Defs       map[string]config.AgentDef
 	Artifacts  *artifacts.Store
 	Skills     *skills.Library
-	Images     *images.Studio // nil when no image model is configured: no generate_image
-	Files      *files.Store   // search_userfiles when its files are searchable
+	Images     *images.Studio   // nil when no image model is configured: no generate_image
+	Files      *userfiles.Store // search_userfiles when its files are searchable
 	Log        zerolog.Logger
 }
 

@@ -11,7 +11,7 @@ import (
 )
 
 // indexFiles holds the records of the files users uploaded for RAG; their
-// bodies are in S3 (internal/files).
+// bodies are in S3 (internal/rag/userfiles).
 const indexFiles = "userfiles"
 
 // File statuses: a ready file is embedded and searchable, a stored one is
