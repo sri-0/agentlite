@@ -37,7 +37,7 @@ func sessionsIndex(app string) string { return "sessions:" + app }
 func (s *SessionService) Create(ctx context.Context, req *session.CreateRequest) (*session.CreateResponse, error) {
 	id := req.SessionID
 	if id == "" {
-		id = uuid.NewString()
+		id = uuid.Must(uuid.NewV7()).String()
 	}
 	now := time.Now()
 	sess := &localSession{app: req.AppName, user: req.UserID, id: id, state: map[string]any{}, updatedAt: now}
@@ -145,7 +145,7 @@ func (s *SessionService) AppendEvent(ctx context.Context, cur session.Session, e
 		return fmt.Errorf("unexpected session type %T", cur)
 	}
 	if event.ID == "" {
-		event.ID = uuid.NewString()
+		event.ID = uuid.Must(uuid.NewV7()).String()
 	}
 	if event.Timestamp.IsZero() {
 		event.Timestamp = time.Now()

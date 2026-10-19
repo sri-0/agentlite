@@ -12,9 +12,9 @@ import (
 	valkeygo "github.com/valkey-io/valkey-go"
 	"google.golang.org/adk/v2/session"
 
+	"agentlite/config"
 	"agentlite/internal/agents"
 	"agentlite/internal/artifacts"
-	"agentlite/internal/config"
 	"agentlite/internal/hitl"
 	"agentlite/internal/mcp"
 	"agentlite/internal/providers"
@@ -38,7 +38,6 @@ type App struct {
 	Store     *opensearch.Client
 	Sessions  session.Service
 	Memory    *memory.Service // nil when memory is not configured
-	Sources   *sources.Recorder
 	Artifacts *artifacts.Store
 	Skills    *skills.Library
 	Agents    *agents.Runtime
@@ -80,23 +79,21 @@ func New(ctx context.Context) (*App, error) {
 	if err != nil {
 		return nil, err
 	}
-	if app.Store, err = opensearch.New(ctx, cfg.OpenSearch, app.Log); err != nil {
+	if app.Store, err = opensearch.New(cfg.OpenSearch); err != nil {
 		return nil, err
 	}
 	app.Sessions = valkeysession.New(sessionsDB)
-	if app.Memory, err = memoryService(ctx, cfg, app.Registry, app.Store, app.Log); err != nil {
-		return nil, err
-	}
 	var mem agents.Memory
-	if app.Memory != nil {
+	if m := cfg.Models.Memory; m != nil {
+		app.Memory = memory.New(app.Store, app.Registry.Embedder(m.EmbeddingModel), app.Log)
 		mem = app.Memory
 	}
-	app.Sources = sources.New(app.Store)
+	recorder := sources.New(app.Store)
 	files, err := s3.New(ctx, cfg.S3) // artifact bodies and skill files
 	if err != nil {
 		return nil, err
 	}
-	app.Artifacts = artifacts.New(app.Store, files, app.Sources, app.Log)
+	app.Artifacts = artifacts.New(app.Store, files, recorder, app.Log)
 	app.Skills = skills.New(app.Store, files, app.Log)
 	servers, err := mcp.Servers(cfg.Connectors, cfg.Transport, app.Log)
 	if err != nil {
@@ -104,7 +101,7 @@ func New(ctx context.Context) (*App, error) {
 	}
 	app.Agents = agents.New(cfg, agents.Deps{
 		Registry: app.Registry, Sessions: app.Sessions, Memory: mem, Servers: servers,
-		Sources: app.Sources, Artifacts: app.Artifacts, Skills: app.Skills, Log: app.Log,
+		Sources: recorder, Artifacts: app.Artifacts, Skills: app.Skills, Log: app.Log,
 	})
 	app.Runs = runs.New(cfg, runsDB, hitl.NewStore(hitlDB), app.Store, app.Store, app.Sessions, app.Agents, app.Log)
 	if err := app.Agents.Bind(ctx, app.Runs); err != nil { // the subagent tool dispatches through the run manager
@@ -148,15 +145,4 @@ func checkConfiguredModels(m *config.ModelsConfig, registry *providers.Registry)
 		return err
 	}
 	return check(m.Memory.EmbeddingModel, modelcatalog.TypeEmbedding)
-}
-
-// memoryService builds long-term memory when models.yaml configures it.
-func memoryService(
-	ctx context.Context, cfg *config.Config, registry *providers.Registry, store *opensearch.Client, log zerolog.Logger,
-) (*memory.Service, error) {
-	m := cfg.Models.Memory
-	if m == nil {
-		return nil, nil
-	}
-	return memory.New(ctx, store, registry.Embedder(m.EmbeddingModel), m.Dimensions, log)
 }

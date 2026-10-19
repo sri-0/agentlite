@@ -1,4 +1,4 @@
-.PHONY: run dev build vet test tidy up down
+.PHONY: run dev build vet test tidy up down indices
 
 run:
 	go run ./cmd/server
@@ -27,3 +27,13 @@ up:
 
 down:
 	docker compose down
+
+# Creates the OpenSearch indices from deploy/opensearch, or adds new fields to
+# existing ones; the service never changes a mapping (docs/ARCHITECTURE.md).
+OPENSEARCH_URL ?= http://localhost:9200
+CURL = curl -sSf -H 'Content-Type: application/json' $(if $(OPENSEARCH_USERNAME),-u '$(OPENSEARCH_USERNAME):$(OPENSEARCH_PASSWORD)')
+indices:
+	@for f in deploy/opensearch/*.json; do i=$$(basename $$f .json); \
+	  if $(CURL) -o /dev/null $(OPENSEARCH_URL)/$$i 2>/dev/null; then \
+	    jq .mappings $$f | $(CURL) -XPUT $(OPENSEARCH_URL)/$$i/_mapping -d @-; \
+	  else $(CURL) -XPUT $(OPENSEARCH_URL)/$$i -d @$$f; fi && echo " $$i"; done

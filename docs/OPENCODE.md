@@ -102,4 +102,4 @@ opencode run -m agentlite/openrouter/openai/gpt-4.1-mini "Use the report-style s
 | `internal/mcp/proxy.go` | the MCP proxy (`Server.Forward`) |
 | `pkg/transport/forward.go` | the reverse proxy it and the pass-through share |
 | `internal/agents/connectors.go` | `Runtime.ExposedMCP` |
-| `internal/config/connectors.go` | `mcp.expose` |
+| `config/connectors.go` | `mcp.expose` |

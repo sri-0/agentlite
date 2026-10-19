@@ -93,9 +93,21 @@ func (t *TLS) Resolve() (*transport.TLS, error) {
 	return out, nil
 }
 
-// expandEnv replaces ${VAR} in header values.
-func expandEnv(headers map[string]string) {
+// expandEnv replaces ${VAR} in header values. A variable that is not set
+// is an error: the header would go out empty.
+func expandEnv(headers map[string]string) error {
 	for k, v := range headers {
-		headers[k] = os.ExpandEnv(v)
+		var missing []string
+		headers[k] = os.Expand(v, func(name string) string {
+			val, ok := os.LookupEnv(name)
+			if !ok {
+				missing = append(missing, name)
+			}
+			return val
+		})
+		if len(missing) > 0 {
+			return fmt.Errorf("header %s: %s not set", k, strings.Join(missing, ", "))
+		}
 	}
+	return nil
 }

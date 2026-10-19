@@ -210,4 +210,4 @@ provider. It is the server calling a provider itself, not the pass-through.
 | `internal/handler/passthrough.go` | the pass-through endpoints, their model types, the checks |
 | `internal/providers/reverseproxy.go` | forwarding a pass-through request to its provider |
 | `internal/providers/embed.go` | embeddings for memory |
-| `internal/config/models.go` | `models.yaml` and its checks |
+| `config/models.go` | `models.yaml` and its checks |

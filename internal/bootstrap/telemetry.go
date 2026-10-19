@@ -10,7 +10,7 @@ import (
 	"go.opentelemetry.io/otel/sdk/resource"
 	"google.golang.org/adk/v2/telemetry"
 
-	"agentlite/internal/config"
+	"agentlite/config"
 )
 
 // tracing turns on adk's OpenTelemetry setup, which exports spans (and logs)

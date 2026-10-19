@@ -9,13 +9,10 @@ import (
 	"github.com/opensearch-project/opensearch-go/v5/opensearchapi"
 )
 
-// IndexCounters holds one document per conversation with its counters: the
+// indexCounters holds one document per conversation with its counters: the
 // last source number and each artifact's last version. They live with the
 // records they number, under the same access rules.
-const IndexCounters = "counters"
-
-const countersMapping = `{"mappings":{"dynamic":false,"properties":{
-	"root_id":{"type":"keyword"},"sources":{"type":"integer"},"artifacts":{"type":"object","enabled":false}}}}`
+const indexCounters = "counters"
 
 // Counter scripts. An update of one document is atomic; a concurrent one is
 // retried on conflict. A version never falls below the floor the caller
@@ -61,7 +58,7 @@ func (c *Client) increment(ctx context.Context, rootID, script string, params ma
 		return err
 	}
 	resp, err := c.api.Update(ctx, opensearchapi.UpdateReq{
-		Index: IndexCounters, ID: rootID, BodyReader: bytes.NewReader(body),
+		Index: indexCounters, ID: rootID, BodyReader: bytes.NewReader(body),
 		Params: &opensearchapi.UpdateParams{RetryOnConflict: counterRetries, Source: "true"},
 	})
 	if err != nil {

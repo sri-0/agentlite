@@ -28,7 +28,7 @@ func emitArtifact(d Deps) (toolx.Tool, error) {
 		Description: "Publish a document, code file, JSON or CSV as a standalone artifact shown beside the chat.",
 	}, func(tc toolx.Context, a emitArtifactArgs) (map[string]any, error) {
 		if a.ID == "" {
-			a.ID = uuid.NewString()
+			a.ID = uuid.Must(uuid.NewV7()).String()
 		}
 		if tc.Thread.RootID == "" {
 			return nil, fmt.Errorf("artifacts can only be published from a thread")

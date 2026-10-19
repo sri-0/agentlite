@@ -19,9 +19,10 @@ import (
 // once it is read as the user, the listing holds only the skills they may see.
 var _ skill.Source = (*Library)(nil)
 
-// ListFrontmatters lists every skill's name and description.
+// ListFrontmatters lists every skill's name and description. adk asks before
+// every model call, so only those two fields are fetched.
 func (l *Library) ListFrontmatters(ctx context.Context) ([]*skill.Frontmatter, error) {
-	all, err := l.records.AllSkills(ctx)
+	all, err := l.records.AllSkills(ctx, "name", "description")
 	if err != nil {
 		return nil, err
 	}

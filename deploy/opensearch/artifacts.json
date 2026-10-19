@@ -1,0 +1,19 @@
+{
+  "mappings": {
+    "dynamic": "strict",
+    "properties": {
+      "id": {"type": "keyword"},
+      "root_id": {"type": "keyword"},
+      "thread_id": {"type": "keyword"},
+      "run_id": {"type": "keyword"},
+      "title": {"type": "text"},
+      "kind": {"type": "keyword"},
+      "language": {"type": "keyword"},
+      "url": {"type": "keyword"},
+      "size": {"type": "long"},
+      "version": {"type": "integer"},
+      "created_at": {"type": "date"},
+      "updated_at": {"type": "date"}
+    }
+  }
+}

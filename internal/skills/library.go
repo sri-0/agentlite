@@ -73,7 +73,7 @@ func (l *Library) Save(ctx context.Context, d Draft) (*opensearch.Skill, error) 
 	}
 	now := time.Now()
 	s := &opensearch.Skill{
-		ID: uuid.NewString(), Name: fm.Name, Description: fm.Description, CreatedAt: now, UpdatedAt: now,
+		ID: uuid.Must(uuid.NewV7()).String(), Name: fm.Name, Description: fm.Description, CreatedAt: now, UpdatedAt: now,
 	}
 	prev, err := l.records.SkillNamed(ctx, s.Name)
 	switch {

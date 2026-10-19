@@ -8,19 +8,22 @@ import (
 	"errors"
 	"fmt"
 	"maps"
+	"slices"
 
+	"github.com/google/uuid"
 	"github.com/rs/zerolog"
 	adkagent "google.golang.org/adk/v2/agent"
 	adkmemory "google.golang.org/adk/v2/memory"
 	"google.golang.org/adk/v2/model"
 	"google.golang.org/adk/v2/model/openaimodel"
+	"google.golang.org/adk/v2/platform"
 	"google.golang.org/adk/v2/runner"
 	"google.golang.org/adk/v2/session"
 	"google.golang.org/adk/v2/session/compaction"
 	"google.golang.org/adk/v2/tool"
 
+	"agentlite/config"
 	"agentlite/internal/artifacts"
-	"agentlite/internal/config"
 	"agentlite/internal/mcp"
 	"agentlite/internal/providers"
 	"agentlite/internal/refs"
@@ -120,6 +123,28 @@ func (rt *Runtime) Bind(ctx context.Context, d builtin.Dispatcher) error {
 			}
 		}
 	}
+	return rt.checkTools()
+}
+
+// checkTools refuses a tool an agent lists that nothing serves: not a
+// harness or world tool, not the skills toolset, and not a tool an MCP
+// connector lists. An MCP connector that lists none may serve any name.
+func (rt *Runtime) checkTools() error {
+	mcpMayServe := func(name string) bool {
+		return slices.ContainsFunc(rt.connectors, func(c config.Connector) bool {
+			return c.Type == config.ConnectorMCP && (len(c.MCP.Tools) == 0 || slices.Contains(c.MCP.Tools, name))
+		})
+	}
+	for _, def := range rt.defs {
+		if def.Tools == nil {
+			continue
+		}
+		for _, name := range *def.Tools {
+			if rt.tool(name) == nil && name != skills.ToolsetName && !mcpMayServe(name) {
+				return fmt.Errorf("agent %q: unknown tool %q", def.ID, name)
+			}
+		}
+	}
 	return nil
 }
 
@@ -180,6 +205,7 @@ func (rt *Runtime) Run(ctx context.Context, in runs.Input, sink stream.Sink) (ru
 	}
 
 	ctx = runs.WithRun(stream.WithSink(ctx, sink), run)
+	ctx = platform.WithUUIDProvider(ctx, func() string { return uuid.Must(uuid.NewV7()).String() }) // adk's event ids too
 	ctx = toolx.WithRun(ctx, toolx.Run{
 		Thread:        toolx.Thread{ID: run.ThreadID, RootID: run.RootID, RunID: run.ID},
 		Authorization: in.Authorization,

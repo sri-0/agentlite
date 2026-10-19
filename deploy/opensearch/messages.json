@@ -1,0 +1,15 @@
+{
+  "mappings": {
+    "dynamic": "strict",
+    "properties": {
+      "id": {"type": "keyword"},
+      "thread_id": {"type": "keyword"},
+      "root_id": {"type": "keyword"},
+      "role": {"type": "keyword"},
+      "seq": {"type": "long"},
+      "created_at": {"type": "date"},
+      "text": {"type": "text"},
+      "events": {"type": "object", "enabled": false}
+    }
+  }
+}

@@ -30,7 +30,7 @@ configured embedding model and indexes one document in the OpenSearch
 { id, thread_id, author, text, embedding (kNN vector), created_at }
 ```
 
-The document id is a hash of `(session id, event id)`, so re-storing a session
+The document id is the event's id (a UUIDv7), so re-storing a session
 is idempotent. Embedding goes through the provider's `/embeddings` endpoint
 with a 15 s timeout.
 
@@ -68,12 +68,13 @@ Jaeger shows it. With preload off, recall costs nothing until the agent asks.
 # models.yaml
 memory:
   embedding_model: openai/text-embedding-3-small   # must be served by a provider
-  dimensions: 1536                                 # the index is created with this size
   preload: false
 ```
 
-Omit the block and there is no memory: no index, no tools, no storing. Changing
-`dimensions` after the index exists needs the `memories` index dropped.
+Omit the block and there is no memory: no tools, no storing. The `memories` index
+is created with the others (`make indices`, ARCHITECTURE.md) for 1536-dimension
+vectors (`deploy/opensearch/memories.json`); a model with another size needs that
+file changed and the index recreated.
 
 ## Swapping it
 

@@ -12,6 +12,7 @@ import (
 	"github.com/google/uuid"
 	"google.golang.org/adk/v2/session"
 
+	"agentlite/config"
 	"agentlite/internal/stream"
 	"agentlite/pkg/db/opensearch"
 )
@@ -42,10 +43,14 @@ const (
 // the run. Starting the same message id again returns the existing run.
 func (m *Manager) Start(ctx context.Context, in StartInput) (*Run, error) {
 	if in.AgentID == "" {
-		in.AgentID = DefaultAgent
+		in.AgentID = config.DefaultAgent
 	}
-	if _, ok := m.defs[in.AgentID]; !ok {
+	def, ok := m.defs[in.AgentID]
+	switch {
+	case !ok:
 		return nil, fmt.Errorf("%w: unknown agent %q", ErrInvalid, in.AgentID)
+	case in.ParentID == "" && !def.Primary():
+		return nil, fmt.Errorf("%w: agent %q only runs as a sub-agent", ErrInvalid, in.AgentID)
 	}
 	if in.Text == "" {
 		return nil, fmt.Errorf("%w: a run needs a message", ErrInvalid)
@@ -65,7 +70,7 @@ func (m *Manager) Start(ctx context.Context, in StartInput) (*Run, error) {
 		return nil, fmt.Errorf("%w: %v", ErrInvalid, err)
 	}
 	if in.MessageID == "" {
-		in.MessageID = uuid.NewString()
+		in.MessageID = uuid.Must(uuid.NewV7()).String()
 	}
 	run := &Run{
 		ID: uuid.Must(uuid.NewV7()).String(), ThreadID: in.ThreadID, AgentID: in.AgentID, Model: in.Model,

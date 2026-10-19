@@ -18,6 +18,7 @@ commit.
 
 ```bash
 make up                     # Valkey :6379, OpenSearch :9200, MinIO :9000, Jaeger :16686
+make indices                # the OpenSearch indices, from deploy/opensearch
 cp .env.example .env.local  # provider keys and base URLs, MODEL_CARDS_DIR
 make run                    # :8000
 make vet
@@ -39,7 +40,6 @@ cmd/dev/               adk's launcher (web UI, cli, api) over the same roster an
 internal/
   bootstrap/           wires config, logging, tracing, registry, Valkey, OpenSearch, S3,
                        sessions, memory, sources, artifacts, MCP, the runtime and run manager
-  config/              env (go-envconfig) + models.yaml, connectors.yaml, agents/*.md
   server/              Echo app: middleware, routes, error → status mapping
   handler/             REST reads and thread admin; the socket upgrade; handler/wellknown:
                        /.well-known/opencode and the skills discovery index
@@ -69,12 +69,15 @@ pkg/
                        proxy the pass-through and the MCP proxy share
   opencode/            what opencode reads from /.well-known/opencode
   s3/                  S3-compatible object storage (minio-go)
-  db/opensearch/       threads, messages, memories (kNN), sources, artifacts, skills
-  db/valkey/           client per logical database
+  db/opensearch/       threads, messages, memories (kNN), sources, artifacts, skills; typed queries
+  db/valkey/           Valkey settings and a client per logical database
   memory/              adk memory.Service on OpenSearch
   session/valkey/      adk session.Service on Valkey
   logging/             zerolog + slog bridge
+config/                env (go-envconfig, with each pkg's own settings) + models.yaml,
+                       connectors.yaml, agents/*.md, all read strictly
 config/default/        models.yaml, connectors.yaml, agents/*.md (the roster)
+deploy/opensearch/     the index mappings, applied with make indices
 docs/                  the in-depth documentation
 ```
 
@@ -120,9 +123,10 @@ started or resumed over the socket carry none yet.
 
 ## Configuration
 
-Environment (`internal/config/config.go`): `PORT`, `HOST`, `APP_NAME`, `APP_URL` (this
+Environment (`config/config.go`): `PORT`, `HOST`, `APP_NAME`, `APP_URL` (this
 server as clients reach it), `CONFIG_DIR`,
-`LOG_LEVEL`, `LOG_JSON`, `ALLOWED_ORIGINS` (CORS and the socket's browser origins), `MAX_BODY_MB`
+`LOG_LEVEL`, `LOG_JSON`, `ALLOWED_ORIGINS` (CORS), `WS_ALLOWED_ORIGINS` (the socket's browser
+origins; `*` allows any), `MAX_BODY_MB`
 (the largest request body, default 32), `REDIS_HOST/PORT/USER/PASS`,
 `REDIS_DB_RUNS/SESSIONS/HITL` (default 1/2/3), `OPENSEARCH_URL/USERNAME/PASSWORD`,
 `S3_ENDPOINT/ACCESS_KEY/SECRET_KEY/BUCKET/REGION/USE_SSL` (required: artifact bodies and

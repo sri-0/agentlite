@@ -2,13 +2,13 @@ package opensearch
 
 import (
 	"context"
-	"encoding/json"
-	"fmt"
 	"time"
+
+	"github.com/opensearch-project/opensearch-go/v5/opensearchapi"
 )
 
-// IndexMemories holds long-term memory entries with their embeddings.
-const IndexMemories = "memories"
+// indexMemories holds long-term memory entries with their embeddings.
+const indexMemories = "memories"
 
 // Memory is one remembered piece of conversation.
 type Memory struct {
@@ -20,25 +20,18 @@ type Memory struct {
 	CreatedAt time.Time `json:"created_at"`
 }
 
-// EnsureMemoryIndex creates the kNN index for the embedding size in use.
-func (c *Client) EnsureMemoryIndex(ctx context.Context, dimensions int) error {
-	mapping := fmt.Sprintf(`{"settings":{"index.knn":true},"mappings":{"properties":{
-		"id":{"type":"keyword"},"thread_id":{"type":"keyword"},"author":{"type":"keyword"},
-		"text":{"type":"text"},"created_at":{"type":"date"},
-		"embedding":{"type":"knn_vector","dimension":%d,"method":{"name":"hnsw","space_type":"cosinesimil","engine":"lucene"}}}}}`, dimensions)
-	return c.ensureIndex(ctx, IndexMemories, mapping)
-}
-
-// SaveMemory upserts a memory entry.
+// SaveMemory upserts a memory entry. Nothing reads one back at once, so the
+// index refreshes on its own schedule.
 func (c *Client) SaveMemory(ctx context.Context, m *Memory) error {
-	return c.index(ctx, IndexMemories, m.ID, m)
+	return c.write(ctx, indexMemories, m.ID, m, opensearchapi.IndexParams{})
 }
 
 // SearchMemories returns the k entries nearest to the vector, leaving out the
 // entries of one thread (the one asking, whose turns are already in context).
 func (c *Client) SearchMemories(ctx context.Context, vector []float32, k int, excludeThread string) ([]Memory, error) {
-	vec, _ := json.Marshal(vector)
-	q := fmt.Sprintf(`{"size":%d,"_source":{"excludes":["embedding"]},"query":{"knn":{"embedding":{"vector":%s,"k":%d,
-		"filter":{"bool":{"must_not":{"term":{"thread_id":%q}}}}}}}}`, k, vec, k, excludeThread)
-	return search[Memory](ctx, c, IndexMemories, q)
+	notThread := map[string]any{"bool": map[string]any{"must_not": map[string]any{"term": map[string]any{"thread_id": excludeThread}}}}
+	return search[Memory](ctx, c, indexMemories, map[string]any{
+		"size": k, "_source": map[string]any{"excludes": []string{"embedding"}},
+		"query": map[string]any{"knn": map[string]any{"embedding": map[string]any{"vector": vector, "k": k, "filter": notThread}}},
+	})
 }

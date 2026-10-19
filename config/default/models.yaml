@@ -80,5 +80,4 @@ compaction: { token_threshold: 0.85, keep_events: 20 }
 # also searches before every model call. Omit the block to disable.
 memory:
   embedding_model: openrouter/openai/text-embedding-3-small
-  dimensions: 1536
   preload: false

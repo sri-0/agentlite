@@ -211,7 +211,7 @@ Storage, all in OpenSearch, so document-level security covers it:
 
 | Index | What |
 |---|---|
-| `sources`, id `{root}:k:{hash of identity}` or `{root}:n:{number}` | `id, root_id, number, thread_id, run_id, tool, tool_call_id, system, key, url, title, metadata (flat_object), retrieved_at, cited_in` |
+| `sources`, id a name-based UUID of `{root, identity}`, or a UUIDv7 when there is no identity | `id, root_id, number, thread_id, run_id, tool, tool_call_id, system, key, url, title, metadata (flat_object), retrieved_at, cited_in` |
 | `counters`, id `{root}` | `sources` (the last number), `artifacts` (each artifact's last version) |
 
 `GET /v1/threads/{id}/sources` lists them by number; `GET /v1/threads/{id}/sources/{n}`
@@ -225,7 +225,7 @@ records and records every hit with the row's id, marking and control set as meta
 
 `emit_artifact` publishes a document; `internal/artifacts` stores it:
 
-- the record in OpenSearch `artifacts` (id `{root}:{artifact id}`): `id, root_id,
+- the record in OpenSearch `artifacts` (id a name-based UUID of `{root, artifact id}`): `id, root_id,
   thread_id, run_id, title, kind, language, url, size, version, created_at, updated_at`;
 - the body in S3 at `artifacts/{root}/{artifact id}/{version}`.
 
