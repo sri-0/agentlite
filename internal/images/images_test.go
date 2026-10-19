@@ -75,7 +75,7 @@ func TestGenerate(t *testing.T) {
 		name      string
 		editModel string
 		ref       *reference
-		check func(t *testing.T, got *request)
+		check     func(t *testing.T, got *request)
 	}{
 		{name: "new", ref: nil, check: func(t *testing.T, got *request) {
 			if got.path != "/v1/images/generations" || got.json["prompt"] != "a kite" || got.json["model"] != "Qwen/Qwen-Image" || got.json["input_references"] != nil {
