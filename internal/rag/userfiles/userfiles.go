@@ -1,10 +1,10 @@
-// Package files keeps the files users upload for RAG: the record in
+// Package userfiles keeps the files users upload for RAG: the record in
 // OpenSearch, the body in S3, and, with an embedding model, what the file
 // holds embedded for search_userfiles. Only kinds a model takes as they are
 // get in (text, images, audio, video and PDF); nothing is converted. A
 // message names a file with #id (Resolve) and the model gets it: images and
 // PDFs as they are, small text inline, anything else as a note.
-package files
+package userfiles
 
 import (
 	"context"
@@ -53,6 +53,7 @@ var kinds = map[string]string{
 // Embedder embeds what files hold, with the embedding block's model
 // (providers.Embedder): text in chunks, an image, audio or video whole.
 type Embedder interface {
+	Model() string // the model id, which each chunk records
 	Documents(ctx context.Context, texts []string) ([][]float32, error)
 	Query(ctx context.Context, text string) ([]float32, error)
 	Media(ctx context.Context, data []byte, mediaType string) ([]float32, error)

@@ -10,8 +10,8 @@ import (
 	"agentlite/config"
 	"agentlite/internal/agents"
 	"agentlite/internal/artifacts"
-	"agentlite/internal/files"
 	"agentlite/internal/providers"
+	"agentlite/internal/rag/userfiles"
 	"agentlite/internal/runs"
 	"agentlite/internal/skills"
 	"agentlite/internal/voice"
@@ -27,7 +27,7 @@ type Handler struct {
 	Store     *opensearch.Client
 	Artifacts *artifacts.Store
 	Skills    *skills.Library
-	Files     *files.Store
+	Files     *userfiles.Store
 	Voice     *voice.Transcriber // nil when the voice prompt is not configured
 	Log       zerolog.Logger
 }

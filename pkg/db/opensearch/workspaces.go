@@ -64,7 +64,7 @@ func (c *Client) DeleteWorkspace(ctx context.Context, id string) error {
 		"script": map[string]any{"lang": "painless", "source": "ctx._source.remove('workspace_id')"},
 	})
 	_, err := c.api.UpdateByQuery(ctx, &opensearchapi.UpdateByQueryReq{
-		Indices: []string{c.ix(indexThreads), c.ix(indexFiles), c.ix(indexFileChunks)}, BodyReader: bytes.NewReader(q),
+		Indices: []string{c.ix(indexThreads), c.ix(indexFiles), c.ix(c.chunks)}, BodyReader: bytes.NewReader(q),
 		Params: &opensearchapi.UpdateByQueryParams{Refresh: "true", Conflicts: opensearchapi.ConflictsProceed},
 	})
 	if err != nil {

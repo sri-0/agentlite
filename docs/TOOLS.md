@@ -174,9 +174,9 @@ func searchRecords(conn toolx.Connector) (toolx.Tool, error) {
   registered by name in `tools.Catalog`; the runtime builds each one with its connector,
   on that connector's one HTTP client. A tool is only offered through a connector.
 - `generate_image` and `search_userfiles` are built on the service they use
-  (`tools.GenerateImage(*images.Studio)`, `tools.SearchFiles(*files.Store)`), each the
+  (`tools.GenerateImage(*images.Studio)`, `tools.SearchFiles(*userfiles.Store)`), each the
   one tool of its own connector (above); their work lives in `internal/images` and
-  `internal/files`.
+  `internal/rag/userfiles`.
 - A harness tool (`internal/tools/builtin`, one file per tool) drives the run or feeds the
   UI, and is built the same way from `builtin.Deps`; its work lives in its own package
   (`emit_artifact` → `internal/artifacts`, `write_skill` → `internal/skills`).
@@ -307,7 +307,7 @@ start. Deleting the root thread deletes its bodies, then its records.
 
 ## Files
 
-`internal/files` keeps the files users upload (FILES.md). `search_userfiles {query,
+`internal/rag/userfiles` keeps the files users upload (FILES.md). `search_userfiles {query,
 files?, all?}` (`internal/tools/search_userfiles.go`) is the **files** connector's tool, offered
 when files are searchable (`models.yaml` has an `embedding` block): a semantic search
 over the files it names (from any workspace), else the conversation's workspace's, else

@@ -46,7 +46,7 @@ implements it, so imports run one way.
 | `internal/agents` | `runtime.go` (Runtime, running a segment), `build.go` (roster → adk agents and tools), `connectors.go` (a client and toolset per connector), `mcptools.go` (the MCP tool hooks), `compaction.go`, `seed.go` (rebuild a session), `resume.go` (answers → adk responses) |
 | `internal/sources`, `internal/artifacts` | numbering and storing sources; storing artifacts (TOOLS.md) |
 | `internal/images` | `images.go` (making an image, keeping it as an artifact); its tool is `internal/tools/generate_image.go` (TOOLS.md) |
-| `internal/files` | `files.go` (keeping a file, what is accepted), `resolve.go` (`#id`), `handler.go` (the routes), `index.go` (what is embedded, chunks), `search.go` (the search behind `search_userfiles`, whose tool is `internal/tools/search_userfiles.go`) (FILES.md) |
+| `internal/rag/userfiles` | `userfiles.go` (keeping a file, what is accepted), `resolve.go` (`#id`), `handler.go` (the routes), `index.go` (what is embedded, chunks), `search.go` (the search behind `search_userfiles`, whose tool is `internal/tools/search_userfiles.go`) (FILES.md) |
 | `internal/providers` | provider clients, model resolution, discovery, the pass-through, `embed.go` (the one embedder, memory's and the files', MODELS.md) |
 | `internal/voice` | the voice prompt: `voice.go` (a recording to text, `POST /v1/voice/transcriptions`); apart from the agents (MODELS.md) |
 | `pkg/toolx`, `pkg/citations`, `pkg/transport`, `pkg/s3`, `pkg/modelcatalog` | the tool wrapper; the source contract; HTTP clients; S3 through minio-go; models and model cards |
@@ -214,7 +214,8 @@ OpenSearch indices: `threads`, `messages` (events stored unindexed), `sources`,
 `skills` (the skills library, one record per skill; its files are in S3; SKILLS.md),
 `workspaces`, `userfiles` (the records of files users upload for RAG; FILES.md),
 `userfile_chunks` (the files' chunks, kNN vectors; FILES.md), `memories` (long-term
-memory entries, kNN vectors of the same model; MEMORY.md).
+memory entries, kNN vectors of the same model; MEMORY.md); `models.yaml` can rename these
+two (`embedding.index`, `memory.index`).
 Every name starts with `OPENSEARCH_INDEX_PREFIX` (default `user_ai_`:
 `user_ai_threads`, `user_ai_userfiles`, …), added in one place
 (`opensearch.Client.ix`), so deployments can share a cluster; `make indices` uses the

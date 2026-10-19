@@ -62,7 +62,7 @@ internal/
   refs/                references in a message (/name, #id; later @agent), by sigil
   sources/             numbers and stores the sources tools return
   artifacts/           artifact records (OpenSearch) and bodies (S3)
-  files/               files users upload: records (OpenSearch), bodies (S3), #id, the routes,
+  rag/userfiles/       files users upload: records (OpenSearch), bodies (S3), #id, the routes,
                        what is embedded (chunks), the search behind search_userfiles
   voice/               the voice prompt: a recording to text, and its route; apart from the agents
   images/              image generation and editing (Studio), every image an artifact; its

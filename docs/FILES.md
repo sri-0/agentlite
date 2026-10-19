@@ -3,7 +3,7 @@
 Users upload files (documents, images, audio, video) for RAG, to talk about them. A
 file is kept once, named in any message with `#id` (the composer shows it as a chip
 with the file's name), and, with an embedding model configured, searched by the
-agents with `search_userfiles`. Everything files-specific is `internal/files` (the
+agents with `search_userfiles`. Everything files-specific is `internal/rag/userfiles` (the
 store, the `#` resolver, the routes under `/v1/rag/files`, embedding and the search)
 and `pkg/db/opensearch/files.go` (the records, in the `userfiles` index, and the
 chunks); the tool's wrapper is `internal/tools/search_userfiles.go`, the **files**
@@ -89,10 +89,14 @@ an image, audio or video whole. A model refusal is `502` with the model's messag
 nothing is kept; a failed upload's body and chunks are removed even if the client has
 gone. A text is searchable up to `searchable_text_mb`; a bigger one is `400`.
 
-The chunks go to the `userfile_chunks` index (`deploy/opensearch/userfile_chunks.json`):
+The chunks go to the `userfile_chunks` index, or the one `embedding.index` names in
+`models.yaml`, after the deployment's prefix like every index (`user_ai_userfile_chunks`
+by default; `deploy/opensearch/userfile_chunks.json`, created by `make indices`, which
+takes the same name as `CHUNK_INDEX=…`):
 a chunk is `{id: <file id>:<seq>, file_id, name, media_type, workspace_id?, seq, text?,
-embedding}`, a
-768-dimension kNN vector (cosine, HNSW on Lucene), repeating the file's name, type and
+embedding, embedding_model}`: `embedding` a 768-dimension kNN vector (cosine, HNSW on
+Lucene), `embedding_model` the `embedding.model` id that made it (vectors of two models
+don't mix; the field is new: run `make indices`). It repeats the file's name, type and
 workspace so a search needs no second lookup. Deleting a file deletes its chunks;
 deleting a workspace moves them out with the file.
 
@@ -122,7 +126,7 @@ video hits are named only: adk-go refuses audio and video parts.
 `vision`, a separate capability: vLLM takes images but has no PDF part), but not
 embedded: no open embedding model takes a PDF and nothing here converts files. A
 pipeline that extracts a PDF's text plugs into one place: `Store.index` in
-`internal/files/index.go`, the switch that decides what of a file is embedded. A
+`internal/rag/userfiles/index.go`, the switch that decides what of a file is embedded. A
 separate system can instead write a PDF's chunks to the `userfile_chunks` index itself
 (the fields above, the same model and size) and set the record's `status` to `ready`.
 

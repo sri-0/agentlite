@@ -1,4 +1,4 @@
-package files
+package userfiles
 
 import (
 	"context"
@@ -49,7 +49,7 @@ func (s *Store) index(ctx context.Context, f *opensearch.File, body []byte) ([]o
 	for i, text := range texts {
 		chunks[i] = opensearch.FileChunk{
 			ID: fmt.Sprintf("%s:%d", f.ID, i), FileID: f.ID, Name: f.Name, MediaType: f.MediaType,
-			WorkspaceID: f.WorkspaceID, Seq: i, Text: text, Embedding: vectors[i],
+			WorkspaceID: f.WorkspaceID, Seq: i, Text: text, Embedding: vectors[i], EmbeddingModel: s.embedder.Model(),
 		}
 	}
 	return chunks, nil

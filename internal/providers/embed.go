@@ -35,6 +35,9 @@ func (r *Registry) Embedder(cfg config.EmbeddingConfig) *Embedder {
 	return &Embedder{registry: r, cfg: cfg}
 }
 
+// Model is the embedding model's id, as models.yaml names it.
+func (e *Embedder) Model() string { return e.cfg.Model }
+
 // Documents embeds texts to be searched in, a vector each, in order.
 func (e *Embedder) Documents(ctx context.Context, texts []string) ([][]float32, error) {
 	out := make([][]float32, 0, len(texts))

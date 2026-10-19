@@ -79,6 +79,9 @@ type EmbeddingConfig struct {
 	Dimensions     int    `yaml:"dimensions"`
 	QueryPrefix    string `yaml:"query_prefix"`
 	DocumentPrefix string `yaml:"document_prefix"`
+	// Index is the OpenSearch index of the files' chunks and their vectors,
+	// without the deployment's prefix; default userfile_chunks.
+	Index string `yaml:"index"`
 }
 
 // MemoryConfig enables long-term memory, embedded with the embedding block's
@@ -87,6 +90,9 @@ type MemoryConfig struct {
 	// Preload searches memory before every model call of a user-started run;
 	// off, the agent decides when to search with the load_memory tool.
 	Preload bool `yaml:"preload"`
+	// Index is the OpenSearch index of the memories, without the deployment's
+	// prefix; default memories.
+	Index string `yaml:"index"`
 }
 
 // VoiceConfig enables the voice prompt: the transcription model that turns a
@@ -108,7 +114,7 @@ type ImagesConfig struct {
 	EditModel string `yaml:"edit_model"`
 }
 
-// FilesConfig is the files block (internal/files, docs/FILES.md): limits on
+// FilesConfig is the files block (internal/rag/userfiles, docs/FILES.md): limits on
 // the files users upload and on what a #reference puts in the model's context
 // as it is, and how files are embedded and searched. Files are searchable
 // only with the embedding block; without it they are kept, not searchable. A
