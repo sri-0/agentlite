@@ -21,7 +21,7 @@ make up                     # Valkey 9 :6379, OpenSearch :9200, MinIO :9000, Jae
 make indices                # the OpenSearch indices, from deploy/opensearch
 cp .env.example .env.local  # provider keys and base URLs, MODEL_CARDS_DIR
 make run                    # :8000
-make vet
+make lint                   # go vet and staticcheck
 make dev web                # adk's launcher (web UI; also cli, api) over the same agents
 ```
 
@@ -29,7 +29,10 @@ With `OTEL_EXPORTER_OTLP_ENDPOINT=http://localhost:4318` every run exports a tra
 (UI at :16686, service `agentlite`); adk's `telemetry.New` does the export. `make dev` runs
 its own worker loops on the same queues, so it must run the same code as the server.
 
-Unit tests cover the reusable packages (`go test ./...`); end-to-end verification uses a
+Unit tests (`go test ./...`) cover what breaks quietly: config loading and its checks, the
+encoder and coalescing (checked with the ag-ui SDK's own `ValidateSequence`), seeding a
+session back from stored events, the model catalog, and the Valkey session store against
+adk's own `sessiontestsuite` (skipped without Valkey). End-to-end verification uses a
 WebSocket client and `curl`, and those scripts stay out of the repository.
 
 ## Layout
@@ -131,6 +134,7 @@ origins; `*` allows any), `MAX_BODY_MB`
 `REDIS_DB_RUNS/SESSIONS/HITL` (default 1/2/3), `OPENSEARCH_URL/USERNAME/PASSWORD`,
 `S3_ENDPOINT/ACCESS_KEY/SECRET_KEY/BUCKET/REGION/USE_SSL` (required: artifact bodies and
 skill files), `TRANSPORT_SENSITIVE_HEADERS` (a caller's headers a forward drops),
+`TRANSPORT_RESPONSE_HEADER_TIMEOUT` (default 5m),
 `MODEL_CARDS_DIR` (a checkout of the model cards), `OTEL_EXPORTER_OTLP_ENDPOINT`,
 plus what the YAML references (
 `LITELLM_BASE_URL`, `*_API_KEY`, `OPEN_SLIDE_MCP_URL`, …). `${VAR}` expands in `base_url`,

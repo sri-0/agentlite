@@ -77,11 +77,11 @@ type Skills struct {
 func ModelOf(m modelcatalog.Model) Model {
 	out := Model{
 		Name:       m.Name,
-		Reasoning:  slices.Contains(m.Capabilities, "reasoning"),
-		Attachment: slices.Contains(m.Capabilities, "vision"),
+		Reasoning:  slices.Contains(m.Capabilities, modelcatalog.CapReasoning),
+		Attachment: slices.Contains(m.Capabilities, modelcatalog.CapVision),
 	}
 	if len(m.Capabilities) > 0 { // known: a model without tool calls says so
-		tools := slices.Contains(m.Capabilities, "tool_calling")
+		tools := slices.Contains(m.Capabilities, modelcatalog.CapToolCalling)
 		out.ToolCall = &tools
 	}
 	if m.ContextLength > 0 && m.MaxOutputTokens > 0 { // opencode needs both

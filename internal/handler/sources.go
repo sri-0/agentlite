@@ -3,7 +3,6 @@ package handler
 import (
 	"context"
 	"net/http"
-	"strconv"
 
 	"github.com/labstack/echo/v5"
 )
@@ -25,7 +24,7 @@ func (h *Handler) ThreadSources(c *echo.Context) error {
 // ThreadSource returns one source of a thread's conversation: what a
 // [source:N] citation in the thread refers to.
 func (h *Handler) ThreadSource(c *echo.Context) error {
-	n, err := strconv.Atoi(c.Param("n"))
+	n, err := echo.PathParam[int](c, "n")
 	if err != nil || n < 1 {
 		return echo.NewHTTPError(http.StatusBadRequest, "a source number is a positive integer")
 	}

@@ -4,7 +4,6 @@ import (
 	"errors"
 	"io"
 	"net/http"
-	"strings"
 
 	"github.com/labstack/echo/v5"
 
@@ -63,14 +62,9 @@ func (h *Handler) CreateSkill(c *echo.Context) error {
 	if err != nil {
 		return err
 	}
-	field := func(name string) *string {
-		if v := strings.TrimSpace(c.FormValue(name)); v != "" {
-			return &v
-		}
-		return nil
-	}
 	s, err := h.Skills.Save(c.Request().Context(), skills.Draft{Files: files, Meta: skills.Meta{
-		Title: field("title"), Description: field("description"), Category: field("category"), Source: field("source"),
+		Title: skills.Optional(c.FormValue("title")), Description: skills.Optional(c.FormValue("description")),
+		Category: skills.Optional(c.FormValue("category")), Source: skills.Optional(c.FormValue("source")),
 	}})
 	if err != nil {
 		return err
@@ -82,7 +76,10 @@ func (h *Handler) CreateSkill(c *echo.Context) error {
 // fields left out stay, "" clears a title, category or source.
 func (h *Handler) UpdateSkill(c *echo.Context) error {
 	var m skills.Meta
-	if err := c.Bind(&m); err != nil || m == (skills.Meta{}) {
+	if err := c.Bind(&m); err != nil {
+		return err
+	}
+	if m == (skills.Meta{}) {
 		return echo.NewHTTPError(http.StatusBadRequest, "send at least one of title, description, category, source")
 	}
 	s, err := h.Skills.Update(c.Request().Context(), c.Param("id"), m)
@@ -120,10 +117,5 @@ func (h *Handler) SkillFile(c *echo.Context) error {
 	if err != nil {
 		return err
 	}
-	p := c.Param("*")
-	b, err := h.Skills.File(ctx, s, p)
-	if err != nil {
-		return err
-	}
-	return c.Blob(http.StatusOK, skills.ContentType(p, b), b)
+	return h.Skills.ServeFile(ctx, c.Response(), s, c.Param("*"))
 }

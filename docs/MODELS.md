@@ -54,8 +54,10 @@ first, merged field by field with `dario.cat/mergo` (`modelcatalog.Merge`):
    `azure/gpt-4.1-mini` finds the card `openai/gpt-4.1-mini`; an exact id or alias
    always wins, and a segment two cards share finds neither: use `aliases`);
 2. **what the provider reports** (discovery: OpenAI `/models`, which OpenRouter and
-   vLLM extend, or LiteLLM `/model/info`): listed once during the start, every
-   provider at once, then refreshed in the background on `discover.refresh`. A failed
+   vLLM extend, or LiteLLM `/model/info`, whose one entry per deployment counts once):
+   listed once during the start, every provider at once, then refreshed in the
+   background on `discover.refresh` (checked every 10 minutes). Each refresh also rereads
+   the model cards, so a pulled card reaches every provider, discovered or not. A failed
    listing keeps the last one. Requests (`/v1/models` among them) read the list held in
    memory and never call a provider;
 3. **its `models.yaml` entry**, declared by upstream id.
@@ -158,7 +160,7 @@ providers use. The frontmatter holds the model's fields (name, description,
 context length, max output tokens, capabilities, architecture, pricing in US
 dollars per million tokens, benchmarks, licence, release date, knowledge cutoff,
 sources), and the body is notes on what the model is good at and its limits. The
-cards are reread on every discovery pass, so a pulled card needs no restart; a
+cards are reread every refresh (10 minutes), so a pulled card needs no restart; a
 card that cannot be read is logged and skipped. `GET /v1/models` serves the merged
 result, and the UI's model view shows it.
 

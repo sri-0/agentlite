@@ -47,21 +47,13 @@ func writeSkill(d Deps) (toolx.Tool, error) {
 			files[f.Path] = []byte(f.Content)
 		}
 		files[skills.SkillFile] = md // the instructions, not a file of that path
-		s, err := d.Skills.Save(tc, skills.Draft{
-			Files: files, Meta: skills.Meta{Title: given(a.Title), Category: given(a.Category), Source: given(a.Source)},
-			KeepFiles: true,
-		})
+		meta := skills.Meta{
+			Title: skills.Optional(a.Title), Category: skills.Optional(a.Category), Source: skills.Optional(a.Source),
+		}
+		s, err := d.Skills.Save(tc, skills.Draft{Files: files, Meta: meta, KeepFiles: true})
 		if err != nil {
 			return nil, err
 		}
 		return map[string]any{"id": s.ID, "name": s.Name, "files": len(s.Files)}, nil
 	})
-}
-
-// given is a detail the model gave; nil keeps what the skill has.
-func given(v string) *string {
-	if v == "" {
-		return nil
-	}
-	return &v
 }

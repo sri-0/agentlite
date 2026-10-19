@@ -23,7 +23,7 @@ type startedThread struct {
 func (h *Handler) StartThread(c *echo.Context) error {
 	var turn ws.Turn
 	if err := c.Bind(&turn); err != nil {
-		return echo.NewHTTPError(http.StatusBadRequest, "invalid body")
+		return err // 400, or 415 for a body that is not JSON
 	}
 	in, err := turn.StartInput("")
 	if err != nil {

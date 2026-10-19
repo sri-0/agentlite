@@ -70,7 +70,10 @@ func Serve(ctx context.Context, conn *websocket.Conn, m *runs.Manager, threads T
 		case <-sock.Done():
 		}
 	}()
-	c := &client{conn: conn, ctx: sock, runs: m, threads: threads, log: log, subs: map[string]*subscription{}, allowed: map[string]bool{}}
+	c := &client{
+		conn: conn, ctx: sock, runs: m, threads: threads, log: log,
+		subs: map[string]*subscription{}, allowed: map[string]bool{},
+	}
 	conn.SetReadLimit(readLimit)
 	go c.ping(cancel)
 	for {

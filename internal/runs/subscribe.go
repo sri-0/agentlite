@@ -68,7 +68,8 @@ func (m *Manager) Forget(ctx context.Context, threadIDs ...string) error {
 	keys := make([]string, 0, 2*len(threadIDs))
 	for _, id := range threadIDs {
 		keys = append(keys, logKey(id), threadSeqKey(id))
-		if err := m.sessions.Delete(ctx, &session.DeleteRequest{AppName: m.appName, UserID: SessionUser, SessionID: id}); err != nil {
+		req := &session.DeleteRequest{AppName: m.appName, UserID: SessionUser, SessionID: id}
+		if err := m.sessions.Delete(ctx, req); err != nil {
 			return err
 		}
 	}

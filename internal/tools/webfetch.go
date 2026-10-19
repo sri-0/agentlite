@@ -2,6 +2,7 @@ package tools
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"net"
@@ -37,7 +38,7 @@ func webFetch(conn toolx.Connector) (toolx.Tool, error) {
 		Description: "Fetch a web page and return its readable text (truncated to 32 KiB) and its source number.",
 	}, func(tc toolx.Context, a webFetchArgs) (map[string]any, error) {
 		if !strings.HasPrefix(a.URL, "http://") && !strings.HasPrefix(a.URL, "https://") {
-			return nil, fmt.Errorf("url must start with http:// or https://")
+			return nil, errors.New("url must start with http:// or https://")
 		}
 		ctx, cancel := context.WithTimeout(tc, webFetchTimeout)
 		defer cancel()
@@ -66,7 +67,7 @@ func webFetch(conn toolx.Connector) (toolx.Tool, error) {
 		}
 		truncated := len(text) > webFetchText
 		if truncated {
-			text = text[:webFetchText]
+			text = strings.ToValidUTF8(text[:webFetchText], "") // not half a character
 		}
 		page := resp.Request.URL.String() // after redirects
 		n, err := tc.AddSource(citations.Source{System: conn.ID, URL: page, Title: title})

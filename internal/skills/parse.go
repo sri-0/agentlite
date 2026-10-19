@@ -17,8 +17,9 @@ import (
 // SkillFile is the file that defines a skill.
 const SkillFile = "SKILL.md"
 
-// Limits on an uploaded skill, as npx skills has them. The upload route's
-// body limit bounds the zip itself.
+// Limits on a skill, as npx skills has them: files across the whole skill,
+// bytes unzipped per upload. The upload route's body limit bounds the zip
+// itself.
 const (
 	maxFiles = 1000
 	MaxBytes = 25 << 20

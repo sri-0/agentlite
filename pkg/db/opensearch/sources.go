@@ -46,7 +46,8 @@ func SourceKeyID(rootID, identity string) string {
 // follow. A record is never replaced: when one with the same id exists, it is
 // kept and ErrConflict returned.
 func (c *Client) SaveSource(ctx context.Context, s *Source) error {
-	return c.write(ctx, indexSources, s.ID, s, opensearchapi.IndexParams{OpType: opensearchapi.OpTypeCreate, Refresh: "true"})
+	params := opensearchapi.IndexParams{OpType: opensearchapi.OpTypeCreate, Refresh: "true"}
+	return c.write(ctx, indexSources, s.ID, s, params)
 }
 
 // SourceByID fetches one source by document id.

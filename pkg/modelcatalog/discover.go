@@ -54,13 +54,13 @@ func capabilitiesFromParameters(params []string, arch Architecture) []string {
 	for _, p := range params {
 		switch p {
 		case "tools":
-			caps = append(caps, "tool_calling")
+			caps = append(caps, CapToolCalling)
 		case "reasoning":
-			caps = append(caps, "reasoning")
+			caps = append(caps, CapReasoning)
 		}
 	}
 	if slices.Contains(arch.InputModalities, "image") {
-		caps = append(caps, "vision")
+		caps = append(caps, CapVision)
 	}
 	return caps
 }
@@ -87,14 +87,14 @@ func parseLiteLLM(body []byte) ([]Model, error) {
 	for _, m := range payload.Data {
 		model := Model{ID: m.ModelName, Type: liteLLMType(m.ModelInfo.Mode), ContextLength: m.ModelInfo.MaxInputTokens}
 		if m.ModelInfo.SupportsFunctionCalling {
-			model.Capabilities = append(model.Capabilities, "tool_calling")
+			model.Capabilities = append(model.Capabilities, CapToolCalling)
 		}
 		if m.ModelInfo.SupportsReasoning {
-			model.Capabilities = append(model.Capabilities, "reasoning")
+			model.Capabilities = append(model.Capabilities, CapReasoning)
 			model.SupportedParameters = append(model.SupportedParameters, "reasoning_effort")
 		}
 		if m.ModelInfo.SupportsVision {
-			model.Capabilities = append(model.Capabilities, "vision")
+			model.Capabilities = append(model.Capabilities, CapVision)
 		}
 		out = append(out, model)
 	}

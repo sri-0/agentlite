@@ -95,7 +95,8 @@ func (s *Store) Add(ctx context.Context, threadID, runID string, interrupts []ty
 		}
 		rec.ToolName, _ = in.Metadata[stream.MetaToolName].(string)
 		rec.Args, _ = in.Metadata[stream.MetaArgs].(map[string]any)
-		if request, ok := in.Metadata[stream.MetaRequest].(map[string]any); ok && request[stream.MetaToolName] == "question" {
+		request, _ := in.Metadata[stream.MetaRequest].(map[string]any)
+		if request[stream.MetaToolName] == "question" {
 			rec.Args, _ = request[stream.MetaArgs].(map[string]any) // the questions
 		}
 		raw, err := json.Marshal(rec)

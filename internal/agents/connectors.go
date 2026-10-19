@@ -12,13 +12,11 @@ import (
 	"agentlite/internal/runs"
 	"agentlite/internal/tools"
 	"agentlite/pkg/toolx"
-	"agentlite/pkg/transport"
 )
 
 // connectorSets builds one toolset per connector: its MCP server, or its
-// toolx tools built with an HTTP client of the connector's own. Tools no
-// connector names are built on a plain client, for agents that list them by
-// name.
+// toolx tools built on one HTTP client of the connector's own. A tool is only
+// offered through a connector.
 func (rt *Runtime) connectorSets() error {
 	rt.world, rt.sets = map[string]toolx.Tool{}, map[string]tool.Toolset{}
 	for _, c := range rt.connectors {
@@ -32,24 +30,13 @@ func (rt *Runtime) connectorSets() error {
 		}
 		rt.sets[c.ID] = toolx.Toolset(c.ID, built)
 	}
-	unlisted := config.Connector{HTTP: config.HTTP{UserAgent: rt.userAgent}}
-	for name := range tools.Catalog {
-		if _, ok := rt.world[name]; !ok {
-			unlisted.Tools = append(unlisted.Tools, name)
-		}
-	}
-	_, err := rt.buildTools(unlisted)
-	return err
+	return nil
 }
 
 // buildTools builds a connector's tools on one new client, and records them
 // in rt.world.
 func (rt *Runtime) buildTools(c config.Connector) ([]toolx.Tool, error) {
-	cfg, err := c.HTTP.Transport()
-	if err != nil {
-		return nil, err
-	}
-	client, err := transport.New(cfg)
+	client, err := c.HTTP.Client(rt.transport)
 	if err != nil {
 		return nil, err
 	}
