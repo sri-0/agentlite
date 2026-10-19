@@ -6,8 +6,8 @@ with the file's name), and, with an embedding model configured, searched by the
 agents with `search_userfiles`. Everything files-specific is `internal/files` (the
 store, the `#` resolver, the routes under `/v1/rag/files`, embedding and the search)
 and `pkg/db/opensearch/files.go` (the records, in the `userfiles` index, and the
-chunks); the tool's wrapper is `internal/tools/builtin/search_userfiles.go`, like
-the other harness tools.
+chunks); the tool's wrapper is `internal/tools/search_userfiles.go`, the **files**
+connector's one tool (TOOLS.md).
 
 ## What is accepted
 
@@ -96,7 +96,7 @@ embedding}`, a
 workspace so a search needs no second lookup. Deleting a file deletes its chunks;
 deleting a workspace moves them out with the file.
 
-`search_userfiles {query, files?, all?}` (`internal/tools/builtin/search_userfiles.go`,
+`search_userfiles {query, files?, all?}` (`internal/tools/search_userfiles.go`,
 `Store.Search` behind it) is offered when files are searchable, as the **files** connector (Your files): a thread can
 switch it off like any connector (TOOLS.md); `#id` references stay on either way, since
 naming a file is the user's choice. It embeds the query and
@@ -111,7 +111,7 @@ seq, text?}]}`:
 
 **Image hits are shown to the model** when its card lists `vision`
 (`modelcatalog.Model.HasVision`; a PDF is never a hit, as none is embedded): adk leaves
-media out of tool results, so a before-model callback (`builtin.ShowFound`) adds them,
+media out of tool results, so a before-model callback (`tools.ShowFound`) adds them,
 up to `search_media` files each within `inline_media_mb`, as a user message after the
 result, on the call that reads it; the next call no longer ends with the result, so they
 are sent once. A model without vision gets a note to name them to the user. Audio and
