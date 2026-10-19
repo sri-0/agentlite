@@ -53,6 +53,7 @@ var kinds = map[string]string{
 // Embedder embeds what files hold, with the embedding block's model
 // (providers.Embedder): text in chunks, an image, audio or video whole.
 type Embedder interface {
+	Model() string // the model id, which each chunk records
 	Documents(ctx context.Context, texts []string) ([][]float32, error)
 	Query(ctx context.Context, text string) ([]float32, error)
 	Media(ctx context.Context, data []byte, mediaType string) ([]float32, error)

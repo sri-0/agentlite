@@ -84,6 +84,9 @@ type FileChunk struct {
 	Seq         int       `json:"seq"`
 	Text        string    `json:"text,omitempty"` // a text file's chunk
 	Embedding   []float32 `json:"embedding,omitempty"`
+	// EmbeddingModel is the model id that made Embedding (models.yaml's
+	// embedding.model): vectors of two models don't mix.
+	EmbeddingModel string `json:"embedding_model,omitempty"`
 }
 
 // SaveFileChunks stores a file's chunks in one bulk request, readable by

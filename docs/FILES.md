@@ -94,8 +94,9 @@ The chunks go to the `userfile_chunks` index, or the one `embedding.index` names
 by default; `deploy/opensearch/userfile_chunks.json`, created by `make indices`, which
 takes the same name as `CHUNK_INDEX=…`):
 a chunk is `{id: <file id>:<seq>, file_id, name, media_type, workspace_id?, seq, text?,
-embedding}`, a
-768-dimension kNN vector (cosine, HNSW on Lucene), repeating the file's name, type and
+embedding, embedding_model}`: `embedding` a 768-dimension kNN vector (cosine, HNSW on
+Lucene), `embedding_model` the `embedding.model` id that made it (vectors of two models
+don't mix; the field is new: run `make indices`). It repeats the file's name, type and
 workspace so a search needs no second lookup. Deleting a file deletes its chunks;
 deleting a workspace moves them out with the file.
 
