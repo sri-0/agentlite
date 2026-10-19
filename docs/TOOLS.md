@@ -225,7 +225,11 @@ Storage, all in OpenSearch, so document-level security covers it:
 | `counters`, id `{root}` | `sources` (the last number), `artifacts` (each artifact's last version) |
 
 `GET /v1/threads/{id}/sources` lists them by number; `GET /v1/threads/{id}/sources/{n}`
-returns one. Deleting the root thread deletes the records and the counters.
+returns one. `GET /v1/sources?cited=&workspace=&after=&limit=` lists every conversation's
+(the UI's Sources page), newest first, with each one's thread title, paged as
+`GET /v1/artifacts` is (below): `cited=true` keeps the ones an answer or artifact cites,
+`workspace=<id>` the conversations filed under that workspace. Deleting the root thread
+deletes the records and the counters.
 
 `search_records` (connector `records`) is the demonstration: it searches a few sample
 records and records every hit with the row's id, marking and control set as metadata.
@@ -257,8 +261,9 @@ the encoder makes of it, is a summary without the body (`artifacts.Summary`): `{
 title, kind, version, language?, url?}`. The UI fetches the body from
 `GET /v1/threads/{id}/artifacts/{artifactId}/content`, served with the kind's content
 type and `Content-Security-Policy: sandbox`; `GET /v1/threads/{id}/artifacts` lists the
-conversation's artifacts, and `GET /v1/artifacts?kind=&after=&limit=` lists every
-conversation's (of one kind, when set), newest first, with each one's thread title; a full page carries `next`,
+conversation's artifacts, and `GET /v1/artifacts?kind=&workspace=&after=&limit=` lists every
+conversation's (of one kind, and of one workspace's conversations, when set), newest first,
+with each one's thread title; a full page carries `next`,
 an opaque cursor (OpenSearch `search_after` on update time, conversation and id) for the
 next page's `after`, so ties never drop an artifact.
 

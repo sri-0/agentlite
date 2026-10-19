@@ -59,6 +59,7 @@ func New(cfg *config.Config, h *handler.Handler) *echo.Echo {
 	thread.GET("/artifacts", h.ThreadArtifacts)
 	thread.GET("/artifacts/:artifactId/content", h.ArtifactContent, sandboxed)
 	e.GET("/v1/artifacts", h.RecentArtifacts)
+	e.GET("/v1/sources", h.RecentSources)
 
 	// Next-prompt suggestions, from a thread, what's being typed, or both (internal/suggest).
 	e.POST("/v1/suggestions", h.Suggest.Handle)

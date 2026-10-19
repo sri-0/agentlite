@@ -1,10 +1,7 @@
 package handler
 
 import (
-	"encoding/base64"
-	"encoding/json"
 	"net/http"
-	"slices"
 	"strconv"
 
 	"github.com/labstack/echo/v5"
@@ -22,33 +19,27 @@ type recentArtifact struct {
 
 // RecentArtifacts lists artifacts across every conversation, newest first,
 // ?limit= at a time (default 50, at most 200), only those of one ?kind= when
-// it is set. A full page carries next, an opaque cursor: ?after=<next>
-// fetches the following page.
+// it is set, and of one ?workspace='s conversations when that is. A full page
+// carries next, an opaque cursor: ?after=<next> fetches the following page.
 func (h *Handler) RecentArtifacts(c *echo.Context) error {
 	ctx := c.Request().Context()
 	limit, err := echo.QueryParamOr[int](c, "limit", 0)
 	if err != nil {
 		return err
 	}
-	var after *opensearch.ArtifactKey
-	if v := c.QueryParam("after"); v != "" {
-		raw, err := base64.RawURLEncoding.DecodeString(v)
-		if err == nil {
-			err = json.Unmarshal(raw, &after)
-		}
-		if err != nil {
-			return echo.NewHTTPError(http.StatusBadRequest, "after must be a next cursor from this list")
-		}
-	}
-	found, next, err := h.Store.RecentArtifacts(ctx, c.QueryParam("kind"), after, limit)
+	after, err := afterParam[opensearch.ArtifactKey](c)
 	if err != nil {
 		return err
 	}
-	roots := make([]string, 0, len(found))
-	for _, a := range found {
-		roots = append(roots, a.RootID)
+	roots, err := h.workspaceRoots(c)
+	if err != nil {
+		return err
 	}
-	titles, err := h.Store.ThreadTitles(ctx, slices.Compact(slices.Sorted(slices.Values(roots))))
+	found, next, err := h.Store.RecentArtifacts(ctx, c.QueryParam("kind"), roots, after, limit)
+	if err != nil {
+		return err
+	}
+	titles, err := threadTitles(ctx, h.Store, found, func(a opensearch.Artifact) string { return a.RootID })
 	if err != nil {
 		return err
 	}
@@ -56,18 +47,7 @@ func (h *Handler) RecentArtifacts(c *echo.Context) error {
 	for _, a := range found {
 		items = append(items, recentArtifact{Artifact: a, ThreadTitle: titles[a.RootID]})
 	}
-	page := artifactsPage{list: newList(items)}
-	if next != nil {
-		key, _ := json.Marshal(next)
-		page.Next = base64.RawURLEncoding.EncodeToString(key)
-	}
-	return c.JSON(http.StatusOK, page)
-}
-
-// artifactsPage is one page of RecentArtifacts.
-type artifactsPage struct {
-	list[recentArtifact]
-	Next string `json:"next,omitempty"`
+	return c.JSON(http.StatusOK, newPage(items, next))
 }
 
 // ThreadArtifacts lists the artifacts of a thread's conversation, newest

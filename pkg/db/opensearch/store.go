@@ -100,6 +100,15 @@ func pageSize(limit int) int {
 // skills library and the workspaces.
 const listCap = 1000
 
+// inRoots is a query filter on the conversations in roots, or none when roots
+// is nil; an empty roots matches nothing.
+func inRoots(roots []string) []any {
+	if roots == nil {
+		return []any{}
+	}
+	return []any{map[string]any{"terms": map[string]any{"root_id": roots}}}
+}
+
 // ix is an index's full name: the deployment's prefix, then its own.
 func (c *Client) ix(index string) string { return c.prefix + index }
 
