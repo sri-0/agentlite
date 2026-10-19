@@ -20,6 +20,7 @@ import (
 	"agentlite/internal/runs"
 	"agentlite/internal/skills"
 	"agentlite/internal/stream"
+	"agentlite/internal/tools"
 	"agentlite/internal/tools/builtin"
 )
 
@@ -67,7 +68,7 @@ func (rt *Runtime) buildLLM(ctx context.Context, def config.AgentDef, run *runs.
 	}
 	var beforeModel []llmagent.BeforeModelCallback
 	if rt.files.Searchable() && card.HasVision() {
-		beforeModel = append(beforeModel, builtin.ShowFound(rt.files))
+		beforeModel = append(beforeModel, tools.ShowFound(rt.files))
 	}
 	maxTokens := def.MaxOutputTokens
 	if maxTokens == 0 {
