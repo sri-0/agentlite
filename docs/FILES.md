@@ -2,7 +2,7 @@
 
 Users upload files (documents, images, audio, video) for RAG, to talk about them. A
 file is kept once and named in any message with `#id`; the composer shows it as a
-chip with the file's name. Everything files-specific is `internal/files` (the store,
+chip with the file's name. Everything files-specific is `internal/rag/userfiles` (the store,
 the `#` resolver and the routes, under `/v1/rag/files`) and
 `pkg/db/opensearch/files.go` (the records, in the `userfiles` index).
 

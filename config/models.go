@@ -93,7 +93,7 @@ type ImagesConfig struct {
 	EditModel string `yaml:"edit_model"`
 }
 
-// FilesConfig limits the files users upload (internal/files) and what a
+// FilesConfig limits the files users upload (internal/rag/userfiles) and what a
 // #reference puts in the model's context as it is. A field left out takes its
 // default.
 type FilesConfig struct {

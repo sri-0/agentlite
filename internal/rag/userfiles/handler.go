@@ -1,4 +1,4 @@
-package files
+package userfiles
 
 import (
 	"errors"

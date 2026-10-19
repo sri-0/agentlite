@@ -26,10 +26,10 @@ import (
 
 	"agentlite/config"
 	"agentlite/internal/artifacts"
-	"agentlite/internal/files"
 	"agentlite/internal/images"
 	"agentlite/internal/mcp"
 	"agentlite/internal/providers"
+	"agentlite/internal/rag/userfiles"
 	"agentlite/internal/refs"
 	"agentlite/internal/runs"
 	"agentlite/internal/skills"
@@ -81,8 +81,8 @@ type Deps struct {
 	Sources   *sources.Recorder
 	Skills    *skills.Library
 	Artifacts *artifacts.Store
-	Images    *images.Studio // nil when no image model is configured
-	Files     *files.Store   // uploaded files, which a message names with #id
+	Images    *images.Studio   // nil when no image model is configured
+	Files     *userfiles.Store // uploaded files, which a message names with #id
 	Log       zerolog.Logger
 }
 

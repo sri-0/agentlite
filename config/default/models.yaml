@@ -110,7 +110,7 @@ voice:
 images:
   model: openrouter/qwen/qwen-image-2.1-turbo
 
-# Files users upload for RAG (internal/files, docs/FILES.md). Every limit has
+# Files users upload for RAG (internal/rag/userfiles, docs/FILES.md). Every limit has
 # this default; leave the block out to keep them.
 files:
   max_upload_mb: 25     # the largest upload
