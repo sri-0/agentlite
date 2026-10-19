@@ -109,5 +109,6 @@ voice:
 # Earlier Qwen-Image models edit with Qwen-Image-Edit, a second server:
 #   model: vllm/Qwen/Qwen-Image
 #   edit_model: vllm/Qwen/Qwen-Image-Edit-2511
+# `timeout` is one image's (default 3m).
 images:
   model: openrouter/qwen/qwen-image-2.1-turbo

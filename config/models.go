@@ -81,10 +81,11 @@ type VoiceConfig struct {
 	Timeout time.Duration `yaml:"timeout"` // one transcription; default 60s
 }
 
-// Voice defaults.
+// Voice and images defaults.
 const (
-	defaultVoiceMaxMB   = 25
-	defaultVoiceTimeout = 60 * time.Second
+	defaultVoiceMaxMB    = 25
+	defaultVoiceTimeout  = 60 * time.Second
+	defaultImagesTimeout = 3 * time.Minute
 )
 
 // ImagesConfig enables image generation (internal/images): the image model
@@ -97,7 +98,8 @@ type ImagesConfig struct {
 	// with Qwen-Image-Edit, on a server of its own. Without it an edit goes
 	// to Model on /images/generations, the original in OpenRouter's
 	// input_references (development).
-	EditModel string `yaml:"edit_model"`
+	EditModel string        `yaml:"edit_model"`
+	Timeout   time.Duration `yaml:"timeout"` // one image; default 3m (an image takes tens of seconds)
 }
 
 // Provider is one OpenAI-compatible upstream. Secrets are named by environment
@@ -146,6 +148,9 @@ func loadModels(dir string) (*ModelsConfig, error) {
 	}
 	if v := cfg.Voice; v != nil {
 		v.MaxMB, v.Timeout = cmp.Or(v.MaxMB, defaultVoiceMaxMB), cmp.Or(v.Timeout, defaultVoiceTimeout)
+	}
+	if i := cfg.Images; i != nil {
+		i.Timeout = cmp.Or(i.Timeout, defaultImagesTimeout)
 	}
 	seen := map[string]bool{}
 	for i := range cfg.Providers {
