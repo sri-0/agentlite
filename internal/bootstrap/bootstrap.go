@@ -23,6 +23,7 @@ import (
 	"agentlite/internal/runs"
 	"agentlite/internal/skills"
 	"agentlite/internal/sources"
+	"agentlite/internal/suggest"
 	"agentlite/internal/voice"
 	"agentlite/pkg/db/opensearch"
 	"agentlite/pkg/db/valkey"
@@ -42,6 +43,7 @@ type App struct {
 	Sessions  session.Service
 	Memory    *memory.Service    // nil when memory is not configured
 	Voice     *voice.Transcriber // nil when the voice prompt is not configured
+	Suggest   *suggest.Suggester
 	Artifacts *artifacts.Store
 	Skills    *skills.Library
 	Files     *userfiles.Store
@@ -118,6 +120,11 @@ func New(ctx context.Context) (_ *App, err error) {
 	if v := cfg.Models.Voice; v != nil {
 		app.Voice = voice.New(app.Registry, *v)
 	}
+	suggestions := config.SuggestionsConfig{Model: cfg.Models.DefaultModel}
+	if s := cfg.Models.Suggestions; s != nil {
+		suggestions = *s
+	}
+	app.Suggest = suggest.New(app.Registry, suggestions.Model, suggestions.Prompt)
 	recorder := sources.New(app.Store)
 	bucket, err := s3.New(ctx, cfg.S3) // artifact bodies, skill files and uploaded files
 	if err != nil {
@@ -178,11 +185,11 @@ func (a *App) Close() {
 
 // checkConfiguredModels checks the models models.yaml names: default_model
 // (a run that names none uses it), the embedding model (memory's and the
-// files'), the voice prompt's transcription model and the default image
-// model. Each must be in the model list after the start's first discovery
-// (declared in models.yaml, or listed by its provider), as the type it is
-// used for, so a mistake fails the start rather than every run, memory write,
-// recording, image or upload.
+// files'), the voice prompt's transcription model, the default image model
+// and the suggestions model. Each must be in the model list after the start's
+// first discovery (declared in models.yaml, or listed by its provider), as
+// the type it is used for, so a mistake fails the start rather than every
+// run, memory write, recording, image or upload.
 func checkConfiguredModels(m *config.ModelsConfig, registry *providers.Registry) error {
 	check := func(id, typ string) error {
 		if _, err := registry.ResolveAs(id, typ); err != nil {
@@ -200,6 +207,11 @@ func checkConfiguredModels(m *config.ModelsConfig, registry *providers.Registry)
 	}
 	if m.Voice != nil {
 		if err := check(m.Voice.Model, modelcatalog.TypeTranscription); err != nil {
+			return err
+		}
+	}
+	if m.Suggestions != nil {
+		if err := check(m.Suggestions.Model, modelcatalog.TypeLLM); err != nil {
 			return err
 		}
 	}

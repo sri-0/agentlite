@@ -103,10 +103,10 @@ picker take `llm` models only, so it stays out of them.
 A type no endpoint takes (LiteLLM's `video_generation` or `ocr`) is kept as reported
 and refused everywhere. A run on a model that is not an `llm` is refused when it is
 queued (`400`), and memory refuses an embedding model of another type.
-`default_model`, `embedding.model`, `voice.model`, `images.model` and `images.edit_model`
-must be in the list after the start's first discovery, declared in models.yaml or listed by
-their provider, as an `llm`, an `embedding`, a `transcription` and `image` models: the
-server refuses to start otherwise. Declaring them keeps them
+`default_model`, `embedding.model`, `voice.model`, `images.model`, `images.edit_model` and
+`suggestions.model` must be in the list after the start's first discovery, declared in
+models.yaml or listed by their provider, each as the type it is used for (`llm`,
+`embedding`, `transcription`, `image`): the server refuses to start otherwise. Declaring them keeps them
 listed even when their provider is down at the start.
 
 `models.yaml` entries, and only they, may also set where a model's requests go
@@ -238,6 +238,22 @@ On OpenRouter use `mistralai/voxtral-small-24b-2507-stt`: through that route
 `voxtral-mini-3b-2507` answers the recording instead of transcribing it. vLLM serves
 Voxtral's weights on `/v1/audio/transcriptions` with its transcription prompt.
 
+## Suggestions
+
+The UI asks `POST /v1/suggestions` for what the user might send next (`internal/suggest`,
+apart from the agents) with `{messages, text}`: `messages` is the thread's last turn as the
+UI shows it (`[{role: "user", content}, {role: "assistant", content}]`), sent when a thread
+opens (stale ones too) and after each answer; `text` is what the user is typing, sent a
+second after they stop. The server reads nothing stored, so it never waits on its own copy
+of an answer that has just ended. `messages` decode as openai-go chat messages and go to
+`suggestions.model` (`default_model` without the block) as they came, between the system
+prompt and a last user message that asks for the suggestions (with the typed text, when
+there is some). The model writes three short messages in the user's voice (following the
+answer, or completing what is typed) as JSON held to a schema; `suggestions.prompt`, when
+set, replaces the built-in system prompt. The reply is `{suggestions: [...]}`: at most
+three, each at most 80 characters. Nothing is kept. `400` with neither; `502` when the
+model fails.
+
 ## Disconnected deployment
 
 The server itself fetches nothing from the internet: every model call goes to a
@@ -254,6 +270,7 @@ local servers, and declare the non-LLM models under the provider's `models:` wit
 | Embeddings: long-term memory and file search | `embedding: {model: vllm/google/embeddinggemma-2, dimensions: 0, query_prefix: "task: search result \| query: ", document_prefix: "title: none \| text: "}` (`type: embedding`) | vLLM with EmbeddingGemma 2 support (main since 2026-10-06, so a nightly until the next release): `--runner pooling --dtype bfloat16`; text, images, audio and video. Its vectors are 768, the size of the `memories` and `userfile_chunks` indexes. Avoid sm_86 and sm_120 GPUs until vllm#60847 is fixed |
 | Voice prompt | `voice.model: vllm/mistralai/Voxtral-Small-24B-2507` (`type: transcription`) | vLLM serves Voxtral on `/v1/audio/transcriptions` |
 | Image generation and edits | `images: {model: vllm/Qwen/Qwen-Image-2.1, edit_model: vllm/Qwen/Qwen-Image-2.1}` (`type: image`, each with the `base_url` of its server) | vLLM-Omni (`vllm serve <model> --omni`, one model per server): makes on `/v1/images/generations`, edits on `/v1/images/edits`. Qwen-Image 2.1 does both; earlier Qwen-Image models edit with Qwen-Image-Edit on a second server, its `edit_model` (TOOLS.md) |
+| Next-prompt suggestions | `suggestions.model: vllm/<llm>`, or nothing (`default_model`) | the same LLM server |
 | Model descriptions | `MODEL_CARDS_DIR`: a checkout of the model-cards repository | none |
 
 Leave out a feature's block and the feature is off: no voice route, no
@@ -285,3 +302,5 @@ Also check, outside `models.yaml`:
 | `config/models.go` | `models.yaml` and its checks |
 | `internal/voice/voice.go` | the voice prompt: a recording to text |
 | `internal/handler/voice.go` | `POST /v1/voice/transcriptions` |
+| `internal/suggest/suggest.go` | next-prompt suggestions: from the last turn the UI sends, what's typed, or both |
+| `internal/handler/suggestions.go` | `POST /v1/suggestions` |

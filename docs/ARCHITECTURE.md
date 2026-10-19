@@ -51,6 +51,7 @@ implements it, so imports run one way.
 | `internal/rag/userfiles` | `userfiles.go` (keeping a file, what is accepted), `resolve.go` (`#id`), `handler.go` (the routes), `index.go` (what is embedded, chunks), `search.go` (the search behind `search_userfiles`, whose tool is `internal/tools/search_userfiles.go`) (FILES.md) |
 | `internal/providers` | provider clients, model resolution, discovery, the pass-through, `embed.go` (the one embedder, memory's and the files', MODELS.md) |
 | `internal/voice` | the voice prompt: `voice.go` (a recording to text); apart from the agents; its route, `POST /v1/voice/transcriptions`, is `internal/handler/voice.go` (MODELS.md) |
+| `internal/suggest` | next-prompt suggestions: `suggest.go` (from the last turn, typed text or both, one call to a small LLM); apart from the agents; its route, `POST /v1/suggestions`, is `internal/handler/suggestions.go` (MODELS.md) |
 | `pkg/toolx`, `pkg/citations`, `pkg/transport`, `pkg/s3`, `pkg/modelcatalog` | the tool wrapper; the source contract; HTTP clients; S3 through minio-go; models and model cards |
 
 ## The life of a run

@@ -25,6 +25,9 @@ type ModelsConfig struct {
 	Voice        *VoiceConfig     `yaml:"voice"`         // nil disables the voice prompt
 	Images       *ImagesConfig    `yaml:"images"`        // nil disables image generation
 	Files        FilesConfig      `yaml:"files"`         // uploaded files: limits and search
+	// Suggestions names the model that proposes next prompts after a turn
+	// (internal/suggest); nil uses default_model.
+	Suggestions *SuggestionsConfig `yaml:"suggestions"`
 }
 
 // Compaction configures adk's session compaction for every run. Tail
@@ -122,6 +125,14 @@ type ImagesConfig struct {
 	// input_references (development).
 	EditModel string        `yaml:"edit_model"`
 	Timeout   time.Duration `yaml:"timeout"` // one image; default 3m (an image takes tens of seconds)
+}
+
+// SuggestionsConfig is the small LLM that proposes what the user might send
+// next once a turn is answered (internal/suggest), and its system prompt
+// ("": the built-in one).
+type SuggestionsConfig struct {
+	Model  string `yaml:"model"`
+	Prompt string `yaml:"prompt"`
 }
 
 // FilesConfig is the files block (internal/rag/userfiles, docs/FILES.md): limits on

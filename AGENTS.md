@@ -65,6 +65,7 @@ internal/
   rag/userfiles/       files users upload: records (OpenSearch), bodies (S3), #id, the routes,
                        what is embedded (chunks), the search behind search_userfiles
   voice/               the voice prompt: a recording to text; apart from the agents; the route is handler/voice.go
+  suggest/             next-prompt suggestions (from the last turn, what's typed, or both); apart from the agents; the route is handler/suggestions.go
   images/              image generation and editing (Studio), every image an artifact; its
                        tool is tools/generate_image.go
   mcp/                 mcp connectors → adk toolsets
@@ -124,6 +125,7 @@ document-level security, is `not_found`. ARCHITECTURE.md has the frames.
 | GET | `/v1/threads/{id}/interrupts` | the paused run's pending interrupts |
 | GET | `/v1/threads/{id}/sources`, `/v1/threads/{id}/sources/{n}` | the conversation's sources by number; one source, what `[source:n]` refers to |
 | GET | `/v1/threads/{id}/artifacts`, `/v1/threads/{id}/artifacts/{artifactId}/content` | the conversation's artifacts, newest first; one artifact's body |
+| POST | `/v1/suggestions` | `{messages?, text?}` → `{suggestions: [...]}`: three next prompts from the thread's last turn as the UI sends it (`[{role, content}]`), from what the user is typing, or both, by `models.yaml`'s `suggestions.model` (default `default_model`); nothing is kept; `400` with neither, `502` when the model fails (MODELS.md) |
 | GET | `/v1/artifacts?kind=&after=&limit=` | artifacts across every conversation (of one kind, when set), newest first, with thread titles; a full page carries `next`, the cursor for `after` |
 | GET/POST | `/v1/skills` | the skills library (needs S3), filtered by `?q=&category=&source=`, with category and source counts; `POST` a multipart form: `file` (a skill's zip or its SKILL.md) and optional `title`, `description`, `category`, `source` (SKILLS.md) |
 | GET/PATCH/DELETE | `/v1/skills/{id}` | one skill by its uuid; change its title, description, category or source; remove it and its files |
@@ -156,7 +158,7 @@ headers and MCP endpoints.
 
 - `models.yaml`: `providers[]` (`id, base_url, api_key_env, api: chat_completions|responses,
   headers, discover, models[], tls`), `default_model`, `compaction`, `memory`, `voice`,
-  `images`, `files` (FILES.md). A model id is
+  `images`, `files` (FILES.md), `suggestions`. A model id is
   `<provider>/<model>` and routes only to that provider (MODELS.md); models are declared by
   the provider's own id and override, field by field, discovery and the model cards, with
   an optional per-model `base_url` and `api`. A provider with an empty `base_url` is skipped.

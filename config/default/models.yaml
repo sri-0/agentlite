@@ -124,6 +124,13 @@ memory:
 # (default 60s).
 voice:
   model: openrouter/mistralai/voxtral-small-24b-2507-stt
+# Next-prompt suggestions after a turn (internal/suggest): a small LLM proposes
+# three follow-ups from the last message and answer. Without the block they use
+# default_model:
+# suggestions:
+#   model: openrouter/openai/gpt-4.1-mini
+#   prompt: |   # optional: replaces the built-in system prompt (internal/suggest);
+#     ...       # the reply is held to {"suggestions": [...]} either way
 # Image generation (internal/images): the image model the generate_image tool
 # uses, and the Images page's default. Every image is kept as an artifact.
 # Omit the block and there is neither. A new image is made on the OpenAI

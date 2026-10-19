@@ -14,6 +14,7 @@ import (
 	"agentlite/internal/rag/userfiles"
 	"agentlite/internal/runs"
 	"agentlite/internal/skills"
+	"agentlite/internal/suggest"
 	"agentlite/internal/voice"
 	"agentlite/pkg/db/opensearch"
 )
@@ -29,6 +30,7 @@ type Handler struct {
 	Skills    *skills.Library
 	Files     *userfiles.Store
 	Voice     *voice.Transcriber // nil when the voice prompt is not configured
+	Suggest   *suggest.Suggester
 	Log       zerolog.Logger
 }
 
