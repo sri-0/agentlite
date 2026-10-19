@@ -2,7 +2,9 @@
 # no choice has every connector on; the choice is remembered on the thread and
 # inherited by its sub-agents. Agents that list their own `tools:` ignore it.
 # Harness tools (subagent, todowrite, emit_artifact, question,
-# report_progress) are always available. `icon` is a lucide icon name.
+# report_progress) are always available. The server adds two connectors of
+# its own after these, when configured: images (generate_image) and files
+# (search_userfiles); their ids are taken. `icon` is a lucide icon name.
 #
 # A connector is one adk toolset, of one of two types:
 #   type: tools   toolx tools from the catalog (internal/tools), by name

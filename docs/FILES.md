@@ -6,8 +6,8 @@ with the file's name), and, with an embedding model configured, searched by the
 agents with `search_userfiles`. Everything files-specific is `internal/rag/userfiles` (the
 store, the `#` resolver, the routes under `/v1/rag/files`, embedding and the search)
 and `pkg/db/opensearch/files.go` (the records, in the `userfiles` index, and the
-chunks); the tool's wrapper is `internal/tools/search_userfiles.go`, a world tool the
-runtime offers with the harness tools.
+chunks); the tool's wrapper is `internal/tools/search_userfiles.go`, the **files**
+connector's one tool (TOOLS.md).
 
 ## What is accepted
 
@@ -101,7 +101,9 @@ workspace so a search needs no second lookup. Deleting a file deletes its chunks
 deleting a workspace moves them out with the file.
 
 `search_userfiles {query, files?, all?}` (`internal/tools/search_userfiles.go`,
-`Store.Search` behind it) is offered when files are searchable. It embeds the query and
+`Store.Search` behind it) is offered when files are searchable, as the **files** connector (Your files): a thread can
+switch it off like any connector (TOOLS.md); `#id` references stay on either way, since
+naming a file is the user's choice. It embeds the query and
 returns the `search_hits` nearest chunks (HNSW looks at 100 candidates: asked for 8, it
 missed the one differing passage of a long report), `{hits: [{fileId, name, mediaType,
 seq, text?}]}`:

@@ -71,7 +71,7 @@ func (h *Handler) UpdateThread(c *echo.Context) error {
 		return echo.NewHTTPError(http.StatusBadRequest, "title, connectors or workspace_id is required")
 	}
 	if body.Connectors != nil {
-		if err := h.Config.CheckConnectors(*body.Connectors); err != nil {
+		if err := h.Runtime.CheckConnectors(*body.Connectors); err != nil {
 			return echo.NewHTTPError(http.StatusBadRequest, err.Error())
 		}
 	}

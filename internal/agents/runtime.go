@@ -35,7 +35,6 @@ import (
 	"agentlite/internal/skills"
 	"agentlite/internal/sources"
 	"agentlite/internal/stream"
-	"agentlite/internal/tools"
 	"agentlite/internal/tools/builtin"
 	"agentlite/pkg/db/opensearch"
 	"agentlite/pkg/modelcatalog"
@@ -123,24 +122,13 @@ func (rt *Runtime) Bind(ctx context.Context, d builtin.Dispatcher) error {
 	if err != nil {
 		return err
 	}
-	if rt.files.Searchable() { // a world tool, offered with the harness tools
-		search, err := tools.SearchFiles(rt.files)
-		if err != nil {
-			return err
-		}
-		rt.harness[search.Name()] = search
-	}
-	if rt.images != nil { // a world tool, offered with the harness tools
-		generate, err := tools.GenerateImage(rt.images)
-		if err != nil {
-			return err
-		}
-		rt.harness[generate.Name()] = generate
-	}
 	if rt.skillset, err = rt.skills.Toolset(ctx); err != nil {
 		return err
 	}
 	if err := rt.connectorSets(); err != nil {
+		return err
+	}
+	if err := rt.ownSets(); err != nil {
 		return err
 	}
 	rt.toolUI = maps.Clone(rt.mcpTools.ui)

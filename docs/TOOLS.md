@@ -140,6 +140,15 @@ ready-made toolset for function tools, so `toolx.Toolset` is the small one. A to
 belongs to one connector at most: a run gets every connector by default, and adk
 refuses two tools of one name.
 
+Two world tools work on the server's own services rather than a connector's HTTP
+client, so each is a connector of the server's own (`tools.Own`), after
+`connectors.yaml`'s, when it is built: **images** (Image generation: `generate_image`,
+when an image model is configured) and **files** (Your files: `search_userfiles`, when
+files are searchable). They are listed by `GET /v1/connectors`,
+switched by a thread's `connectors`, and validated with the rest (`Runtime.CheckConnectors`).
+An agent that lists one by name (the `images` agent) still gets it. A `#id` file
+reference is not a tool and stays on: naming a file is the user's own choice.
+
 ```go
 func searchRecords(conn toolx.Connector) (toolx.Tool, error) {
 	return toolx.New(toolx.Spec{
@@ -164,15 +173,13 @@ func searchRecords(conn toolx.Connector) (toolx.Tool, error) {
 - A world tool is a `tools.Builder`, `func(toolx.Connector) (toolx.Tool, error)`,
   registered by name in `tools.Catalog`; the runtime builds each one with its connector,
   on that connector's one HTTP client. A tool is only offered through a connector.
-- `generate_image` is a world tool built on the image studio
-  (`tools.GenerateImage(*images.Studio)`, `internal/tools/generate_image.go`), with its
-  work in `internal/images`; the runtime offers it with the harness tools.
-- `search_userfiles` is a world tool built on the files store
-  (`tools.SearchFiles(*userfiles.Store)`, `internal/tools/search_userfiles.go`), with its
-  work in `internal/rag/userfiles`; the runtime offers it with the harness tools.
-- A harness tool (`internal/tools/builtin`, one file per tool) is built the same way from
-  `builtin.Deps`; its work lives in its own package (`emit_artifact` → `internal/artifacts`,
-  `write_skill` → `internal/skills`).
+- `generate_image` and `search_userfiles` are built on the service they use
+  (`tools.GenerateImage(*images.Studio)`, `tools.SearchFiles(*userfiles.Store)`), each the
+  one tool of its own connector (above); their work lives in `internal/images` and
+  `internal/rag/userfiles`.
+- A harness tool (`internal/tools/builtin`, one file per tool) drives the run or feeds the
+  UI, and is built the same way from `builtin.Deps`; its work lives in its own package
+  (`emit_artifact` → `internal/artifacts`, `write_skill` → `internal/skills`).
 - Registries and `toolx.Toolset` accept only `toolx.Tool`, and
   `TestOnlyToolxBuildsFunctionTools` fails if any package but `toolx` imports
   `functiontool`.
@@ -263,7 +270,7 @@ next page's `after`, so ties never drop an artifact.
 
 `internal/images` makes images and keeps each as an `image` artifact, so every image is
 on the artifacts page. `generate_image {prompt, edit?}` (`internal/tools/generate_image.go`)
-is offered to every agent, with the harness tools, when `models.yaml` has an `images` block: it makes the image, saves
+is the **images** connector's tool, offered when `models.yaml` has an `images` block: it makes the image, saves
 it, and shows it in the thread as an `artifact` activity (its calls carry the UI renderer
 `generate_image`). `edit` names an image of the conversation: the result is that
 artifact's next version, under its title. The image model is the turn's `imageModel`
@@ -301,8 +308,8 @@ start. Deleting the root thread deletes its bodies, then its records.
 ## Files
 
 `internal/rag/userfiles` keeps the files users upload (FILES.md). `search_userfiles {query,
-files?, all?}` (`internal/tools/search_userfiles.go`) is offered to every agent, with the
-harness tools, when files are searchable (`models.yaml` has an `embedding` block): a semantic search
+files?, all?}` (`internal/tools/search_userfiles.go`) is the **files** connector's tool, offered
+when files are searchable (`models.yaml` has an `embedding` block): a semantic search
 over the files it names (from any workspace), else the conversation's workspace's, else
 with `all` every workspace's, returning the `search_hits` best chunks (`{hits: [{fileId,
 name, mediaType, seq, text?}]}`). A model whose card lists `vision` is shown the images
