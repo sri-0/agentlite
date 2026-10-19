@@ -12,7 +12,6 @@ import (
 
 	"agentlite/config"
 	"agentlite/internal/artifacts"
-	"agentlite/internal/images"
 	"agentlite/internal/runs"
 	"agentlite/internal/skills"
 	"agentlite/pkg/toolx"
@@ -38,16 +37,12 @@ type Deps struct {
 	Defs       map[string]config.AgentDef
 	Artifacts  *artifacts.Store
 	Skills     *skills.Library
-	Images     *images.Studio // nil when no image model is configured: no generate_image
 	Log        zerolog.Logger
 }
 
 // All builds every builtin tool, keyed by name.
 func All(d Deps) (map[string]toolx.Tool, error) {
 	builders := []func(Deps) (toolx.Tool, error){subagent, todoWrite, question, reportProgress, emitArtifact, writeSkill}
-	if d.Images != nil {
-		builders = append(builders, generateImage)
-	}
 	out := make(map[string]toolx.Tool, len(builders))
 	for _, build := range builders {
 		t, err := build(d)

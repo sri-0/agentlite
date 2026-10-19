@@ -54,8 +54,8 @@ internal/
   hitl/                interrupt records in Valkey
   stream/              AG-UI conventions, adk → AG-UI encoder, storage coalescing
   tools/               world tools (calculate, webfetch, write_note, search_records); the
-                       catalog; tools/builtin: subagent, todowrite, question, emit_artifact,
-                       report_progress, write_skill, generate_image
+                       catalog; generate_image; tools/builtin: subagent, todowrite, question,
+                       emit_artifact, report_progress, write_skill
   skills/              the skills library: records in OpenSearch, files in S3, uploads, adk's
                        skill toolset, /name
   refs/                references in a message (/name; later @agent, #id), by sigil
@@ -63,7 +63,7 @@ internal/
   artifacts/           artifact records (OpenSearch) and bodies (S3)
   voice/               the voice prompt: a recording to text; apart from the agents; the route is handler/voice.go
   images/              image generation and editing (Studio), every image an artifact; its
-                       tool is tools/builtin/generate_image.go
+                       tool is tools/generate_image.go
   mcp/                 mcp connectors → adk toolsets
   passthrough/         the pass-through proxy's endpoints: a JSON body's model, or the image
                        edit's multipart form's, rewritten to the provider's id
