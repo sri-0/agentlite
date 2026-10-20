@@ -54,6 +54,9 @@ type Thread struct {
 	WorkspaceID string    `json:"workspace_id,omitempty"` // the workspace a root thread is filed under
 	Pinned      bool      `json:"pinned,omitempty"`       // kept at the top of the sidebar
 	Archived    bool      `json:"archived,omitempty"`     // left out of the sidebar
+	// Sharing: a public conversation is readable, by its link, by everyone
+	// who holds its control set; its sub-agent threads follow its root.
+	Sharing
 	Marks
 }
 
@@ -212,15 +215,60 @@ func (c *Client) CreateMessage(ctx context.Context, m *Message) error {
 	return c.write(ctx, indexMessages, m.ID, m, opensearchapi.IndexParams{OpType: opensearchapi.OpTypeCreate, Refresh: "true"})
 }
 
-// Threads lists root threads, newest first; the list is capped at threadsCap.
-func (c *Client) Threads(ctx context.Context) ([]Thread, error) {
+// ThreadFilter narrows a listing of root threads: Mine, the caller's own
+// (the sidebar's), or WorkspaceID, those filed under a workspace (the
+// caller's own and the public ones). Neither lists every conversation the
+// caller can see; RootIDs names those.
+type ThreadFilter struct {
+	Mine        bool
+	WorkspaceID string
+}
+
+// Threads lists root threads as f narrows them, newest first; the list is
+// capped at threadsCap.
+func (c *Client) Threads(ctx context.Context, f ThreadFilter) ([]Thread, error) {
+	caller, ok := CallerFrom(ctx)
+	if !ok {
+		return nil, ErrNoCaller
+	}
+	filter := []any{}
+	if f.Mine {
+		filter = append(filter, map[string]any{"term": map[string]any{"user_created_by": caller.Username}})
+	}
+	if f.WorkspaceID != "" {
+		filter = append(filter, map[string]any{"term": map[string]any{"workspace_id": f.WorkspaceID}})
+	}
 	return search[Thread](ctx, c, indexThreads, map[string]any{
 		"size": threadsCap, "sort": []any{map[string]any{"updated_at": "desc"}},
-		"query": map[string]any{"bool": map[string]any{"must_not": map[string]any{"exists": map[string]any{"field": "parent_id"}}}},
+		"query": map[string]any{"bool": map[string]any{"filter": filter, "must_not": notSubThread}},
 	})
 }
 
 const threadsCap = 200
+
+// notSubThread keeps a query to root threads.
+var notSubThread = map[string]any{"exists": map[string]any{"field": "parent_id"}}
+
+// RootIDs lists the ids of the conversations the caller can see, their own
+// and the public ones, newest first: what the lists across conversations
+// (artifacts, sources) draw on. At most listCap, so older conversations'
+// are left out of those lists.
+func (c *Client) RootIDs(ctx context.Context) ([]string, error) {
+	found, err := search[Thread](ctx, c, indexThreads, map[string]any{
+		"size": listCap, "_source": []string{"id"}, "sort": []any{map[string]any{"updated_at": "desc"}},
+		"query": map[string]any{"bool": map[string]any{"must_not": notSubThread}},
+	})
+	return ids(found), err
+}
+
+// ids is the threads' ids, never nil (an empty list matches nothing, inRoots).
+func ids(threads []Thread) []string {
+	out := make([]string, len(threads))
+	for i, t := range threads {
+		out[i] = t.ID
+	}
+	return out
+}
 
 // Thread fetches one thread by id.
 func (c *Client) Thread(ctx context.Context, id string) (*Thread, error) {
@@ -242,16 +290,18 @@ func (c *Client) ThreadTitles(ctx context.Context, ids []string) (map[string]str
 	return titles, err
 }
 
-// search runs a query, confined to a run's control set (confine), and
-// decodes each hit's source. The query is marshalled once, so every value in
-// it is JSON-escaped. A token OpenSearch gives no access (none without a
-// control set) is ErrForbidden.
+// search runs a query, restricted to what the caller may read (restrictions:
+// a run's control set, a shareable type's visibility), and decodes each hit's
+// source. The query is marshalled once, so every value in it is JSON-escaped.
+// A token OpenSearch gives no access (none without a control set) is
+// ErrForbidden.
 func search[T any](ctx context.Context, c *Client, index string, query map[string]any) ([]T, error) {
 	caller, ok := CallerFrom(ctx)
 	if !ok {
 		return nil, ErrNoCaller
 	}
-	confine(query, caller.Controlsets)
+	restrict(query, restrictions[T](caller)...)
+
 	body, err := json.Marshal(query)
 	if err != nil {
 		return nil, err
@@ -272,9 +322,10 @@ func search[T any](ctx context.Context, c *Client, index string, query map[strin
 	return out, nil
 }
 
-// get fetches one document by id; ErrNotFound when there is none, or, inside
-// a run, when it is outside the run's control set. Only marked documents
-// can be read (P), so none slips past the check.
+// get fetches one document by id; ErrNotFound when there is none, when,
+// inside a run, it is outside the run's control set, or when it is
+// shareable and neither the caller's nor shared. Only marked documents can
+// be read (P), so none slips past the checks.
 func get[T any, P interface {
 	*T
 	marked
@@ -310,6 +361,9 @@ func getAt[T any, P interface {
 		return nil, at{}, fmt.Errorf("get %s/%s: %w", index, id, err)
 	}
 	if caller.Controlsets != nil && !slices.Contains(caller.Controlsets, P(&out).marks().ControlsetID) {
+		return nil, at{}, ErrNotFound
+	}
+	if s, ok := any(P(&out)).(shareable); ok && !s.sharing().IsShared && P(&out).marks().UserCreatedBy != caller.Username {
 		return nil, at{}, ErrNotFound
 	}
 	var pos at
@@ -382,7 +436,7 @@ func (c *Client) deleteWhere(ctx context.Context, index, field, value string) er
 		return ErrNoCaller
 	}
 	body := map[string]any{"query": map[string]any{"term": map[string]any{field: value}}}
-	confine(body, caller.Controlsets)
+	restrict(body, confinement(caller)...)
 	q, _ := json.Marshal(body)
 	_, err := c.api.DeleteByQuery(ctx, &opensearchapi.DeleteByQueryReq{
 		Indices: []string{c.ix(index)}, BodyReader: bytes.NewReader(q), Params: &opensearchapi.DeleteByQueryParams{Refresh: "true"},
@@ -393,18 +447,50 @@ func (c *Client) deleteWhere(ctx context.Context, index, field, value string) er
 	return nil
 }
 
+// setShared sets whether the documents of an index that query matches are
+// shared, in place (_update_by_query, which works under document-level
+// security), marked as updated by the caller, now: what follows a document
+// (a conversation's sub-agent threads, a file's chunks) follows its sharing.
+// The caller has checked it owns the document they follow.
+func (c *Client) setShared(ctx context.Context, index string, query map[string]any, shared bool) error {
+	caller, ok := CallerFrom(ctx)
+	if !ok {
+		return ErrNoCaller
+	}
+	body := map[string]any{
+		"query": query,
+		"script": map[string]any{"lang": "painless", "params": map[string]any{"shared": shared, "user": caller.Username, "now": time.Now()},
+			"source": "ctx._source.is_shared = params.shared; ctx._source.user_updated_by = params.user; ctx._source.updated_at = params.now"},
+	}
+	restrict(body, confinement(caller)...)
+	q, _ := json.Marshal(body)
+	_, err := c.api.UpdateByQuery(ctx, &opensearchapi.UpdateByQueryReq{
+		Indices: []string{c.ix(index)}, BodyReader: bytes.NewReader(q),
+		Params: &opensearchapi.UpdateByQueryParams{Refresh: "true", Conflicts: opensearchapi.ConflictsProceed},
+	})
+	if err != nil {
+		return fmt.Errorf("share %s: %w", index, err)
+	}
+	return nil
+}
+
+// ShareSubThreads sets whether a conversation's sub-agent threads are
+// shared, as its root thread is (the caller writes that first): a
+// conversation is readable whole or not at all.
+func (c *Client) ShareSubThreads(ctx context.Context, rootID string, shared bool) error {
+	return c.setShared(ctx, indexThreads, map[string]any{"bool": map[string]any{"filter": []any{
+		map[string]any{"term": map[string]any{"root_id": rootID}}, notSubThread,
+	}}}, shared)
+}
+
 // SubThreads lists the ids of a conversation's sub-agent threads.
 func (c *Client) SubThreads(ctx context.Context, rootID string) ([]string, error) {
 	found, err := search[Thread](ctx, c, indexThreads, map[string]any{
 		"size": listCap, "_source": []string{"id"}, "query": map[string]any{"bool": map[string]any{"filter": []any{
-			map[string]any{"term": map[string]any{"root_id": rootID}}, map[string]any{"exists": map[string]any{"field": "parent_id"}},
+			map[string]any{"term": map[string]any{"root_id": rootID}}, notSubThread,
 		}}},
 	})
-	ids := make([]string, len(found))
-	for i, t := range found {
-		ids[i] = t.ID
-	}
-	return ids, err
+	return ids(found), err
 }
 
 // Messages returns a page of a thread's messages (see pageSize) with seq

@@ -13,8 +13,11 @@ import (
 var ErrCancelled = errors.New("cancelled by the user")
 
 // Cancel stops the thread's active run: a queued or paused run is closed here,
-// a running one is told to stop.
+// a running one is told to stop. Only the thread's creator may.
 func (m *Manager) Cancel(ctx context.Context, threadID string) error {
+	if err := m.own(ctx, threadID); err != nil {
+		return err
+	}
 	run, err := m.store.active(ctx, threadID)
 	if err != nil {
 		return err

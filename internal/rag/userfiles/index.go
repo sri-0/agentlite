@@ -50,6 +50,7 @@ func (s *Store) index(ctx context.Context, f *opensearch.File, body []byte) ([]o
 		chunks[i] = opensearch.FileChunk{
 			ID: fmt.Sprintf("%s:%d", f.ID, i), FileID: f.ID, Name: f.Name, MediaType: f.MediaType,
 			WorkspaceID: f.WorkspaceID, Seq: i, Text: text, Embedding: vectors[i], EmbeddingModel: s.embedder.Model(),
+			Sharing: f.Sharing, // a chunk is seen exactly when its file is
 		}
 	}
 	return chunks, nil

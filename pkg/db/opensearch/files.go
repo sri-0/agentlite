@@ -21,7 +21,8 @@ const (
 	FileStored = "stored"
 )
 
-// File is a file a user uploaded, filed under a workspace or none.
+// File is a file a user uploaded, filed under a workspace or none: the
+// uploader's alone unless they share it.
 type File struct {
 	ID          string   `json:"id"`
 	Name        string   `json:"name"`
@@ -30,6 +31,7 @@ type File struct {
 	WorkspaceID string   `json:"workspace_id,omitempty"`
 	Tags        []string `json:"tags,omitempty"` // the uploader's, for finding it
 	Status      string   `json:"status"`
+	Sharing
 	Marks
 }
 
@@ -62,6 +64,19 @@ func inWorkspace(id string) map[string]any {
 	return map[string]any{"term": map[string]any{"workspace_id": id}}
 }
 
+// UpdateFile changes a file's record in place: edit changes it and the
+// result is written back (see update). The caller checks it is theirs.
+func (c *Client) UpdateFile(ctx context.Context, id string, edit func(*File) bool) (*File, error) {
+	return update(ctx, c, indexFiles, id, false, edit)
+}
+
+// ShareFileChunks sets whether a file's chunks are shared, as the file is
+// (the caller writes that first): a search finds a file's chunks exactly
+// when its record can be seen.
+func (c *Client) ShareFileChunks(ctx context.Context, fileID string, shared bool) error {
+	return c.setShared(ctx, c.chunks, map[string]any{"term": map[string]any{"file_id": fileID}}, shared)
+}
+
 // DeleteFile removes a file's record; ErrNotFound when there is none.
 func (c *Client) DeleteFile(ctx context.Context, id string) error {
 	return c.delete(ctx, indexFiles, id)
@@ -73,7 +88,8 @@ func (c *Client) DeleteFile(ctx context.Context, id string) error {
 const indexFileChunks = "userfile_chunks"
 
 // FileChunk is one embedded piece of a file. It repeats the file's name,
-// media type and workspace, so a search needs no second lookup.
+// media type, workspace and sharing, so a search needs no second lookup and
+// finds only what its caller may see.
 type FileChunk struct {
 	ID          string    `json:"id"` // <file id>:<seq>
 	FileID      string    `json:"file_id"`
@@ -86,6 +102,7 @@ type FileChunk struct {
 	// EmbeddingModel is the model id that made Embedding (models.yaml's
 	// embedding.model): vectors of two models don't mix.
 	EmbeddingModel string `json:"embedding_model,omitempty"`
+	Sharing
 	Marks
 }
 

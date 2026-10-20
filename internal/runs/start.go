@@ -30,8 +30,12 @@ type StartInput struct {
 	// WorkspaceID files a new conversation under a workspace; the caller
 	// checks it exists.
 	WorkspaceID string
-	MessageID   string
-	Text        string
+	// IsShared makes a new conversation public: readable, by its link, by
+	// everyone who holds its control set. A sub-agent's thread takes its
+	// parent's; an existing thread keeps its own.
+	IsShared  bool
+	MessageID string
+	Text      string
 	// User is who starts the turn, with their access token: a user's own
 	// turn mints the conversation's thread token for them from it, the
 	// worker too when it keeps none, and the run's tools forward it to the
@@ -79,6 +83,18 @@ func (m *Manager) Start(ctx context.Context, in StartInput) (*Run, error) {
 	}
 	if in.MessageID == "" {
 		in.MessageID = uuid.Must(uuid.NewV7()).String()
+	}
+	// A turn on an existing thread is its creator's alone, checked before
+	// the thread is claimed: nobody else holds its lease for a moment, or
+	// learns that it is busy. A sub-agent's first turn makes its thread.
+	if !in.newThread {
+		switch err := m.own(ctx, in.ThreadID); {
+		case errors.Is(err, opensearch.ErrNotFound) && in.ParentID != "":
+		case errors.Is(err, opensearch.ErrNotFound):
+			return nil, fmt.Errorf("%w: thread %s", ErrNotFound, in.ThreadID)
+		case err != nil:
+			return nil, err
+		}
 	}
 	run := &Run{
 		ID: uuid.Must(uuid.NewV7()).String(), ThreadID: in.ThreadID, AgentID: in.AgentID, Model: in.Model,
@@ -184,8 +200,9 @@ func (m *Manager) release(ctx context.Context, run *Run) {
 
 // thread is the turn's thread as the turn leaves it; prepare saves it. A new
 // conversation's thread (with the request's control set) and a sub-agent's
-// thread (under its parent's root, in its control set) are made here; any
-// other thread must already exist.
+// thread (under its parent's root, in its control set, shared as it is) are
+// made here; any other thread must already exist, and be the caller's
+// (Start checks).
 func (m *Manager) thread(ctx context.Context, in StartInput) (thread *opensearch.Thread, previousModel string, err error) {
 	thread, err = m.history.Thread(ctx, in.ThreadID)
 	switch {
@@ -195,14 +212,14 @@ func (m *Manager) thread(ctx context.Context, in StartInput) (thread *opensearch
 			return nil, "", fmt.Errorf("%w: a new thread needs a control set", opensearch.ErrNoControlset)
 		}
 		thread = &opensearch.Thread{ID: in.ThreadID, RootID: in.ThreadID, WorkspaceID: in.WorkspaceID,
-			Marks: opensearch.Marks{ControlsetID: caller.Controlset}}
+			Sharing: opensearch.Sharing{IsShared: in.IsShared}, Marks: opensearch.Marks{ControlsetID: caller.Controlset}}
 	case errors.Is(err, opensearch.ErrNotFound) && in.ParentID != "":
 		parent, err := m.history.Thread(ctx, in.ParentID)
 		if err != nil {
 			return nil, "", fmt.Errorf("parent thread: %w", err)
 		}
 		thread = &opensearch.Thread{ID: in.ThreadID, ParentID: in.ParentID, RootID: parent.RootID,
-			Marks: opensearch.Marks{ControlsetID: parent.ControlsetID}}
+			Sharing: parent.Sharing, Marks: opensearch.Marks{ControlsetID: parent.ControlsetID}}
 	case errors.Is(err, opensearch.ErrNotFound):
 		return nil, "", fmt.Errorf("%w: thread %s", ErrNotFound, in.ThreadID)
 	case err != nil:

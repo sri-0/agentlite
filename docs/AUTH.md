@@ -156,12 +156,55 @@ and, inside a run only, the control sets reads and writes are confined to.
 is its creator's alone (`user_created_by` = the caller's username), whoever else
 can see it: `403` otherwise (`opensearch.CheckOwner`). That includes replacing a
 skill by uploading or writing one of the same name; the replaced skill keeps its
-control set and creator. A run adding a turn to a thread someone else created is
-not an edit.
+control set and creator. Taking a turn on a thread, answering its requests and
+cancelling its run are its creator's alone too: everyone else reads it.
 
 Endpoints whose data is in Valkey, which knows nothing of control sets, read
 the thread first: `GET /v1/threads/{id}/interrupts` and the cursor of
 `/v1/threads/{id}/messages`.
+
+## Visibility
+
+Within a control set, a conversation, a workspace or a file is **public** or
+**its creator's alone**: `is_shared` (boolean) on its document, set when it is
+created (`isShared` on `POST /v1/agent/chat`, `is_shared` on `POST /v1/workspaces`
+and on the upload form) and changed by its creator with a PATCH. A thread and a
+workspace are public unless the request says otherwise; a file is the uploader's
+alone unless it does. Skills have no such field: a skill is the library's, seen
+by everyone who holds its control set. Messages, sources, artifacts, memories and
+counters carry none either: they follow their conversation.
+
+| Document | Public means | What follows it |
+|---|---|---|
+| a thread | readable by its link (`/chat/{id}`): `GET /v1/threads/{id}`, its messages, sources, artifacts and interrupts, its sub-agent threads, and the socket's `subscribe`. The sidebar's list (`GET /v1/threads`) holds the caller's own threads only; `?workspace=` lists a workspace's, the caller's own and the public ones | its sub-agent threads (`ShareSubThreads`). The lists across conversations (`GET /v1/artifacts`, `/v1/sources`) draw on the conversations the caller can see (`RootIDs`, at most 1,000) |
+| a workspace | listed, and conversations and files can be filed under it | nothing: its threads and files have their own flag |
+| a file | listed, named with `#id`, found by `search_userfiles` | its chunks (`ShareFileChunks`), so a k-NN search finds only the chunks of files the caller may see |
+
+The rule is applied in the store, next to a run's confinement (`restrictions`
+in `access.go`): a type that embeds `opensearch.Sharing` has every search ANDed
+with `is_shared: true OR user_created_by: <the caller>` (inside a k-NN query's
+own `filter`, as the control sets are), and a get by id of a document that is
+neither is not found. A run is for the user who queued it, so it sees that
+user's own documents and the public ones, within the thread's control set. It
+is not HTTP middleware: runs read these documents too (`#id`,
+`search_userfiles`), and never through a handler.
+
+A public thread is read-only for everyone but its creator: a `run`, `answer`
+or `cancel` frame on it, like a `PATCH` or `DELETE`, is `forbidden`
+(`runs.Manager.own`; `CheckOwner` in `Start`) and an audit entry. Every thread,
+workspace and file the API serves carries `mine`, whether the caller created
+it, so a client shows only the controls its user may use.
+
+DLS does not enforce visibility: OpenSearch's role is by control set alone. A
+second rule on these indices (`is_shared OR user_created_by = ${user.name}`,
+the JWT's `preferred_username`) can add it later; the app's filter is what
+sharing with chosen users or teams will grow from (`shared_with` beside the
+flag, one more clause).
+
+Existing documents get the field from `make backfill` (`backfill-shared`):
+threads and workspaces public, as they were visible to their control set;
+files and their chunks private, their default. The server writes it on every
+document of these indices.
 
 ## Thread tokens
 
@@ -245,9 +288,10 @@ The upgrade request is authenticated like any other. The socket keeps its
 principal and closes when the token expires (`1008`, "access token expired;
 reconnect"): the UI reconnects, and its gateway attaches a fresh token. Runs
 started from it are unaffected. The first frame about a thread looks the thread
-up with the user's own token (DLS): a thread they cannot read is `not_found`.
-Socket errors add the codes `unauthorized` (no thread token could be had: sign
-in again) and `forbidden`.
+up with the user's own token (DLS, and visibility): a thread they cannot read is
+`not_found`. A `run`, `answer` or `cancel` on a public thread that is not theirs
+is `forbidden`. Socket errors add the codes `unauthorized` (no thread token
+could be had: sign in again) and `forbidden`.
 
 ## Audit log
 

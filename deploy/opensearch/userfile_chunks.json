@@ -39,6 +39,9 @@
           "engine": "lucene"
         }
       },
+      "is_shared": {
+        "type": "boolean"
+      },
       "created_at": {
         "type": "date"
       },

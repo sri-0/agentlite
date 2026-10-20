@@ -1,4 +1,4 @@
-.PHONY: run dev build vet lint test tidy indices backfill
+.PHONY: run dev build vet lint test tidy indices backfill backfill-shared
 
 run:
 	go run ./cmd/server
@@ -54,7 +54,7 @@ indices:
 # created_at). It first adds the five fields to each index's mapping, so
 # indices that make indices does not manage take them too. Documents without
 # a controlset_id are invisible to every user once DLS is on. Safe to run
-# again: it only touches what is missing.
+# again: it only touches what is missing. It runs backfill-shared first.
 BACKFILL_CONTROLSET ?= C1000
 BACKFILL_USER ?= alice
 BACKFILL_NOW = $(shell date -u +%Y-%m-%dT%H:%M:%SZ)
@@ -62,8 +62,18 @@ BACKFILL_MAPPING = {"properties": {"controlset_id": {"type": "keyword"}, "user_c
 BACKFILL_MISSING = {"bool": {"should": [{"bool": {"must_not": {"exists": {"field": "controlset_id"}}}}, {"bool": {"must_not": {"exists": {"field": "created_at"}}}}, {"bool": {"must_not": {"exists": {"field": "updated_at"}}}}], "minimum_should_match": 1}}
 BACKFILL_SCRIPT = if (ctx._source.controlset_id == null) { ctx._source.controlset_id = params.cs } if (ctx._source.user_created_by == null) { ctx._source.user_created_by = params.user } if (ctx._source.user_updated_by == null) { ctx._source.user_updated_by = params.user } if (ctx._source.created_at == null) { ctx._source.created_at = ctx._source.retrieved_at != null ? ctx._source.retrieved_at : params.now } if (ctx._source.updated_at == null) { ctx._source.updated_at = ctx._source.created_at }
 BACKFILL_QUERY = {"query": $(BACKFILL_MISSING), "script": {"lang": "painless", "params": {"cs": "$(BACKFILL_CONTROLSET)", "user": "$(BACKFILL_USER)", "now": "$(BACKFILL_NOW)"}, "source": "$(BACKFILL_SCRIPT)"}}
-backfill:
+backfill: backfill-shared
 	@for i in $$($(CURL) '$(OPENSEARCH_URL)/_cat/indices/$(OPENSEARCH_INDEX_PREFIX)*?h=index&s=index'); do \
 	  $(CURL) -o /dev/null -XPUT $(OPENSEARCH_URL)/$$i/_mapping -d '$(BACKFILL_MAPPING)' && \
 	  r=$$($(CURL) -XPOST "$(OPENSEARCH_URL)/$$i/_update_by_query?conflicts=proceed&refresh=true" -d '$(BACKFILL_QUERY)') && \
 	  echo "$$r" | jq -r --arg i $$i '"\($$i): \(.updated) of \(.total) marked, \(.failures | length) failures"' || exit 1; done
+
+# Sets is_shared where a document lacks it (docs/AUTH.md, Visibility), once
+# make indices has added the field: threads and workspaces were visible to
+# their whole control set, so they stay public; files, private by default,
+# become their uploader's alone, and their chunks with them. Safe to run again.
+backfill-shared:
+	@for i in threads=true workspaces=true userfiles=false $(CHUNK_INDEX)=false; do idx=$(OPENSEARCH_INDEX_PREFIX)$${i%=*}; \
+	  r=$$($(CURL) -XPOST "$(OPENSEARCH_URL)/$$idx/_update_by_query?conflicts=proceed&refresh=true" \
+	    -d '{"query": {"bool": {"must_not": {"exists": {"field": "is_shared"}}}}, "script": {"lang": "painless", "source": "ctx._source.is_shared = '$${i#*=}'"}}') && \
+	  echo "$$r" | jq -r --arg i $$idx '"\($$i): \(.updated) of \(.total) set, \(.failures | length) failures"' || exit 1; done

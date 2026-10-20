@@ -89,14 +89,15 @@ func afterParam[K any](c *echo.Context) (*K, error) {
 	return after, nil
 }
 
-// workspaceRoots is the conversations filed under ?workspace=, or nil, every
-// conversation, when it is not set.
-func (h *Handler) workspaceRoots(c *echo.Context) ([]string, error) {
-	id := c.QueryParam("workspace")
-	if id == "" {
-		return nil, nil
+// roots is the conversations a list across them draws on: those filed under
+// ?workspace=, or, when it is not set, every one the caller can see (their
+// own and the public ones), so nothing of a private conversation is listed.
+func (h *Handler) roots(c *echo.Context) ([]string, error) {
+	ctx := c.Request().Context()
+	if id := c.QueryParam("workspace"); id != "" {
+		return h.Store.WorkspaceThreads(ctx, id)
 	}
-	return h.Store.WorkspaceThreads(c.Request().Context(), id)
+	return h.Store.RootIDs(ctx)
 }
 
 // threadTitles is the titles of the conversations items belong to, by root

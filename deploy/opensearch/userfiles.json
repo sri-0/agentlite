@@ -9,6 +9,7 @@
       "workspace_id": {"type": "keyword"},
       "tags": {"type": "keyword"},
       "status": {"type": "keyword"},
+      "is_shared": {"type": "boolean"},
       "created_at": {"type": "date"},
       "updated_at": {"type": "date"},
       "controlset_id": {"type": "keyword"},

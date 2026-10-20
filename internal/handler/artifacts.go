@@ -17,10 +17,11 @@ type recentArtifact struct {
 	ThreadTitle string `json:"thread_title"`
 }
 
-// RecentArtifacts lists artifacts across every conversation, newest first,
-// ?limit= at a time (default 50, at most 200), only those of one ?kind= when
-// it is set, and of one ?workspace='s conversations when that is. A full page
-// carries next, an opaque cursor: ?after=<next> fetches the following page.
+// RecentArtifacts lists artifacts across every conversation the caller can
+// see, newest first, ?limit= at a time (default 50, at most 200), only those
+// of one ?kind= when it is set, and of one ?workspace='s conversations when
+// that is. A full page carries next, an opaque cursor: ?after=<next> fetches
+// the following page.
 func (h *Handler) RecentArtifacts(c *echo.Context) error {
 	ctx := c.Request().Context()
 	limit, err := echo.QueryParamOr[int](c, "limit", 0)
@@ -31,7 +32,7 @@ func (h *Handler) RecentArtifacts(c *echo.Context) error {
 	if err != nil {
 		return err
 	}
-	roots, err := h.workspaceRoots(c)
+	roots, err := h.roots(c)
 	if err != nil {
 		return err
 	}

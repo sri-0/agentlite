@@ -102,7 +102,7 @@ Agents are markdown files in `config/default/agents/`; there is no Go per agent.
 
 ## Interfaces
 
-**New thread** `POST /v1/agent/chat {messages, agentId?, model?, connectors?, imageModel?, workspaceId?}`
+**New thread** `POST /v1/agent/chat {messages, agentId?, model?, connectors?, imageModel?, workspaceId?, isShared?}`
 with `X-Control-Set` creates a thread in that control set with its first turn and starts
 the run; `201 {threadId, runId, seq}` once the thread is stored. It is HTTP so the request
 can be checked before the thread exists.
@@ -120,12 +120,12 @@ document-level security, is `not_found`. ARCHITECTURE.md has the frames.
 | GET | `/health` | `{status, agents}` |
 | GET | `/v1/models`, `/v1/agents` | merged model list; pickable agents with their definitions |
 | GET | `/v1/connectors`, `/v1/connectors/{id}` | tool groups; one in full, an MCP server's tools listed live |
-| GET | `/v1/threads` | root threads, newest first (capped at 200), with `run_status` from each thread's lease |
-| GET/PATCH/DELETE | `/v1/threads/{id}` | thread; `PATCH {title?, connectors?, workspace_id?}` (`""` takes it out of its workspace); delete removes its family (`409` while a run is active) |
-| GET/POST | `/v1/workspaces` | the workspaces threads are filed under, by name; `POST {name}` |
-| PATCH/DELETE | `/v1/workspaces/{id}` | rename (`{name}`); delete, which moves its threads and files out of it |
-| GET/POST | `/v1/rag/files` | files users upload for RAG, newest first (`?workspace=<id>` or `none`); `POST` a multipart `file`, optional `workspaceId` and `tags` (docs/FILES.md) |
-| GET/DELETE | `/v1/rag/files/{id}`, `/v1/rag/files/{id}/content` | one file's record; the file itself, as a download; delete it |
+| GET | `/v1/threads` | the user's own root threads, newest first (capped at 200), with `run_status` from each thread's lease and `mine`; `?workspace=<id>` a workspace's instead, the user's own and the public ones |
+| GET/PATCH/DELETE | `/v1/threads/{id}` | thread, the user's own or a public one (its share link); `PATCH {title?, connectors?, workspace_id?, pinned?, archived?, is_shared?}` (`""` takes it out of its workspace; `is_shared` shares it, sub-agent threads following); delete removes its family (`409` while a run is active) |
+| GET/POST | `/v1/workspaces` | the workspaces the user can see, by name, each with `mine`; `POST {name, is_shared?}` (public unless `false`) |
+| PATCH/DELETE | `/v1/workspaces/{id}` | `{name?, is_shared?}`: rename, share or keep to its creator; delete, which moves its threads and files out of it |
+| GET/POST | `/v1/rag/files` | the files the user can see, newest first (`?workspace=<id>` or `none`), each with `mine`; `POST` a multipart `file`, optional `workspaceId`, `is_shared` (the uploader's alone unless `true`) and `tags` (docs/FILES.md) |
+| GET/PATCH/DELETE | `/v1/rag/files/{id}`, `/v1/rag/files/{id}/content` | one file's record; `PATCH {is_shared?, tags?}`; the file itself, as a download; delete it |
 | GET | `/v1/threads/{id}/messages?before=&limit=` | `{data: [{id, thread_id, role, seq, created_at, text, events}], cursor}` |
 | GET | `/v1/threads/{id}/interrupts` | the paused run's pending interrupts |
 | GET | `/v1/threads/{id}/sources`, `/v1/threads/{id}/sources/{n}` | the conversation's sources by number; one source, what `[source:n]` refers to |
@@ -147,9 +147,12 @@ socket closes when that token expires. Every POST (the pass-through and the MCP 
 included, unless listed in `AUTH_CONTROLSET_EXEMPT_PATHS`) also needs `X-Control-Set`:
 one of the user's control sets (`400` without, `403` for another's), which the documents
 it creates get. Users see the documents of their control sets only (OpenSearch
-document-level security); deleting or editing a thread, workspace, file or skill is its
-creator's alone (`403`). Runs call OpenSearch with a thread token and see only their
-thread's control set. Refusals, runs and thread tokens are logged at the level `audit`.
+document-level security), and of those, every skill, but only the threads, workspaces
+and files that are public (`is_shared`; files are private by default) or their own;
+deleting or editing a thread, workspace, file or skill is its creator's alone (`403`),
+and so is taking a turn on a thread: a public thread is read-only for everyone else.
+Runs call OpenSearch with a thread token and see only their thread's control set.
+Refusals, runs and thread tokens are logged at the level `audit`.
 docs/AUTH.md has all of it.
 
 ## Configuration
