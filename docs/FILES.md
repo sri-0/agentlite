@@ -48,21 +48,28 @@ and, when the file is searchable, to call `search_userfiles` with `files: [id]`.
 A file is filed under a workspace, or none (`workspace_id` absent), like a thread.
 Deleting a workspace moves its files out of it, as it does its threads.
 
-## Control sets
+## Control sets and sharing
 
 An upload names its control set in `X-Control-Set`, as every POST does (one of the
 user's; AUTH.md): the file's record and its chunks get it, with the uploader as
 `user_created_by`. Users see
-the files of their control sets only (document-level security); deleting a file is the
-uploader's alone (`403` for anyone else). A run sees only the files of its thread's
-control set: `search_userfiles` and `#id` find nothing of another, even for a user who
-holds both.
+the files of their control sets only (document-level security); deleting or changing a
+file is the uploader's alone (`403` for anyone else). A run sees only the files of its
+thread's control set: `search_userfiles` and `#id` find nothing of another, even for a
+user who holds both.
+
+Within its control set a file is the uploader's alone unless the upload says
+`is_shared=true`, or they share it later (`PATCH {is_shared}`): a shared file is seen
+by everyone who holds the control set, listed, named with `#id` and found by
+`search_userfiles`. Its chunks carry the same flag, so a search finds only the chunks
+of files its user may see (AUTH.md, Visibility). Every record served carries `mine`,
+whether the caller uploaded it.
 
 ## Storage
 
 - the record in the OpenSearch index `userfiles` (`deploy/opensearch/userfiles.json`;
   with the deployment's `OPENSEARCH_INDEX_PREFIX`, `user_ai_userfiles`):
-  `{id, name, media_type, size, workspace_id?, tags?, status, controlset_id,
+    `{id, name, media_type, size, workspace_id?, tags?, status, is_shared, controlset_id,
   user_created_by, user_updated_by, created_at, updated_at}` (the marks every document
   carries, AUTH.md); the id is a UUIDv7;
 - the body in S3 at `files/{id}`, served as its media type.
@@ -106,10 +113,10 @@ The chunks go to the `userfile_chunks` index, or the one `embedding.index` names
 by default; `deploy/opensearch/userfile_chunks.json`, created by `make indices`, which
 takes the same name as `CHUNK_INDEX=…`):
 a chunk is `{id: <file id>:<seq>, file_id, name, media_type, workspace_id?, seq, text?,
-embedding, embedding_model}` and the marks every document carries (`controlset_id`, …): `embedding` a 768-dimension kNN vector (cosine, HNSW on
+embedding, embedding_model, is_shared}` and the marks every document carries (`controlset_id`, …): `embedding` a 768-dimension kNN vector (cosine, HNSW on
 Lucene), `embedding_model` the `embedding.model` id that made it (vectors of two models
-don't mix; the field is new: run `make indices`). It repeats the file's name, type and
-workspace so a search needs no second lookup. Deleting a file deletes its chunks;
+don't mix). It repeats the file's name, type, workspace and sharing so a search needs
+no second lookup and finds only what its user may see. Deleting a file deletes its chunks;
 deleting a workspace moves them out with the file.
 
 `search_userfiles {query, files?, all?}` (`internal/tools/search_userfiles.go`,
@@ -146,9 +153,10 @@ separate system can instead write a PDF's chunks to the `userfile_chunks` index 
 
 | Method | Path | |
 |---|---|---|
-| POST | `/v1/rag/files` | multipart: `file`, optionally `workspaceId`, and `tags` repeated (trimmed; blanks and repeats dropped, sorted; at most `max_tags` of at most `max_tag_chars`). `201` with the record, once embedded; `400` for an empty file, an unknown workspace, bad tags or a text over `searchable_text_mb` to embed, `413` over `max_upload_mb`, `415` for a kind not accepted, `502` when the embedding model refuses it |
-| GET | `/v1/rag/files` | `{object: "list", data: [record]}`, newest first (capped at 1,000); `?workspace=<id>` one workspace's, `?workspace=none` the unfiled ones |
+| POST | `/v1/rag/files` | multipart: `file`, optionally `workspaceId`, `is_shared` (`true` shares it with everyone who holds its control set; the uploader's alone otherwise) and `tags` repeated (trimmed; blanks and repeats dropped, sorted; at most `max_tags` of at most `max_tag_chars`). `201` with the record, once embedded; `400` for an empty file, an unknown workspace, bad tags or a text over `searchable_text_mb` to embed, `413` over `max_upload_mb`, `415` for a kind not accepted, `502` when the embedding model refuses it |
+| GET | `/v1/rag/files` | `{object: "list", data: [record]}`, the files the user can see (their own and the shared ones), newest first (capped at 1,000); `?workspace=<id>` one workspace's, `?workspace=none` the unfiled ones |
 | GET | `/v1/rag/files/{id}` | the record |
+| PATCH | `/v1/rag/files/{id}` | `{is_shared?, tags?}`: share the file or keep it to its uploader (its chunks follow), or replace its tags; a field left out stays; `400` with neither; the uploader alone |
 | GET | `/v1/rag/files/{id}/content` | the file, as its media type, sandboxed (`Content-Security-Policy: sandbox`, `nosniff`), `Content-Disposition: attachment` with its name, so it is always downloaded, never opened as a page (an `<img>` ignores it, so thumbnails show); byte ranges |
 | DELETE | `/v1/rag/files/{id}` | its body and chunks, then its record; `204` |
 

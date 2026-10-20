@@ -78,7 +78,7 @@ func New(cfg *config.Config, h *handler.Handler) *echo.Echo {
 	e.GET("/v1/workspaces", h.Workspaces)
 	e.POST("/v1/workspaces", h.CreateWorkspace)
 	workspace := e.Group("/v1/workspaces/:id", uuidID)
-	workspace.PATCH("", h.RenameWorkspace)
+	workspace.PATCH("", h.UpdateWorkspace)
 	workspace.DELETE("", h.DeleteWorkspace)
 
 	// The skills library.
@@ -96,6 +96,7 @@ func New(cfg *config.Config, h *handler.Handler) *echo.Echo {
 	e.POST("/v1/rag/files", h.Files.PostFile, middleware.BodyLimit(h.Files.MaxBytes()+1<<20)) // the file, and the form around it
 	file := e.Group("/v1/rag/files/:id", uuidID)
 	file.GET("", h.Files.GetFile)
+	file.PATCH("", h.Files.PatchFile)
 	file.GET("/content", h.Files.FileContent, sandboxed)
 	file.DELETE("", h.Files.DeleteFile)
 

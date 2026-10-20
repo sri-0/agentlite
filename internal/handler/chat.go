@@ -19,14 +19,17 @@ type startedThread struct {
 }
 
 // StartThread creates a thread with its first turn and queues the run; a
-// workspaceId files it under that workspace. The thread is in the control
-// set X-Control-Set names (auth.Controlset, on every POST), and everything
-// it records is too. It replies once the thread is stored, so a subscribe sent on the
-// reply finds it. Later turns on the thread go over the socket.
+// workspaceId files it under that workspace, and isShared false keeps it to
+// its creator (public otherwise: readable, by its link, by everyone who
+// holds its control set). The thread is in the control set X-Control-Set
+// names (auth.Controlset, on every POST), and everything it records is too.
+// It replies once the thread is stored, so a subscribe sent on the reply
+// finds it. Later turns on the thread go over the socket.
 func (h *Handler) StartThread(c *echo.Context) error {
 	var body struct {
 		ws.Turn
 		WorkspaceID string `json:"workspaceId"`
+		IsShared    *bool  `json:"isShared"`
 	}
 	if err := c.Bind(&body); err != nil {
 		return err // 400, or 415 for a body that is not JSON
@@ -40,6 +43,7 @@ func (h *Handler) StartThread(c *echo.Context) error {
 		return err
 	}
 	in.WorkspaceID, in.User = body.WorkspaceID, *auth.From(ctx)
+	in.IsShared = body.IsShared == nil || *body.IsShared
 	run, err := h.Runs.Start(ctx, in)
 	if err != nil {
 		return err

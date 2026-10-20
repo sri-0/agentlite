@@ -160,17 +160,25 @@ whose thread, skill or workspace id is not a UUIDv7 gets 400. Documents that mus
   plus the server's own `images` and `files`, TOOLS.md);
 - for a root thread, the **workspace** it is filed under (`workspace_id`), if any, and
   whether it is **pinned** (top of the sidebar) or **archived** (left out of it), set with
-  `PATCH /v1/threads/{id}` like the title, connectors and workspace.
+  `PATCH /v1/threads/{id}` like the title, connectors and workspace;
+- whether it is **public** (`is_shared`, so unless the request said otherwise):
+  readable, by its link, by everyone who holds its control set, who take no part in
+  it; or its creator's alone. Its sub-agent threads follow it (AUTH.md, Visibility).
 
 A thread is in one control set, fixed when it is created (`X-Control-Set`), and
 everything it records is in it too (AUTH.md). Renaming, moving, pinning,
-archiving or deleting a thread is its creator's alone.
+archiving, sharing or deleting a thread is its creator's alone, and so is taking
+a turn on it. The sidebar's list, `GET /v1/threads`, holds the user's own
+conversations; a public one is reached by its link, or listed with its workspace's
+(`?workspace=`).
 
 A workspace (`internal/handler/workspaces.go`, index `workspaces`) is a folder of
-conversations, and of uploaded files (FILES.md), with a name, in a control set; deleting one moves its
-threads and files out of it rather than deleting them (only those the deleter can
-see; a workspace id that names no workspace a user sees is none to them). Renaming
-or deleting it is its creator's alone. Later it is what people share; today it only groups the sidebar.
+conversations, and of uploaded files (FILES.md), with a name, in a control set,
+public (anyone who holds the control set sees it and files under it) or its
+creator's alone; deleting one moves its
+threads and files out of it rather than deleting them (only those the deleter's
+token may touch; a workspace id that names no workspace a user sees is none to them). Renaming,
+sharing or deleting it is its creator's alone.
 
 A sub-agent's thread is followed like any other; the parent's agent card also
 mirrors its status, progress and pending requests (AGENT-ARCHITECTURE.md).
@@ -182,9 +190,9 @@ was said.
 
 ## Creating a thread
 
-`POST /v1/agent/chat {messages, agentId?, model?, connectors?, workspaceId?}`, with
+`POST /v1/agent/chat {messages, agentId?, model?, connectors?, workspaceId?, isShared?}`, with
 `X-Control-Set`, creates a thread in that control set with its first turn and starts the
-run (an unknown workspace is 400). It replies `201 {threadId,
+run (an unknown workspace is 400; `isShared: false` keeps the thread to its creator). It replies `201 {threadId,
 runId, seq}` only after the thread document is written (with a refresh), so the
 subscribe the client sends next finds it. Creation is HTTP rather than a socket
 frame so a gateway or middleware can check the request's headers before the
@@ -254,7 +262,9 @@ Every name starts with `OPENSEARCH_INDEX_PREFIX` (default `user_ai_`:
 same variable. Every document carries `controlset_id`, `user_created_by`,
 `user_updated_by`, `created_at` and `updated_at` (`opensearch.Marks`, set on every
 write), and every call is made with a user's token, so document-level
-security limits it to the token's control sets (AUTH.md). The service never creates or
+security limits it to the token's control sets (AUTH.md); threads, workspaces,
+files and their chunks carry `is_shared` too (`opensearch.Sharing`), and are read
+through it (AUTH.md, Visibility). The service never creates or
 changes an index, so users need no rights beyond reading and writing documents: each index's mapping is a file
 in `deploy/opensearch`, applied with `make indices` (curl: it creates a missing index,
 and adds new fields to an existing one; a changed type needs a reindex). Mappings are

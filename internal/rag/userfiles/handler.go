@@ -6,14 +6,25 @@ import (
 	"io"
 	"mime"
 	"net/http"
+	"strconv"
 
 	"github.com/labstack/echo/v5"
 	"github.com/openai/openai-go/v3"
+
+	"agentlite/pkg/db/opensearch"
 )
 
+// fileItem is a file's record as the API serves it: with whether the
+// caller uploaded it, and so may change or delete it.
+type fileItem struct {
+	opensearch.File
+	Mine bool `json:"mine"`
+}
+
 // PostFile is POST /v1/rag/files: a multipart form with the file and, to file it
-// under a workspace, its workspaceId; tags, repeated, tag it. The reply is the
-// file's record.
+// under a workspace, its workspaceId; tags, repeated, tag it; is_shared true
+// shares it with everyone who holds its control set (it is the uploader's
+// alone otherwise). The reply is the file's record.
 func (s *Store) PostFile(c *echo.Context) error {
 	upload, header, err := c.Request().FormFile("file")
 	switch {
@@ -31,7 +42,11 @@ func (s *Store) PostFile(c *echo.Context) error {
 		return err
 	}
 	form := c.Request().MultipartForm // parsed by FormFile
-	f, err := s.Add(c.Request().Context(), header.Filename, c.FormValue("workspaceId"), form.Value["tags"], body)
+	shared, err := formBool(c.FormValue("is_shared"))
+	if err != nil {
+		return err
+	}
+	f, err := s.Add(c.Request().Context(), header.Filename, c.FormValue("workspaceId"), form.Value["tags"], shared, body)
 	switch {
 	case errors.Is(err, ErrInvalid):
 		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
@@ -46,12 +61,27 @@ func (s *Store) PostFile(c *echo.Context) error {
 	case err != nil:
 		return err
 	}
-	return c.JSON(http.StatusCreated, f)
+	return c.JSON(http.StatusCreated, fileItem{File: *f, Mine: true})
 }
 
-// ListFiles is GET /v1/rag/files, newest first: every file, or with ?workspace=
-// one workspace's, "none" for the unfiled ones.
+// formBool is a form field's boolean: false when it is not set, 400 when it
+// is not one.
+func formBool(v string) (bool, error) {
+	if v == "" {
+		return false, nil
+	}
+	b, err := strconv.ParseBool(v)
+	if err != nil {
+		return false, echo.NewHTTPError(http.StatusBadRequest, "is_shared must be true or false")
+	}
+	return b, nil
+}
+
+// ListFiles is GET /v1/rag/files, newest first: every file the caller can
+// see (their own, and the shared ones), or with ?workspace= one workspace's,
+// "none" for the unfiled ones.
 func (s *Store) ListFiles(c *echo.Context) error {
+	ctx := c.Request().Context()
 	var workspaceID *string
 	if w := c.QueryParam("workspace"); w != "" {
 		if w == "none" {
@@ -59,20 +89,48 @@ func (s *Store) ListFiles(c *echo.Context) error {
 		}
 		workspaceID = &w
 	}
-	found, err := s.records.Files(c.Request().Context(), workspaceID)
+	found, err := s.records.Files(ctx, workspaceID)
 	if err != nil {
 		return err
 	}
-	return c.JSON(http.StatusOK, map[string]any{"object": "list", "data": found})
+	items := make([]fileItem, 0, len(found))
+	for _, f := range found {
+		items = append(items, fileItem{File: f, Mine: opensearch.Mine(ctx, f.Marks)})
+	}
+	return c.JSON(http.StatusOK, map[string]any{"object": "list", "data": items})
 }
 
 // GetFile is GET /v1/rag/files/:id, a file's record.
 func (s *Store) GetFile(c *echo.Context) error {
-	f, err := s.records.File(c.Request().Context(), c.Param("id"))
+	ctx := c.Request().Context()
+	f, err := s.records.File(ctx, c.Param("id"))
 	if err != nil {
 		return err
 	}
-	return c.JSON(http.StatusOK, f)
+	return c.JSON(http.StatusOK, fileItem{File: *f, Mine: opensearch.Mine(ctx, f.Marks)})
+}
+
+// PatchFile is PATCH /v1/rag/files/:id: {is_shared?, tags?}, a field left
+// out staying as it is; only the uploader may.
+func (s *Store) PatchFile(c *echo.Context) error {
+	var body struct {
+		IsShared *bool     `json:"is_shared"`
+		Tags     *[]string `json:"tags"`
+	}
+	if err := c.Bind(&body); err != nil {
+		return err
+	}
+	if body.IsShared == nil && body.Tags == nil {
+		return echo.NewHTTPError(http.StatusBadRequest, "is_shared or tags is required")
+	}
+	f, err := s.Update(c.Request().Context(), c.Param("id"), body.Tags, body.IsShared)
+	if errors.Is(err, ErrInvalid) {
+		return echo.NewHTTPError(http.StatusBadRequest, err.Error())
+	}
+	if err != nil {
+		return err
+	}
+	return c.JSON(http.StatusOK, fileItem{File: *f, Mine: true})
 }
 
 // FileContent is GET /v1/rag/files/:id/content, the file itself, with ranges. It

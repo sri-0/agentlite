@@ -59,8 +59,8 @@ type recentSource struct {
 	ThreadTitle string `json:"thread_title"`
 }
 
-// RecentSources lists sources across every conversation, newest first, paged
-// as RecentArtifacts is (?limit=, ?after=<next>, ?workspace=), only those an
+// RecentSources lists sources across every conversation the caller can see,
+// newest first, paged as RecentArtifacts is (?limit=, ?after=<next>, ?workspace=), only those an
 // answer or artifact cites when ?cited=true.
 func (h *Handler) RecentSources(c *echo.Context) error {
 	ctx := c.Request().Context()
@@ -76,7 +76,7 @@ func (h *Handler) RecentSources(c *echo.Context) error {
 	if err != nil {
 		return err
 	}
-	roots, err := h.workspaceRoots(c)
+	roots, err := h.roots(c)
 	if err != nil {
 		return err
 	}

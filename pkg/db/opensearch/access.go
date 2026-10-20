@@ -67,6 +67,36 @@ func (m *Marks) marks() *Marks { return m }
 // marked is a document with Marks.
 type marked interface{ marks() *Marks }
 
+// Sharing is who may see a document besides its creator: everyone who
+// holds its control set when IsShared, nobody otherwise. A type that
+// embeds it is read through visible (search, get): a user, or a run for
+// them, finds their own documents and the shared ones. The store never
+// sets it; it is the creator's choice, applied by the handler.
+type Sharing struct {
+	IsShared bool `json:"is_shared"`
+}
+
+func (s *Sharing) sharing() *Sharing { return s }
+
+// shareable is a document with Sharing.
+type shareable interface{ sharing() *Sharing }
+
+// shares reports whether *T documents carry Sharing, and so are read
+// through visible.
+func shares[T any]() bool {
+	_, ok := any((*T)(nil)).(shareable)
+	return ok
+}
+
+// visible is the clause a shareable type's searches are ANDed with: the
+// caller's own documents, and the shared ones.
+func visible(c Caller) map[string]any {
+	return map[string]any{"bool": map[string]any{"minimum_should_match": 1, "should": []any{
+		map[string]any{"term": map[string]any{"is_shared": true}},
+		map[string]any{"term": map[string]any{"user_created_by": c.Username}},
+	}}}
+}
+
 // stamp marks a document about to be written: a new one gets the caller's
 // control set, is created by them, now; every write is updated by them,
 // now. Inside a run, a label outside its control set is refused: OpenSearch
@@ -91,41 +121,75 @@ func stamp(ctx context.Context, m *Marks) error {
 	return nil
 }
 
+// Mine reports whether the caller created the document: changing or
+// deleting one is its creator's alone, and so is taking a turn on a thread.
+func Mine(ctx context.Context, m Marks) bool {
+	c, ok := CallerFrom(ctx)
+	return ok && m.UserCreatedBy != "" && m.UserCreatedBy == c.Username
+}
+
 // CheckOwner refuses a change to a document the caller did not create:
 // deleting, renaming or editing a thread, workspace, file or skill is its
-// creator's alone, whoever else may read it.
+// creator's alone, whoever else may read it (Mine).
 func CheckOwner(ctx context.Context, m Marks) error {
-	c, ok := CallerFrom(ctx)
-	if !ok || m.UserCreatedBy == "" || m.UserCreatedBy != c.Username {
+	if !Mine(ctx, m) {
 		return fmt.Errorf("%w: only its creator, %s, can change it", ErrForbidden, cmp.Or(m.UserCreatedBy, "unknown"))
 	}
 	return nil
 }
 
-// confine ANDs the control sets, when there are any (a run's), into a
-// search body: into a k-NN query's own filter, so the k nearest are found
-// among the allowed documents rather than filtered after, and around any
-// other query.
-func confine(body map[string]any, sets []string) {
-	if sets == nil {
+// confinement is the clause a run's reads and writes are ANDed with: its
+// thread's control set. None for a user's own request, which DLS governs.
+func confinement(c Caller) []map[string]any {
+	if c.Controlsets == nil {
+		return nil
+	}
+	return []map[string]any{{"terms": map[string]any{"controlset_id": c.Controlsets}}}
+}
+
+// restrictions are the clauses a caller's searches of *T are ANDed with: a
+// run's confinement, and, for a shareable type, visibility.
+func restrictions[T any](c Caller) []map[string]any {
+	out := confinement(c)
+	if shares[T]() {
+		out = append(out, visible(c))
+	}
+	return out
+}
+
+// restrict ANDs clauses, when there are any, into a search body: into a
+// k-NN query's own filter, so the k nearest are found among the allowed
+// documents rather than filtered after, and around any other query.
+func restrict(body map[string]any, clauses ...map[string]any) {
+	if len(clauses) == 0 {
 		return
 	}
-	only := map[string]any{"terms": map[string]any{"controlset_id": sets}}
 	q := body["query"]
 	if m, ok := q.(map[string]any); ok {
 		if knn, ok := m["knn"].(map[string]any); ok {
 			for _, field := range knn {
 				f := field.(map[string]any)
-				if f["filter"] == nil {
-					f["filter"] = only
+				all := make([]any, 0, len(clauses)+1)
+				if f["filter"] != nil {
+					all = append(all, f["filter"])
+				}
+				for _, c := range clauses {
+					all = append(all, c)
+				}
+				if len(all) == 1 {
+					f["filter"] = all[0]
 				} else {
-					f["filter"] = map[string]any{"bool": map[string]any{"filter": []any{f["filter"], only}}}
+					f["filter"] = map[string]any{"bool": map[string]any{"filter": all}}
 				}
 			}
 			return
 		}
 	}
-	b := map[string]any{"filter": []any{only}}
+	all := make([]any, len(clauses))
+	for i, c := range clauses {
+		all[i] = c
+	}
+	b := map[string]any{"filter": all}
 	if q != nil {
 		b["must"] = q // scored as before
 	}

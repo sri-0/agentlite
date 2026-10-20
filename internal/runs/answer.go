@@ -11,6 +11,7 @@ import (
 
 	"agentlite/internal/hitl"
 	"agentlite/pkg/auth"
+	"agentlite/pkg/db/opensearch"
 )
 
 // Answer records the user's answer to one of a paused run's interrupts. Once
@@ -18,10 +19,13 @@ import (
 // with all the answers and the turn continues, for the user who gave the
 // last answer: the segment carries their access token, as a turn does.
 // Concurrent answers are safe: each interrupt takes one answer and the run
-// resumes once.
+// resumes once. Answering is the thread's creator's alone, as a turn is.
 func (m *Manager) Answer(ctx context.Context, threadID, interruptID string, d hitl.Decision, user auth.Principal) (*Run, error) {
 	if d.Approved == nil && d.Output == nil {
 		return nil, fmt.Errorf("%w: an answer needs approved or output", ErrInvalid)
+	}
+	if err := m.own(ctx, threadID); err != nil {
+		return nil, err
 	}
 	run, err := m.store.active(ctx, threadID)
 	if err != nil {
@@ -76,6 +80,18 @@ func (m *Manager) Answer(ctx context.Context, threadID, interruptID string, d hi
 		return nil, err
 	}
 	return run, m.enqueue(ctx, run, entry(user, map[string]string{"resume": string(raw)}))
+}
+
+// own refuses a request on a thread the caller did not create: a public
+// thread is read by everyone who holds its control set, and run, answered
+// and cancelled by its creator alone. The thread is read as the caller sees
+// it, so one they cannot see is not found.
+func (m *Manager) own(ctx context.Context, threadID string) error {
+	t, err := m.history.Thread(ctx, threadID)
+	if err != nil {
+		return err
+	}
+	return opensearch.CheckOwner(ctx, t.Marks)
 }
 
 // Interrupts lists the thread's pending interrupts.

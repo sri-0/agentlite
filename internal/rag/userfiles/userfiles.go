@@ -80,8 +80,9 @@ func (s *Store) MaxBytes() int64 { return int64(s.limits.MaxUploadMB) << 20 }
 
 // Add keeps a file under a workspace ("" files it under none), embedded for
 // search first: a file the model refuses is not kept. The file and its
-// chunks are in the caller's control set for new documents (X-Control-Set).
-func (s *Store) Add(ctx context.Context, name, workspaceID string, tags []string, body []byte) (*opensearch.File, error) {
+// chunks are in the caller's control set for new documents (X-Control-Set),
+// and the uploader's alone unless shared.
+func (s *Store) Add(ctx context.Context, name, workspaceID string, tags []string, shared bool, body []byte) (*opensearch.File, error) {
 	if len(body) == 0 {
 		return nil, fmt.Errorf("%w: the file is empty", ErrInvalid)
 	}
@@ -98,7 +99,7 @@ func (s *Store) Add(ctx context.Context, name, workspaceID string, tags []string
 	}
 	f := &opensearch.File{
 		ID: uuid.Must(uuid.NewV7()).String(), Name: name, MediaType: mediaType, Size: len(body),
-		WorkspaceID: workspaceID, Tags: tags, Status: opensearch.FileStored,
+		WorkspaceID: workspaceID, Tags: tags, Status: opensearch.FileStored, Sharing: opensearch.Sharing{IsShared: shared},
 	}
 	chunks, err := s.index(ctx, f, body)
 	if err != nil {
@@ -120,6 +121,43 @@ func (s *Store) Add(ctx context.Context, name, workspaceID string, tags []string
 	if err := s.records.SaveFile(ctx, f); err != nil {
 		_ = s.remove(context.WithoutCancel(ctx), f.ID) // also when the client has gone
 		return nil, err
+	}
+	return f, nil
+}
+
+// Update changes a file's tags, or whether it is shared (its chunks follow
+// its record); a nil field keeps what the file has. Only its uploader may:
+// opensearch.ErrNotFound when there is none they can see,
+// opensearch.ErrForbidden when they did not upload it.
+func (s *Store) Update(ctx context.Context, id string, tags *[]string, shared *bool) (*opensearch.File, error) {
+	f, err := s.records.File(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if err := opensearch.CheckOwner(ctx, f.Marks); err != nil {
+		return nil, err
+	}
+	if tags != nil {
+		if *tags, err = s.cleanTags(*tags); err != nil {
+			return nil, err
+		}
+	}
+	f, err = s.records.UpdateFile(ctx, id, func(f *opensearch.File) bool {
+		if tags != nil {
+			f.Tags = *tags
+		}
+		if shared != nil {
+			f.IsShared = *shared
+		}
+		return true
+	})
+	if err != nil {
+		return nil, err
+	}
+	if shared != nil {
+		if err := s.records.ShareFileChunks(ctx, id, *shared); err != nil {
+			return nil, err
+		}
 	}
 	return f, nil
 }
