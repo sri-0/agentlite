@@ -2,7 +2,6 @@ package opensearch
 
 import (
 	"context"
-	"time"
 
 	"github.com/google/uuid"
 	"github.com/opensearch-project/opensearch-go/v5/opensearchapi"
@@ -14,19 +13,18 @@ const indexArtifacts = "artifacts"
 // Artifact is a published document or an embedded page. Its body is in S3,
 // or nowhere for a url artifact, which only points at a page.
 type Artifact struct {
-	ID        string    `json:"id"` // as the agent names it; unique within a conversation
-	RootID    string    `json:"root_id"`
-	ThreadID  string    `json:"thread_id"`
-	RunID     string    `json:"run_id"`
-	Title     string    `json:"title"`
-	Kind      string    `json:"kind"` // markdown, code, json, csv, url or image
-	Language  string    `json:"language,omitempty"`
-	MediaType string    `json:"media_type,omitempty"` // an image's, e.g. image/png
-	URL       string    `json:"url,omitempty"`        // kind url: the page to embed
-	Size      int       `json:"size"`
-	Version   int       `json:"version"`
-	CreatedAt time.Time `json:"created_at"`
-	UpdatedAt time.Time `json:"updated_at"`
+	ID        string `json:"id"` // as the agent names it; unique within a conversation
+	RootID    string `json:"root_id"`
+	ThreadID  string `json:"thread_id"`
+	RunID     string `json:"run_id"`
+	Title     string `json:"title"`
+	Kind      string `json:"kind"` // markdown, code, json, csv, url or image
+	Language  string `json:"language,omitempty"`
+	MediaType string `json:"media_type,omitempty"` // an image's, e.g. image/png
+	URL       string `json:"url,omitempty"`        // kind url: the page to embed
+	Size      int    `json:"size"`
+	Version   int    `json:"version"`
+	Marks
 }
 
 // artifactID is an artifact's document id: a name-based UUID of its

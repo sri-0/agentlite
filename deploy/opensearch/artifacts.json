@@ -14,7 +14,10 @@
       "size": {"type": "long"},
       "version": {"type": "integer"},
       "created_at": {"type": "date"},
-      "updated_at": {"type": "date"}
+      "updated_at": {"type": "date"},
+      "controlset_id": {"type": "keyword"},
+      "user_created_by": {"type": "keyword"},
+      "user_updated_by": {"type": "keyword"}
     }
   }
 }

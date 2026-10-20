@@ -10,15 +10,16 @@ methods: `AddSessionToMemory(ctx, session)` stores a finished conversation, and
 query. adk ships the tools that use it; agentlite ships one implementation of
 the interface, `pkg/memory`, on OpenSearch.
 
-There is no identity yet, so every memory belongs to the one adk user
-`default`; memories are not scoped by user until identity exists.
+Every memory belongs to the one adk user `default` (a thread's session is the
+thread's, whoever takes a turn on it); what scopes memories is the control set.
 
 ## What gets stored, and when
 
 After a **user-started** run finishes with status done (not a sub-agent's run,
 not a paused one), the runtime calls `AddSessionToMemory` with the thread's adk
 session in a detached goroutine, so storing never delays the answer
-(`internal/agents/runtime.go`, `remember`).
+(`internal/agents/runtime.go`, `remember`). It writes with the run's thread token,
+as the run's user, in the thread's control set (AUTH.md).
 
 `pkg/memory.Service.AddSessionToMemory` takes the session's latest turn (the
 last user message and everything after it) and, for each text event in it
@@ -27,8 +28,18 @@ embedding block's model (one request) and indexes one document each in the
 OpenSearch `memories` index:
 
 ```
-{ id, thread_id, author, text, embedding (kNN vector), created_at }
+{ id, thread_id, author, text, embedding (kNN vector),
+  controlset_id, user_created_by, user_updated_by, created_at, updated_at }
 ```
+
+**Each entry is in its thread's control set**, always: `remember` runs after
+each turn of a root thread, inside the run's context, so the write is made with
+the thread token and the run's caller, which labels every new document with the
+thread's `controlset_id` and refuses any other label (AUTH.md). `created_at` is
+when the remembered event was said (its session timestamp), `user_created_by`
+the user whose turn it was. Document-level security then limits who can recall
+the entry to the control set's users, and a run recalls only its own thread's
+control set (below).
 
 The document id is the event's id (a UUIDv7), so re-storing a session
 is idempotent. Embedding goes through the provider's `/embeddings` endpoint
@@ -38,7 +49,10 @@ with a 15 s timeout.
 
 A search embeds the query with the same model and runs a kNN query (lucene
 HNSW, cosine) for the five nearest entries, **excluding the asking thread's own
-turns**, which the model already has in its context. The exclusion is why the
+turns**, which the model already has in its context, and **only of the asking
+thread's control set**: the run's token and the store's confinement (AUTH.md)
+leave out every other control set, even one the user holds, and the filter is
+inside the kNN query, so the five nearest are found among the allowed entries. The exclusion is why the
 runtime hands each run a per-thread view: `Memory.ForThread(threadID)` returns
 an adk `memory.Service` whose searches carry that filter.
 
@@ -107,4 +121,5 @@ storing hook do not change.
 - Every text turn is stored verbatim; there is no summarisation or
   deduplication across threads, so a fact repeated in many threads is stored
   many times and recalled many times.
-- No user scoping until identity exists.
+- Memories are scoped by control set, not by user: every user of a control set
+  recalls every memory of its threads.

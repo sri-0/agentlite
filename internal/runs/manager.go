@@ -13,6 +13,7 @@ import (
 	"agentlite/config"
 	"agentlite/internal/hitl"
 	"agentlite/internal/stream"
+	"agentlite/pkg/auth"
 	"agentlite/pkg/db/opensearch"
 )
 
@@ -48,9 +49,10 @@ type Input struct {
 	Run     *Run
 	Message string
 	Resume  []types.ResumeEntry
-	// Authorization is the user's Authorization header from the request that
-	// queued the segment; connectors that forward identity send it on.
-	Authorization string
+	// User is who queued the segment: the user who sent the message or the
+	// answers, with their access token as they sent it; connectors that
+	// forward identity send it on.
+	User auth.Principal
 }
 
 // History persists threads and messages (OpenSearch now, a producer later)
@@ -58,6 +60,7 @@ type Input struct {
 type History interface {
 	SaveThread(ctx context.Context, t *opensearch.Thread) error
 	SaveMessage(ctx context.Context, m *opensearch.Message) error
+	CreateMessage(ctx context.Context, m *opensearch.Message) error
 	Thread(ctx context.Context, id string) (*opensearch.Thread, error)
 	Messages(ctx context.Context, threadID string, before int64, limit int) ([]opensearch.Message, error)
 }
@@ -69,6 +72,7 @@ type Deps struct {
 	History    History
 	Sessions   session.Service
 	Runtime    Runtime
+	Tokens     Tokens // the thread tokens runs call OpenSearch with (caller.go)
 	Log        zerolog.Logger
 }
 
@@ -80,6 +84,7 @@ type Manager struct {
 	history  History
 	sessions session.Service
 	runtime  Runtime
+	tokens   Tokens
 	hitl     *hitl.Store
 	defs     map[string]config.AgentDef
 	appName  string
@@ -92,10 +97,12 @@ type Manager struct {
 func New(cfg *config.Config, d Deps) *Manager {
 	return &Manager{
 		db: d.DB, store: &store{db: d.DB}, log: newValkeyLog(d.DB), history: d.History, sessions: d.Sessions,
-		runtime: d.Runtime, hitl: d.Interrupts, defs: cfg.Defs(), appName: cfg.AppName,
+		runtime: d.Runtime, tokens: d.Tokens, hitl: d.Interrupts, defs: cfg.Defs(), appName: cfg.AppName,
 		model: cfg.Models.DefaultModel, logger: d.Log,
 	}
 }
 
-// SessionUser is adk's required user id; agentlite has no identity yet.
+// SessionUser is adk's required user id. A thread's session is the
+// thread's, whoever runs a turn on it, so it is the same for every user:
+// a session per user would split a shared thread's history.
 const SessionUser = "default"

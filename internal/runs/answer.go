@@ -10,13 +10,16 @@ import (
 	"github.com/ag-ui-protocol/ag-ui/sdks/community/go/pkg/core/types"
 
 	"agentlite/internal/hitl"
+	"agentlite/pkg/auth"
 )
 
 // Answer records the user's answer to one of a paused run's interrupts. Once
 // every interrupt of the pause is answered, the run's next segment is queued
-// with all the answers and the turn continues. Concurrent answers are safe:
-// each interrupt takes one answer and the run resumes once.
-func (m *Manager) Answer(ctx context.Context, threadID, interruptID string, d hitl.Decision) (*Run, error) {
+// with all the answers and the turn continues, for the user who gave the
+// last answer: the segment carries their access token, as a turn does.
+// Concurrent answers are safe: each interrupt takes one answer and the run
+// resumes once.
+func (m *Manager) Answer(ctx context.Context, threadID, interruptID string, d hitl.Decision, user auth.Principal) (*Run, error) {
 	if d.Approved == nil && d.Output == nil {
 		return nil, fmt.Errorf("%w: an answer needs approved or output", ErrInvalid)
 	}
@@ -72,7 +75,7 @@ func (m *Manager) Answer(ctx context.Context, threadID, interruptID string, d hi
 	if err := m.store.holdLease(ctx, threadID, queuedLease); err != nil {
 		return nil, err
 	}
-	return run, m.enqueue(ctx, run, map[string]string{"resume": string(raw)})
+	return run, m.enqueue(ctx, run, entry(user, map[string]string{"resume": string(raw)}))
 }
 
 // Interrupts lists the thread's pending interrupts.

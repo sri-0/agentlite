@@ -15,6 +15,7 @@ import (
 
 	"agentlite/internal/runs"
 	"agentlite/internal/stream"
+	"agentlite/pkg/logging"
 	"agentlite/pkg/toolx"
 )
 
@@ -74,11 +75,17 @@ func subagent(d Deps) (toolx.Tool, error) {
 		run, err := d.Dispatcher.Start(ctx, runs.StartInput{
 			ThreadID: childThread, ParentID: ctx.SessionID(), AgentID: a.SubagentType, Model: parentRun.Model,
 			Connectors: parentRun.Connectors, ImageModel: parentRun.ImageModel, MessageID: uuid.Must(uuid.NewV7()).String(), Text: a.Prompt,
-			Authorization: parentRun.Authorization, // the child acts for the same user
+			// The child acts for the same user, with the conversation's
+			// thread token for them; ctx is the parent's run, so its records
+			// are written with that token.
+			User: parentRun.User,
 		})
 		if err != nil {
 			return nil, fmt.Errorf("start %s: %w", a.SubagentType, err)
 		}
+		logging.Audit(d.Log).Str("agent_id", a.SubagentType).Str("user_id", parentRun.User.Subject).Str("username", parentRun.User.Username).
+			Str("run_id", run.ID).Str("thread_id", childThread).Str("root_id", run.RootID).Str("controlset_id", run.Controlset).
+			Str("parent_run_id", parentRun.Thread.RunID).Str("parent_agent_id", ctx.AgentName()).Msg("sub-agent started")
 		card := &cardState{card: agentCard{
 			SubagentRunID: run.ID, ChildThreadID: childThread, Name: a.SubagentType, Description: a.Description,
 			ParentToolCallID: ctx.FunctionCallID(), Status: "running", StartedAt: time.Now().UnixMilli(),

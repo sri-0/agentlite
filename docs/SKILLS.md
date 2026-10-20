@@ -20,14 +20,20 @@ The record is one document per skill in the OpenSearch index `skills`
 | Field | |
 |---|---|
 | `id` (keyword) | a uuid, the document's id; the API and the UI address a skill by it |
-| `name` (keyword), `description` (text, Markdown) | from SKILL.md's frontmatter; the name is unique in the library |
+| `name` (keyword), `description` (text, Markdown) | from SKILL.md's frontmatter; the name is unique among the skills a user can see |
 | `title` (text) | a name to show people; the UI shows `name` when there is none |
 | `category`, `source` (keyword) | what the library files it under, free-form: a category such as Writing, and where it comes from, such as Internal or Open source |
 | `files` (object, not indexed) | every file, `SKILL.md` among them: `path` and `size` |
-| `created_at`, `updated_at` (date) | |
+| `controlset_id`, `user_created_by`, `user_updated_by` (keyword), `created_at`, `updated_at` (date) | the marks every document carries: its control set, who created and last changed it, and when (AUTH.md) |
 
-The files are in S3 (`S3_ENDPOINT`, required; MinIO in `docker-compose.yaml`) at
-`skills/<id>/<path>`, in the bucket artifact bodies use.
+The files are in S3 (`S3_ENDPOINT`, required; MinIO in `~/code/agentlite-infra`'s
+`docker-compose.yaml`) at `skills/<id>/<path>`, in the bucket artifact bodies use.
+
+A skill is in one control set: an upload names it in `X-Control-Set`, as every POST does, and `write_skill`
+puts a skill in its thread's. Users see the skills of their control sets only, in the
+API, `/.well-known` and the skill toolset alike; changing, replacing (an upload or
+`write_skill` of the same name) or deleting a skill is its creator's alone (`403`), and
+a replaced skill keeps its control set and creator.
 
 Categories and sources are values on the skills, not records of their own: the list to
 choose from is the values the library has (a terms aggregation), and a new one exists
@@ -109,8 +115,9 @@ list gets it with the rest, and an agent with a list gets it by naming `skills`
   adk treats as a template that `{...}` in a description would break.
 - `load_skill_resource` returns a script's text like any other file's; a binary file is
   refused, since the model would read it as text.
-- Every call has the run's context. OpenSearch is read as the service today; once it
-  is read with the user's credentials, the listing holds only the skills they may see.
+- Every call has the run's context, so OpenSearch is read with the run's thread token
+  and confined to the thread's control set: the listing holds only that control set's
+  skills (AUTH.md).
 
 `write_skill` (a harness tool, `internal/tools/builtin/write_skill.go`) creates a skill or
 changes one after the user approves (HITL.md): `name`, `description`, `instructions`
@@ -148,7 +155,9 @@ into a local agent; `-s <name>` picks one. The CLI reads
 (v0.1.0 of [the discovery draft](https://github.com/cloudflare/agent-skills-discovery-rfc),
 no `$schema`): each skill's name, description, file paths and `version` (its
 `updated_at`), each file fetched from `/.well-known/agent-skills/<name>/<path>`
-(`internal/skills/index.go`). The CLI sends no credentials.
+(`internal/skills/index.go`). The CLI sends no credentials of its own: like every
+route, these need the user's access token, which the gateway in front attaches, and
+list only the skills of the user's control sets.
 
 The draft's v0.2.0 serves each skill as one archive with a digest instead. It is not
 used: it needs an archive built for every skill on every listing, and the CLI's tar

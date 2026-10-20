@@ -5,7 +5,6 @@ import (
 	"maps"
 	"slices"
 	"strings"
-	"time"
 )
 
 // indexSkills is the skills library: one document per skill, a uuid its id.
@@ -23,8 +22,7 @@ type Skill struct {
 	Category    string      `json:"category,omitempty"` // free-form, e.g. Writing
 	Source      string      `json:"source,omitempty"`   // where it comes from, e.g. Internal, Open source
 	Files       []SkillFile `json:"files"`
-	CreatedAt   time.Time   `json:"created_at"`
-	UpdatedAt   time.Time   `json:"updated_at"`
+	Marks
 }
 
 // SkillFile is one file of a skill.
@@ -131,7 +129,8 @@ func facets(counts map[string]int64) []Facet {
 	return out
 }
 
-// DeleteSkill removes a skill; ErrNotFound when there is none.
+// DeleteSkill removes a skill the caller created; ErrNotFound when there is
+// none they can see.
 func (c *Client) DeleteSkill(ctx context.Context, id string) error {
 	return c.delete(ctx, indexSkills, id)
 }

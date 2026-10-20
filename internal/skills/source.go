@@ -15,8 +15,9 @@ import (
 )
 
 // The library is an adk skill.Source, which adk's skill toolset reads. Each
-// call has the run's context; OpenSearch is read as the service today, and
-// once it is read as the user, the listing holds only the skills they may see.
+// call has the run's context, so OpenSearch is read with the run's thread
+// token, confined to the thread's control set: the listing holds only the
+// skills of that control set.
 var _ skill.Source = (*Library)(nil)
 
 // ListFrontmatters lists every skill's name and description. adk asks before

@@ -13,7 +13,6 @@ import (
 	"regexp"
 	"slices"
 	"strings"
-	"time"
 
 	"github.com/rs/zerolog"
 
@@ -84,13 +83,11 @@ func (s *Store) Save(ctx context.Context, a *opensearch.Artifact, body []byte) e
 	case a.Kind != KindURL && a.Kind != KindImage && contentTypes[a.Kind] == "":
 		return fmt.Errorf("unknown artifact kind %q; use one of %v", a.Kind, Kinds())
 	}
-	now := time.Now()
-	a.CreatedAt, a.UpdatedAt = now, now
 	floor := 0
 	prev, err := s.records.Artifact(ctx, a.RootID, a.ID)
 	switch {
 	case err == nil:
-		a.CreatedAt, floor = prev.CreatedAt, prev.Version
+		a.Marks, floor = prev.Marks, prev.Version // its creation stands; the store marks the update
 	case !errors.Is(err, opensearch.ErrNotFound):
 		return err
 	}

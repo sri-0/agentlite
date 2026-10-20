@@ -56,7 +56,8 @@ func (h *Handler) Thread(c *echo.Context) error {
 }
 
 // UpdateThread renames a thread, changes its connectors, moves it to a
-// workspace ("" takes it out of its workspace), pins or archives it.
+// workspace ("" takes it out of its workspace), pins or archives it; only
+// its creator may.
 func (h *Handler) UpdateThread(c *echo.Context) error {
 	ctx := c.Request().Context()
 	var body struct {
@@ -86,6 +87,9 @@ func (h *Handler) UpdateThread(c *echo.Context) error {
 	if err != nil {
 		return err
 	}
+	if err := opensearch.CheckOwner(ctx, t.Marks); err != nil {
+		return err
+	}
 	if body.WorkspaceID != nil && t.ParentID != "" {
 		return fmt.Errorf("%w: a sub-agent's thread is filed with its conversation; move %s", runs.ErrInvalid, t.RootID)
 	}
@@ -112,11 +116,15 @@ func (h *Handler) UpdateThread(c *echo.Context) error {
 
 // DeleteThread removes a conversation: its root and sub-agent threads, their
 // messages and memories, and what Valkey keeps of them. Its sources and
-// artifacts stay as evidence. A thread with an active run is refused.
+// artifacts stay as evidence. Only its creator may; a thread with an active
+// run is refused.
 func (h *Handler) DeleteThread(c *echo.Context) error {
 	ctx, id := c.Request().Context(), c.Param("id")
 	t, err := h.Store.Thread(ctx, id)
 	if err != nil {
+		return err
+	}
+	if err := opensearch.CheckOwner(ctx, t.Marks); err != nil {
 		return err
 	}
 	if t.ParentID != "" {
@@ -143,9 +151,14 @@ func (h *Handler) DeleteThread(c *echo.Context) error {
 }
 
 // Messages pages a thread's messages, newest page first, and returns the log
-// cursor to subscribe from: the active turn's start, or "" when idle.
+// cursor to subscribe from: the active turn's start, or "" when idle. The
+// cursor is in Valkey, which knows nothing of control sets, so the thread
+// must be readable first.
 func (h *Handler) Messages(c *echo.Context) error {
 	ctx := c.Request().Context()
+	if _, err := h.Store.Thread(ctx, c.Param("id")); err != nil {
+		return err
+	}
 	before, err := echo.QueryParamOr[int64](c, "before", 0)
 	if err != nil {
 		return err

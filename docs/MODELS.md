@@ -283,7 +283,8 @@ Also check, outside `models.yaml`:
 - **Tracing:** exported only when `OTEL_EXPORTER_OTLP_ENDPOINT` is set (to the local
   Jaeger, say).
 - **Building and running:** Go modules (an internal `GOPROXY`, or `go mod vendor`), the
-  container images in `docker-compose.yaml` (OpenSearch, Valkey, MinIO, Jaeger) from an
+  container images in `~/code/agentlite-infra`'s `docker-compose.yaml` (OpenSearch,
+  Keycloak, Valkey, MinIO, Jaeger) from an
   internal registry, and the UI's npm packages. The UI's fonts are an npm package
   (sri-0/agentui#28), not Google Fonts.
 

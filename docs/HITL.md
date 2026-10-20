@@ -40,7 +40,7 @@ run executes ─► tool raises confirmation ─► adk stops the loop
    ├─ worker (internal/runs/worker.go): status awaiting_input; hitl.Add stores each
    │  interrupt (internal/hitl); the thread's lease lives as long as the run record
    │  while paused (7 days); a failure to record them fails the run instead
-   └─ finalizer persists the turn so far
+   └─ the worker finalizes: it persists the turn so far, with the run's thread token
 
 user answers over the socket:
    {type: "answer", requestId, threadId, interruptId, approved, justification} | {…, output}
@@ -53,7 +53,8 @@ user answers over the socket:
    ├─ more interrupts still pending: ack, and the run stays paused
    ├─ the last one answered: the run is moved back to queued (a compare-and-set
    │  on awaiting_input, so two last answers cannot both resume it), every
-   │  decided answer is taken, and the next segment is queued with all of them
+   │  decided answer is taken, and the next segment is queued with all of them,
+   │  for the user who gave the last answer, with their access token (AUTH.md)
    ├─ ack {threadId, runId, seq}: the client subscribes from seq to follow it
    └─ worker ─► Runtime.content (internal/agents/resume.go) turns the answer into the
       adk_request_confirmation response {confirmed, payload} for each answer, emits

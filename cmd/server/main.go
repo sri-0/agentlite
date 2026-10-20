@@ -36,7 +36,7 @@ func run() error {
 	defer app.Close()
 
 	h := &handler.Handler{
-		Config: app.Config, Registry: app.Registry, Runs: app.Runs, Runtime: app.Agents,
+		Config: app.Config, Auth: app.Auth, Registry: app.Registry, Runs: app.Runs, Runtime: app.Agents,
 		Store: app.Store, Artifacts: app.Artifacts, Skills: app.Skills, Files: app.Files, Voice: app.Voice, Suggest: app.Suggest,
 		Log: app.Log,
 	}

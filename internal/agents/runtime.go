@@ -220,8 +220,7 @@ func (rt *Runtime) Run(ctx context.Context, in runs.Input, sink stream.Sink) (ru
 	ctx = toolx.WithRun(ctx, toolx.Run{
 		Thread: toolx.Thread{ID: run.ThreadID, RootID: run.RootID, RunID: run.ID},
 		Model:  run.Model, Card: &target.Model, Connectors: run.Connectors, ImageModel: run.ImageModel,
-		Authorization: in.Authorization,
-		Sources:       rt.sources,
+		User: in.User, Sources: rt.sources,
 	})
 	content, events, err := rt.content(ctx, run.ThreadID, in)
 	if err != nil {

@@ -65,7 +65,8 @@ func (s *Service) AddSessionToMemory(ctx context.Context, sess session.Session) 
 	}
 	for i, ev := range turn {
 		if err := s.store.SaveMemory(ctx, &opensearch.Memory{
-			ID: ev.ID, ThreadID: sess.ID(), Author: ev.Author, Text: texts[i], Embedding: vectors[i], CreatedAt: ev.Timestamp,
+			ID: ev.ID, ThreadID: sess.ID(), Author: ev.Author, Text: texts[i], Embedding: vectors[i],
+			Marks: opensearch.Marks{CreatedAt: ev.Timestamp}, // when it was said, not stored
 		}); err != nil {
 			return err
 		}

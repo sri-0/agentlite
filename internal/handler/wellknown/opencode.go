@@ -12,8 +12,9 @@ import (
 
 // Opencode serves /.well-known/opencode: this server's LLMs as a provider
 // named after the app, the MCP connectors it exposes, and the skills library.
-// Clients prove who they are with their certificate (mutual TLS), so there is
-// no token: the login command, true, succeeds and prints none.
+// Clients prove who they are with their certificate (mutual TLS) and the
+// gateway in front attaches the user's token, so the client has none: the
+// login command, true, succeeds and prints none.
 func (h *Handler) Opencode(c *echo.Context) error {
 	base, app := h.Config.AppURL, h.Config.AppName
 	provider := opencode.Provider{

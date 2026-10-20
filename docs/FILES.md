@@ -48,11 +48,23 @@ and, when the file is searchable, to call `search_userfiles` with `files: [id]`.
 A file is filed under a workspace, or none (`workspace_id` absent), like a thread.
 Deleting a workspace moves its files out of it, as it does its threads.
 
+## Control sets
+
+An upload names its control set in `X-Control-Set`, as every POST does (one of the
+user's; AUTH.md): the file's record and its chunks get it, with the uploader as
+`user_created_by`. Users see
+the files of their control sets only (document-level security); deleting a file is the
+uploader's alone (`403` for anyone else). A run sees only the files of its thread's
+control set: `search_userfiles` and `#id` find nothing of another, even for a user who
+holds both.
+
 ## Storage
 
 - the record in the OpenSearch index `userfiles` (`deploy/opensearch/userfiles.json`;
   with the deployment's `OPENSEARCH_INDEX_PREFIX`, `user_ai_userfiles`):
-  `{id, name, media_type, size, workspace_id?, tags?, status, created_at}`; the id is a UUIDv7;
+  `{id, name, media_type, size, workspace_id?, tags?, status, controlset_id,
+  user_created_by, user_updated_by, created_at, updated_at}` (the marks every document
+  carries, AUTH.md); the id is a UUIDv7;
 - the body in S3 at `files/{id}`, served as its media type.
 
 `status` is `ready` once the file is embedded and searchable, `stored` when it is kept
@@ -94,7 +106,7 @@ The chunks go to the `userfile_chunks` index, or the one `embedding.index` names
 by default; `deploy/opensearch/userfile_chunks.json`, created by `make indices`, which
 takes the same name as `CHUNK_INDEX=…`):
 a chunk is `{id: <file id>:<seq>, file_id, name, media_type, workspace_id?, seq, text?,
-embedding, embedding_model}`: `embedding` a 768-dimension kNN vector (cosine, HNSW on
+embedding, embedding_model}` and the marks every document carries (`controlset_id`, …): `embedding` a 768-dimension kNN vector (cosine, HNSW on
 Lucene), `embedding_model` the `embedding.model` id that made it (vectors of two models
 don't mix; the field is new: run `make indices`). It repeats the file's name, type and
 workspace so a search needs no second lookup. Deleting a file deletes its chunks;
@@ -157,9 +169,7 @@ session rebuilt from OpenSearch (`agents/seed.go`) has the text only.
 - **A workspace deleted during an upload into it**: the upload checks the workspace
   first, so a file saved while the workspace goes can keep its id. Clients treat an
   unknown workspace as none, as they do for threads.
-- **Access control.** Files are not scoped to a user, and `#` reaches any workspace's
-  file. When workspaces are shared, the `userfiles` and `userfile_chunks` indices need the
-  document-level security the threads index gets (by `workspace_id`), and `#` and the
-  list must only offer what the user may read.
+- **Access control** is by control set (above), not by workspace: `#` reaches any file
+  of the thread's control set, in any workspace.
 - **Changing the embedding model** means re-embedding every file and memory; there is
   no reindex. Vectors of two models (or sizes) must not share the index.

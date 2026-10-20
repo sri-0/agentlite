@@ -1,11 +1,10 @@
 package opensearch
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"time"
 
 	"github.com/google/uuid"
@@ -33,6 +32,7 @@ type Source struct {
 	RetrievedAt time.Time      `json:"retrieved_at"`
 	// CitedIn names what cites it: "message:<id>" or "artifact:<id>".
 	CitedIn []string `json:"cited_in,omitempty"`
+	Marks
 }
 
 // SourceKeyID is the document id of a source with an identity (its system
@@ -115,11 +115,8 @@ func (c *Client) sourcesNumbered(ctx context.Context, rootID string, numbers []i
 	})
 }
 
-const citeScript = "if (ctx._source.cited_in == null) { ctx._source.cited_in = []; } " +
-	"if (ctx._source.cited_in.contains(params.ref)) { ctx.op = 'noop'; } else { ctx._source.cited_in.add(params.ref); }"
-
 // Cite records that ref, a message or an artifact, cites the given sources
-// of a conversation. Each source is updated on its own and retried when
+// of a conversation. Each source is changed on its own (update), again when
 // another citation is written at the same moment; a number with no source
 // (one the model made up) is skipped.
 func (c *Client) Cite(ctx context.Context, rootID, ref string, numbers []int) error {
@@ -127,35 +124,20 @@ func (c *Client) Cite(ctx context.Context, rootID, ref string, numbers []int) er
 		return nil
 	}
 	cited, err := c.sourcesNumbered(ctx, rootID, numbers)
-	if err != nil || len(cited) == 0 {
-		return err
-	}
-	script, err := json.Marshal(map[string]any{
-		"script": map[string]any{"lang": "painless", "source": citeScript, "params": map[string]any{"ref": ref}},
-	})
 	if err != nil {
 		return err
 	}
-	var body bytes.Buffer
-	for _, s := range cited {
-		action, _ := json.Marshal(map[string]any{
-			"update": map[string]any{"_index": c.ix(indexSources), "_id": s.ID, "retry_on_conflict": 3},
-		})
-		body.Write(action)
-		body.WriteByte('\n')
-		body.Write(script)
-		body.WriteByte('\n')
-	}
-	// A failed item comes back as a PartialBulkError with the response; the
-	// items are checked below.
-	resp, err := c.api.Bulk(ctx, opensearchapi.BulkReq{Body: &body, Params: &opensearchapi.BulkParams{Refresh: "true"}})
-	if err != nil && !errors.As(err, new(*opensearchapi.PartialBulkError)) {
-		return fmt.Errorf("cite sources: %w", err)
-	}
 	var errs []error
-	for i, item := range resp.Items { // in request order
-		if u := item.Update; u != nil && u.Error != nil {
-			errs = append(errs, fmt.Errorf("cite source %d: %s", cited[i].Number, u.Error.Type))
+	for _, s := range cited {
+		_, err := update(ctx, c, indexSources, s.ID, false, func(s *Source) bool {
+			if slices.Contains(s.CitedIn, ref) {
+				return false
+			}
+			s.CitedIn = append(s.CitedIn, ref)
+			return true
+		})
+		if err != nil {
+			errs = append(errs, fmt.Errorf("cite source %d: %w", s.Number, err))
 		}
 	}
 	return errors.Join(errs...)

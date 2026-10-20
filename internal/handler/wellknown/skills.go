@@ -7,7 +7,9 @@ import (
 )
 
 // SkillsIndex serves /.well-known/agent-skills/index.json, the skills library
-// as npx skills and opencode discover it; they send no credentials.
+// as npx skills and opencode discover it. They send no credentials of their
+// own: the gateway in front attaches the user's token, as for every request,
+// so the index lists the skills of the user's control sets.
 func (h *Handler) SkillsIndex(c *echo.Context) error {
 	index, err := h.Skills.Index(c.Request().Context())
 	if err != nil {

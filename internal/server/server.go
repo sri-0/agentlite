@@ -13,6 +13,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/labstack/echo/v5"
 	"github.com/labstack/echo/v5/middleware"
+	"github.com/rs/zerolog"
+	"golang.org/x/oauth2"
 
 	"agentlite/config"
 	"agentlite/internal/handler"
@@ -20,24 +22,32 @@ import (
 	"agentlite/internal/passthrough"
 	"agentlite/internal/runs"
 	"agentlite/internal/skills"
+	"agentlite/internal/sts"
+	"agentlite/pkg/auth"
 	"agentlite/pkg/db/opensearch"
+	"agentlite/pkg/logging"
 	"agentlite/pkg/s3"
 )
 
 // New wires middleware and routes. Echo logs through slog, which
 // pkg/logging routes to zerolog. Its request logger records each request's
 // real status and id; Recover runs inside it, so a panic is logged, with its
-// stack, as a 500.
+// stack, as a 500. Every route but /health needs an access token (the
+// socket's upgrade too); CORS answers a preflight before that check. Every
+// POST but AUTH_CONTROLSET_EXEMPT_PATHS needs X-Control-Set as well
+// (auth.Controlset), the pass-through and the MCP proxy included; then the
+// request's OpenSearch calls are made as its user (caller).
 func New(cfg *config.Config, h *handler.Handler) *echo.Echo {
 	e := echo.New()
 	e.Logger = slog.Default()
-	e.HTTPErrorHandler = errorHandler(echo.DefaultHTTPErrorHandler(false))
+	e.HTTPErrorHandler = errorHandler(echo.DefaultHTTPErrorHandler(false), h.Log)
 	e.Use(middleware.RequestID(), middleware.RequestLogger(), middleware.Recover(),
 		middleware.BodyLimit(cfg.MaxBodyMB<<20),
 		middleware.CORSWithConfig(middleware.CORSConfig{
 			AllowOrigins: cfg.AllowedOrigins,
-			AllowHeaders: []string{"Content-Type", "Authorization"},
-		}))
+			AllowHeaders: []string{"Content-Type", "Authorization", cfg.Controlsets.Header},
+		}),
+		h.Auth.Middleware("/health"), auth.Controlset(cfg.Controlsets), caller)
 
 	// Health, models, agents and connectors.
 	e.GET("/health", h.Health)
@@ -110,6 +120,23 @@ func New(cfg *config.Config, h *handler.Handler) *echo.Echo {
 	return e
 }
 
+// caller makes the request's OpenSearch calls as its user (pkg/auth's
+// principal): their own token, labelling new documents with the control set
+// the request named. Document-level security alone governs what they read;
+// a run is confined further (runs.Manager).
+func caller(next echo.HandlerFunc) echo.HandlerFunc {
+	return func(c *echo.Context) error {
+		r := c.Request()
+		if p := auth.From(r.Context()); p != nil {
+			c.SetRequest(r.WithContext(opensearch.WithCaller(r.Context(), opensearch.Caller{
+				Token:    oauth2.StaticTokenSource(&oauth2.Token{AccessToken: p.Token, Expiry: p.Expiry}),
+				Username: p.Username, Controlset: p.Controlset,
+			})))
+		}
+		return next(c)
+	}
+}
+
 // uuidID refuses an :id that is not a UUIDv7, the ids the server makes,
 // before any handler sees it.
 func uuidID(next echo.HandlerFunc) echo.HandlerFunc {
@@ -149,14 +176,17 @@ func Run(ctx context.Context, cfg *config.Config, e *echo.Echo) error {
 }
 
 // errorHandler turns the service's sentinel errors into HTTP statuses, so
-// handlers can return them as they are.
-func errorHandler(next echo.HTTPErrorHandler) echo.HTTPErrorHandler {
+// handlers can return them as they are, and records every refusal (a
+// control set that is not the user's, a change to someone else's document,
+// a label a run may not write) as an audit entry.
+func errorHandler(next echo.HTTPErrorHandler, log zerolog.Logger) echo.HTTPErrorHandler {
 	return func(c *echo.Context, err error) {
 		for _, m := range []struct {
 			err    error
 			status int
 		}{
 			{runs.ErrInvalid, http.StatusBadRequest},
+			{opensearch.ErrNoControlset, http.StatusBadRequest},
 			{skills.ErrInvalid, http.StatusBadRequest},
 			{opensearch.ErrUnknownWorkspace, http.StatusBadRequest},
 			{runs.ErrNotFound, http.StatusNotFound},
@@ -165,12 +195,29 @@ func errorHandler(next echo.HTTPErrorHandler) echo.HTTPErrorHandler {
 			{skills.ErrFileNotFound, http.StatusNotFound},
 			{s3.ErrNotFound, http.StatusNotFound},
 			{runs.ErrBusy, http.StatusConflict},
+			{sts.ErrSignIn, http.StatusUnauthorized},
+			{opensearch.ErrForbidden, http.StatusForbidden},
 		} {
 			if errors.Is(err, m.err) {
 				err = echo.NewHTTPError(m.status, err.Error())
 				break
 			}
 		}
+		// Echo's request logger and the server each call this once; the
+		// second call finds the response written.
+		if he, ok := errors.AsType[*echo.HTTPError](err); ok && he.Code == http.StatusForbidden && !committed(c) {
+			r := c.Request()
+			e := logging.Audit(log).Err(err).Str("method", r.Method).Str("path", r.URL.Path)
+			if p := auth.From(r.Context()); p != nil {
+				e = e.Str("user_id", p.Subject).Str("username", p.Username).Str("controlset_id", p.Controlset)
+			}
+			e.Msg("request refused")
+		}
 		next(c, err)
 	}
+}
+
+func committed(c *echo.Context) bool {
+	r, _ := echo.UnwrapResponse(c.Response())
+	return r != nil && r.Committed
 }

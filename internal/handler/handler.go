@@ -20,12 +20,14 @@ import (
 	"agentlite/internal/skills"
 	"agentlite/internal/suggest"
 	"agentlite/internal/voice"
+	"agentlite/pkg/auth"
 	"agentlite/pkg/db/opensearch"
 )
 
 // Handler carries the dependencies every route needs.
 type Handler struct {
 	Config    *config.Config
+	Auth      *auth.Verifier
 	Registry  *providers.Registry
 	Runs      *runs.Manager
 	Runtime   *agents.Runtime

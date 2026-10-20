@@ -1,6 +1,7 @@
 // Package bootstrap wires the application from configuration: logging,
 // tracing, the provider registry, Valkey, OpenSearch, S3, sessions, memory,
-// sources, artifacts, files, MCP servers, the agent runtime and the run manager.
+// sources, artifacts, files, MCP servers, the agent runtime and the run manager,
+// and the access token checks.
 // Every command starts here.
 package bootstrap
 
@@ -23,8 +24,10 @@ import (
 	"agentlite/internal/runs"
 	"agentlite/internal/skills"
 	"agentlite/internal/sources"
+	"agentlite/internal/sts"
 	"agentlite/internal/suggest"
 	"agentlite/internal/voice"
+	"agentlite/pkg/auth"
 	"agentlite/pkg/db/opensearch"
 	"agentlite/pkg/db/valkey"
 	"agentlite/pkg/logging"
@@ -39,6 +42,7 @@ type App struct {
 	Config    *config.Config
 	Log       zerolog.Logger
 	Registry  *providers.Registry
+	Auth      *auth.Verifier
 	Store     *opensearch.Client
 	Sessions  session.Service
 	Memory    *memory.Service    // nil when memory is not configured
@@ -82,6 +86,16 @@ func New(ctx context.Context) (_ *App, err error) {
 	if err := checkConfiguredModels(cfg.Models, app.Registry); err != nil {
 		return nil, err
 	}
+	// Users' access tokens are checked with the issuer's keys; runs use thread
+	// tokens the server's own client exchanges them for (internal/sts).
+	if app.Auth, err = auth.New(ctx, cfg.OIDC); err != nil {
+		return nil, err
+	}
+	client, err := auth.NewClient(ctx, cfg.OIDC)
+	if err != nil {
+		return nil, err
+	}
+	threadTokens := sts.New(client, cfg.STS, app.Log)
 	// One client per logical database: runs, sessions and interrupts are kept apart.
 	runsDB, err := app.valkey(cfg.Redis.DBRuns)
 	if err != nil {
@@ -152,7 +166,7 @@ func New(ctx context.Context) (_ *App, err error) {
 	})
 	app.Runs = runs.New(cfg, runs.Deps{
 		DB: runsDB, Interrupts: hitl.NewStore(hitlDB), History: app.Store, Sessions: app.Sessions,
-		Runtime: app.Agents, Log: app.Log,
+		Runtime: app.Agents, Tokens: threadTokens, Log: app.Log,
 	})
 	if err := app.Agents.Bind(ctx, app.Runs); err != nil { // the subagent tool dispatches through the run manager
 		return nil, err
